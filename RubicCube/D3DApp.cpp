@@ -91,6 +91,7 @@ void D3DApp::Init()
 	CreateVertexAndIndexBuffer();
 	SeperatePosAndColorBuffer();
 	CreateMaterials();
+	CreateTextures();
 	CreateRenderObjects();
 	CreateConstantBufferViewsForRenderObjects();
 
@@ -262,7 +263,9 @@ void D3DApp::VertexInputLayout()
 	mVertexDesc =
 	{
 		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,0,0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT,0,12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT,0,12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
 	};
 
 	D3D12_INPUT_ELEMENT_DESC VertexDesc2[] = {
@@ -297,47 +300,47 @@ void D3DApp::CreateVertexAndIndexBuffer()
 
 	Vertex vertices[] = {
 	//right
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Red)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Red)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
 	//front
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::DarkGreen)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::DarkGreen)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::DarkGreen)},
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::DarkGreen)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::DarkGreen)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::DarkGreen)},
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
 	//bottom
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Purple)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Purple)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Purple)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Purple)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Purple)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Purple)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
 	//left
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Blue)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Blue)},
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Blue)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Blue)},
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Blue)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
 	//top
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Yellow)},
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Yellow)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Yellow)},
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Yellow)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Yellow)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Yellow)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
 	//back
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Black)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Black)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Black)},
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Black)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Black)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Black)}
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)}
 	};
 
 
@@ -392,7 +395,7 @@ void D3DApp::CreateVertexAndIndexBuffer()
 	Geometries.emplace("Cube", std::move(Cube));
 
 	//root signature
-	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
 	CD3DX12_DESCRIPTOR_RANGE cbvTable;
 	cbvTable.Init(
 		D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
@@ -405,10 +408,17 @@ void D3DApp::CreateVertexAndIndexBuffer()
 		1,
 		1
 	);
+
+	CD3DX12_DESCRIPTOR_RANGE texTable;
+	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 	slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable);
 	slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable1);
 	slotRootParameter[2].InitAsConstantBufferView(2);
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, 0, nullptr,
+	slotRootParameter[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> staticSamplers = GetStaticSamplers();
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -419,9 +429,9 @@ void D3DApp::CreateVertexAndIndexBuffer()
 
 
 
-	mvsByteCode = d3dUtil::CompileShader(L"Shaders\\VertexShader.hlsl", nullptr,
+	mvsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
 		"VS", "vs_5_0");
-	mpsByteCode = d3dUtil::CompileShader(L"Shaders\\PixelShader.hlsl", nullptr,
+	mpsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
 		"PS", "ps_5_0");
 
 	CD3DX12_RASTERIZER_DESC rsDesc(D3D12_DEFAULT);
@@ -566,11 +576,12 @@ void D3DApp::CreateConstantBufferViewsForRenderObjects()
 	//);
 
 	D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc;
-	cbvHeapDesc.NumDescriptors = RenderObjects.size() + 1 + mMaterials.size();
+	cbvHeapDesc.NumDescriptors = RenderObjects.size() + 1 + mMaterials.size() + mTextures.size();
 	cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	cbvHeapDesc.NodeMask = 0;
 	mPassCbOffset = RenderObjects.size();
+	mTextureOffset = RenderObjects.size() + 1 + mMaterials.size();
 	m_device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mCbvHeap));
 	//mUploadCBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mMappedData));
 	//mUploadPassBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mMappedPassData));
@@ -605,6 +616,23 @@ void D3DApp::CreateConstantBufferViewsForRenderObjects()
 		&cbvDesc,
 		handle
 	);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
+		mCbvHeap->GetCPUDescriptorHandleForHeapStart()
+	);
+
+	auto woodCrateTex = mTextures["woodCrateTex"].get();
+	hDescriptor.Offset(mTextureOffset, m_cbvSrvDescriptorSize);
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Format = woodCrateTex->Resource->GetDesc().Format;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MostDetailedMip = 0;
+	srvDesc.Texture2D.MipLevels = woodCrateTex->Resource->GetDesc().MipLevels;
+	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+	m_device->CreateShaderResourceView(woodCrateTex->Resource.Get(), &srvDesc, hDescriptor);
+
+
 }
 
 void D3DApp::CreateMaterials()
@@ -612,18 +640,52 @@ void D3DApp::CreateMaterials()
 	std::unique_ptr<Material> grass = std::make_unique<Material>();
 	grass->Name = "grass";
 	grass->MatCBIndex = 0;
-	grass->DiffuseAlbedo = XMFLOAT4(0.2f, 0.6f, 0.6f, 1.0f);
-	grass->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
-	grass->Roughness = 0.125f;
+	grass->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	grass->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	grass->Roughness = 0.3f;
+	grass->DiffuseSrvHeapIndex = 0;
 
 	std::unique_ptr<Material> water = std::make_unique<Material>();
 	water->Name = "water";
 	water->MatCBIndex = 1;
 	water->DiffuseAlbedo = XMFLOAT4(0.0f, 0.2f, 0.6f, 1.0f);
 	water->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+	water->DiffuseSrvHeapIndex = 0;
 
 	mMaterials["grass"] = std::move(grass);
 	mMaterials["water"] = std::move(water);
+}
+
+void D3DApp::CreateTextures()
+{
+	std::unique_ptr<Texture> woodCrateTex = std::make_unique<Texture>();
+	woodCrateTex->Name = "woodCrateTex";
+	woodCrateTex->Filename = L"Textures/WoodCrate01.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+		m_device, mCommandList.Get(), woodCrateTex->Filename.c_str(),
+		woodCrateTex->Resource, woodCrateTex->UploadHeap));
+	//change this heap into cbvHeap and offset by all the objects to get texture descriptors instead
+	//D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+	//srvHeapDesc.NumDescriptors = 1;
+	//srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	//srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	//ThrowIfFailed(m_device->CreateDescriptorHeap(
+	//	&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)
+	//));
+
+	//CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
+	//	mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart()
+	//);
+	//D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	//srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	//srvDesc.Format = woodCrateTex->Resource->GetDesc().Format;
+	//srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	//srvDesc.Texture2D.MostDetailedMip = 0;
+	//srvDesc.Texture2D.MipLevels = woodCrateTex->Resource->GetDesc().MipLevels;
+	//srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+	//m_device->CreateShaderResourceView(woodCrateTex->Resource.Get(), &srvDesc, hDescriptor);
+
+	mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3DApp::CurrentBackBufferView() const
@@ -844,7 +906,7 @@ void D3DApp::Draw(GameTimer& mTimer)
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Tomato, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-	ID3D12DescriptorHeap* DescriptorHeaps[] = { mCbvHeap.Get() };
+	ID3D12DescriptorHeap* DescriptorHeaps[] = { mCbvHeap.Get()};
 	mCommandList->SetDescriptorHeaps(_countof(DescriptorHeaps), DescriptorHeaps);
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 	auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
@@ -863,6 +925,11 @@ void D3DApp::Draw(GameTimer& mTimer)
 			+ ro.Mat->MatCBIndex * matCBByteSize;
 		mCommandList->SetGraphicsRootDescriptorTable(0, CbvHandle);
 		mCommandList->SetGraphicsRootConstantBufferView(2, matCBAddress);
+
+		CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
+			mCbvHeap->GetGPUDescriptorHandleForHeapStart());
+		tex.Offset(mTextureOffset + ro.Mat->DiffuseSrvHeapIndex, m_cbvSrvDescriptorSize);
+		mCommandList->SetGraphicsRootDescriptorTable(3, tex);
 		mCommandList->DrawInstanced(
 			36,
 			1, 0, 0);
@@ -905,6 +972,16 @@ void D3DApp::UpdateMainPasCb(const GameTimer& mTimer)
 	mMainPassCb.FarZ = 1000.0f;
 	mMainPassCb.TotalTime = mTimer.TotalTime();
 	mMainPassCb.DeltaTime = mTimer.DeltaTime();
+	mMainPassCb.AmbientLight = { 0.25f, 0.25f, 0.35f, 0.1f };
+
+	XMFLOAT3 myLightDir; XMStoreFloat3(&myLightDir, XMVector3Normalize(-XMLoadFloat3(&mEyePos)));
+
+	mMainPassCb.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+	mMainPassCb.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+	mMainPassCb.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+	mMainPassCb.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+	mMainPassCb.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+	mMainPassCb.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
 
 	mMainPassConstantBuffer->CopyData(0, mMainPassCb);
 }
@@ -973,5 +1050,52 @@ void D3DApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
+}
+
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> D3DApp::GetStaticSamplers()
+{
+	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
+		0, D3D12_FILTER_MIN_MAG_MIP_POINT,
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP
+	);
+
+	const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+		1, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+	const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+		2, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP, // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP, // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+	const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
+		3, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+	const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
+		4, // shaderRegister
+		D3D12_FILTER_ANISOTROPIC, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP, // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP, // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP, // addressW
+		0.0f, // mipLODBias
+		8); // maxAnisotropy
+	const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
+		5, // shaderRegister
+		D3D12_FILTER_ANISOTROPIC, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressW
+		0.0f, // mipLODBias
+		8); // maxAnisotropy
+
+	return {pointWrap, pointClamp, linearWrap, linearClamp, anisotropicWrap, anisotropicClamp};
 }
 

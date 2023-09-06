@@ -35,6 +35,7 @@ public:
 	void CreateRenderObjects();
 	void CreateConstantBufferViewsForRenderObjects();
 	void CreateMaterials();
+	void CreateTextures();
 	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const;
 	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const;
 	int Run();
@@ -50,6 +51,8 @@ public:
 	virtual void OnMouseUp(WPARAM btnState, int x, int y);
 	virtual void OnMouseMove(WPARAM btnState, int x, int y);
 
+
+	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 private:
 	DirectX::XMFLOAT3 mEyePos;
 	float mTheta = 1.5f * DirectX::XM_PI;
@@ -64,6 +67,7 @@ private:
 	std::unordered_map<std::string, std::unique_ptr<Geometry>> Geometries;
 	std::vector<RenderObject> RenderObjects;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
+	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 private:
 	bool m4xMsaaState = false;    // 4X MSAA enabled
 	UINT64 mCurrentFence = 0;
@@ -95,11 +99,13 @@ private:
 	ComPtr<ID3D12Resource> mDepthStencilBuffer;
 	D3D12_VIEWPORT mScreenViewport;
 	D3D12_RECT mScissorRect;
-
+	float mSunTheta = 1.25f * XM_PI;
+	float mSunPhi = XM_PIDIV4;
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mVertexDesc;
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mVertexDescSlots;
 	ComPtr<ID3D12DescriptorHeap> mCbvHeap;
+	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap;
 	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
 	ComPtr<ID3D12Resource> IndexBufferGPU = nullptr;
 	ComPtr<ID3D12Resource> VertexBufferGPU = nullptr;
@@ -126,6 +132,7 @@ private:
 
 	PassConstant mMainPassCb;
 	UINT mPassCbOffset;
+	UINT mTextureOffset;
 protected:
 	static D3DApp* mApp;
 

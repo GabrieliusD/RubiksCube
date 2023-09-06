@@ -7,6 +7,8 @@ struct Vertex
 {
 	XMFLOAT3 Pos;
 	XMFLOAT4 Color;
+	XMFLOAT3 Normal;
+	XMFLOAT2 TexC;
 };
 
 struct VPosData
