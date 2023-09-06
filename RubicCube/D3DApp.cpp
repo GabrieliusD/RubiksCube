@@ -303,44 +303,32 @@ void D3DApp::CreateVertexAndIndexBuffer()
 	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
 	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
 	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
 	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
 	//front
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
 	//bottom
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
 	//left
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
 	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
 	//top
 	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
 	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
 	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
 	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
 	//back
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)}
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
 	};
 
 
@@ -356,24 +344,24 @@ void D3DApp::CreateVertexAndIndexBuffer()
 
 	//indices
 	std::uint16_t indices[] = {
-		// front face
+		// right face
 		0, 1, 2,
 		0, 2, 3,
-		// back face
+		// front face
 		4, 6, 5,
-		4, 7, 6,
-		// left face
-		4, 5, 1,
-		4, 1, 0,
-		// right face
-		3, 2, 6,
-		3, 6, 7,
-		// top face
-		1, 5, 6,
-		1, 6, 2,
+		4, 5, 7,
 		// bottom face
-		4, 0, 3,
-		4, 3, 7
+		8, 10, 9,
+		8, 9, 11,
+		// left face
+		12, 14, 13,
+		12, 13, 15,
+		// top face
+		19, 18, 16,
+		16, 18, 17,
+		// back face
+		20, 22, 21,
+		20, 23, 22
 	};
 
 	const UINT ibByteSize = 36 * sizeof(std::uint16_t);
@@ -930,9 +918,7 @@ void D3DApp::Draw(GameTimer& mTimer)
 			mCbvHeap->GetGPUDescriptorHandleForHeapStart());
 		tex.Offset(mTextureOffset + ro.Mat->DiffuseSrvHeapIndex, m_cbvSrvDescriptorSize);
 		mCommandList->SetGraphicsRootDescriptorTable(3, tex);
-		mCommandList->DrawInstanced(
-			36,
-			1, 0, 0);
+		mCommandList->DrawIndexedInstanced(36, 1, 0, 0, 0);
 	}
 
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mSwapChainBuffer[mCurrBackBuffer].Get(),

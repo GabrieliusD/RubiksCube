@@ -99,7 +99,7 @@ VertexOut VS(VertexIn vin)
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = vin.TexC;
-
+    vout.Color = vin.Color;
     return vout;
 }
 
@@ -122,12 +122,12 @@ float4 PS(VertexOut pin) : SV_Target
     float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
         pin.NormalW, toEyeW, shadowFactor);
 
-    float4 litColor = ambient + directLight;
+    float4 litColor = (ambient + directLight) * pin.Color;
 
     // Common convention to take alpha from diffuse material.
     litColor.a = diffuseAlbedo.a;
 
-    return litColor;
+    return litColor ;
 }
 
 
