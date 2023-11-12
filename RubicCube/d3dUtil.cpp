@@ -13,6 +13,21 @@ DxException::DxException(HRESULT hr, const std::wstring& functionName, const std
 {
 }
 
+std::string d3dUtil::VectorToString(DirectX::XMFLOAT3 InVector)
+{
+    std::string str = "x: " + std::to_string(InVector.x) +
+        "y: " + std::to_string(InVector.y) +
+        "z: " + std::to_string(InVector.z);
+    return str;
+}
+
+std::string d3dUtil::VectorToString(DirectX::XMVECTOR InVector)
+{
+    DirectX::XMFLOAT3 vec;
+    DirectX::XMStoreFloat3(&vec, InVector);
+    return VectorToString(vec);
+}
+
 bool d3dUtil::IsKeyDown(int vkeyCode)
 {
     return (GetAsyncKeyState(vkeyCode) & 0x8000) != 0;

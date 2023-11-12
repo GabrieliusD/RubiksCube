@@ -19,6 +19,7 @@ public:
 	UINT64 mStrideInBytes;
 	DXGI_FORMAT mIbFormat;
 	UINT mIndexCount;
+	DirectX::BoundingBox Bounds;
 private:
 	D3D12_VERTEX_BUFFER_VIEW mVbv;
 	D3D12_INDEX_BUFFER_VIEW mIbv;

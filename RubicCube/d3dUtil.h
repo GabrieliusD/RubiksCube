@@ -92,6 +92,9 @@ class d3dUtil
 {
 public:
 
+    static std::string VectorToString(DirectX::XMFLOAT3 InVector);
+    static std::string VectorToString(DirectX::XMVECTOR InVector);
+
     static bool IsKeyDown(int vkeyCode);
 
     static std::string ToString(HRESULT hr);

@@ -1,5 +1,7 @@
 #include "D3DApp.h"
 #include <WindowsX.h>
+#include "GeometryGenerator.h"
+#include <iostream>
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
@@ -277,9 +279,10 @@ void D3DApp::VertexInputLayout()
 		{"COLOR",0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,52, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 	};
 
-	mVertexDescSlots = {
+	mSkyVertex = {
 		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+		{"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
 	};
 }
 
@@ -300,39 +303,39 @@ void D3DApp::CreateVertexAndIndexBuffer()
 
 	Vertex vertices[] = {
 	//right
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.25f)}, //bottom right
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)}, //top right
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.25f, 0.0f)}, //top left
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Red), XMFLOAT3(1.0f, 0.0f, 0.0f), XMFLOAT2(0.25f, 0.25f)}, //bottom left
 	//front
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.5f, 0.0f)}, //top left
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.25f, 0.25f)}, //bottom right
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.25f, 0.0f)}, //top right
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Green), XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT2(0.5f, 0.25f)}, //bottom left
 	//bottom
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.5f, 0.25f)}, //bottom right
+	{XMFLOAT3(-1.0f,-1.0f,-1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.75f, 0.0f)}, //top left
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.5f, 0.0f)}, //top right
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Yellow), XMFLOAT3(0.0f, -1.0f, 0.0f), XMFLOAT2(0.75f, 0.25f)}, //bottom left
 	//left
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.75f, 0.25f)}, //bottom right
+	{XMFLOAT3(1.0f,-1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)}, //top left
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(0.75f, 0.0f)}, //top right
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Orange), XMFLOAT3(-1.0f, 0.0f, 0.0f), XMFLOAT2(1.0f, 0.25f)}, //bottom left
 	//top
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 1.0f)},
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(1.0f, 0.0f)},
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.25f)}, //top left
+	{XMFLOAT3(1.0f, 1.0f,-1.0f),  XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.0f, 0.5f)}, //bottom left
+	{XMFLOAT3(-1.0f, 1.0f,-1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.25f, 0.5f)}, //bottom right
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::White), XMFLOAT3(0.0f, 1.0f, 0.0f), XMFLOAT2(0.25f, 0.25f)}, //top right
 	//back
-	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 1.0f)},
-	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.0f, 0.0f)},
-	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 0.0f)},
-	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(1.0f, 1.0f)},
+	{XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.25f, 0.5f)}, //bottom left
+	{XMFLOAT3(-1.0f,-1.0f, 1.0f), XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.25f, 0.25f)}, //top left
+	{XMFLOAT3(1.0f,-1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.5f, 0.25f)}, //top right
+	{XMFLOAT3(1.0f, 1.0f, 1.0f),  XMFLOAT4(Colors::Blue), XMFLOAT3(0.0f, 0.0f, 1.0f), XMFLOAT2(0.5f, 0.5f)}, //bottom right
 	};
 
 
-	const UINT64 vbByteSize = 36 * sizeof(Vertex);
+	const UINT64 vbByteSize = 24 * sizeof(Vertex);
 
 	VertexBufferGPU = d3dUtil::CreateDefaultBuffer(m_device, mCommandList.Get(), vertices, vbByteSize, VertexBufferUploader);
 
@@ -380,10 +383,44 @@ void D3DApp::CreateVertexAndIndexBuffer()
 	Cube->mStrideInBytes = sizeof(Vertex);
 	Cube->mVbByteSize = vbByteSize;
 	Cube->mIndexCount = 36;
+
+	BoundingBox bounds;
+	XMFLOAT3 vMinf3(-1.0f, -1.0f, -1.0f);
+	XMFLOAT3 vMaxf3(1.0f, 1.0f, 1.0f);
+	XMVECTOR vMin = XMLoadFloat3(&vMinf3);
+	XMVECTOR vMax = XMLoadFloat3(&vMaxf3);
+	XMStoreFloat3(&bounds.Center, 0.5f * (vMin + vMax));
+	XMStoreFloat3(&bounds.Extents, 0.5f * (vMax - vMin));
+
+	Cube->Bounds = bounds;
 	Geometries.emplace("Cube", std::move(Cube));
+	GeometryGenerator geometryGenerator;
+	GeometryGenerator::MeshData sphereMesh = geometryGenerator.CreateSphere(100, 5, 5);
+
+	std::unique_ptr<Geometry> sphereGeo = std::make_unique<Geometry>();
+	std::vector<Vertex> sphereVertices(sphereMesh.Vertices.size());
+	for (int i = 0; i != sphereVertices.size(); i++)
+	{
+		sphereVertices[i].Pos = sphereMesh.Vertices[i].Position;
+		sphereVertices[i].Normal = sphereMesh.Vertices[i].Normal;
+		sphereVertices[i].Color = XMFLOAT4(Colors::White);
+		sphereVertices[i].TexC = sphereMesh.Vertices[i].TexC;
+	}
+
+	float sphereVbByteSize = sphereMesh.Vertices.size() * sizeof(Vertex);
+	float sphereIbByteSize = sphereMesh.GetIndices16().size() * sizeof(std::uint16_t);
+
+	sphereGeo->mVertexBuffer = d3dUtil::CreateDefaultBuffer(m_device, mCommandList.Get(), sphereVertices.data(), sphereVbByteSize, sphereGeo->mVertexUploadBuffer);
+	sphereGeo->mIndexBuffer = d3dUtil::CreateDefaultBuffer(m_device, mCommandList.Get(), sphereMesh.GetIndices16().data(), sphereIbByteSize, sphereGeo->mIndexUploadBuffer);
+	sphereGeo->mIbFormat = DXGI_FORMAT_R16_UINT;
+	sphereGeo->mIbByteSize = sphereIbByteSize;
+	sphereGeo->mStrideInBytes = sizeof(Vertex);
+	sphereGeo->mVbByteSize = sphereVbByteSize;
+	sphereGeo->mIndexCount = sphereMesh.GetIndices16().size();
+	Geometries.emplace("Sphere", std::move(sphereGeo));
 
 	//root signature
-	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
 	CD3DX12_DESCRIPTOR_RANGE cbvTable;
 	cbvTable.Init(
 		D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
@@ -399,14 +436,18 @@ void D3DApp::CreateVertexAndIndexBuffer()
 
 	CD3DX12_DESCRIPTOR_RANGE texTable;
 	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	//cube map
+	CD3DX12_DESCRIPTOR_RANGE texTable2;
+	texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
 	slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable);
 	slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable1);
 	slotRootParameter[2].InitAsConstantBufferView(2);
 	slotRootParameter[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[4].InitAsDescriptorTable(1, &texTable2, D3D12_SHADER_VISIBILITY_PIXEL);
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, staticSamplers.size(), staticSamplers.data(),
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, staticSamplers.size(), staticSamplers.data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -421,6 +462,9 @@ void D3DApp::CreateVertexAndIndexBuffer()
 		"VS", "vs_5_0");
 	mpsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
 		"PS", "ps_5_0");
+
+	mShaders["SkyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["SkyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_0");
 
 	CD3DX12_RASTERIZER_DESC rsDesc(D3D12_DEFAULT);
 	rsDesc.FillMode = D3D12_FILL_MODE_SOLID;
@@ -445,7 +489,20 @@ void D3DApp::CreateVertexAndIndexBuffer()
 	psoDesc.DSVFormat = mDepthStencilFormat;
 
 	ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSO)));
+	
+	mPSOs["opaque"] = mPSO;
 
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = psoDesc;
+	skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	skyPsoDesc.pRootSignature = mRootSignature.Get();
+	skyPsoDesc.InputLayout = { mSkyVertex.data(), (UINT)mSkyVertex.size() };
+	skyPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["SkyVS"]->GetBufferPointer()), mShaders["SkyVS"]->GetBufferSize() };
+	skyPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["SkyPS"]->GetBufferPointer()), mShaders["SkyPS"]->GetBufferSize() };
+
+	ThrowIfFailed(m_device->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOSky)));
+
+	mPSOs["sky"] = mPSOSky;
 }
 
 void D3DApp::SeperatePosAndColorBuffer()
@@ -494,11 +551,11 @@ void D3DApp::CreateRenderObjects()
 {
 	UINT cbIndex = 0;
 
-	RenderObject renderObject;
-	renderObject.ConstantBufferIndex = cbIndex;
-	renderObject.Geometry = Geometries["Cube"].get();
-	renderObject.IndexCount = Geometries["Cube"]->mIndexCount;
-	renderObject.Mat = mMaterials["grass"].get();
+	std::unique_ptr<RenderObject> renderObject = std::make_unique<RenderObject>();
+	renderObject->ConstantBufferIndex = cbIndex;
+	renderObject->Geometry = Geometries["Cube"].get();
+	renderObject->IndexCount = Geometries["Cube"]->mIndexCount;
+	renderObject->Mat = mMaterials["grass"].get();
 	//cbIndex++;
 	XMVECTOR pos = XMVectorSet(0, 0, -10, 1.0f);
 	XMVECTOR target = XMVectorZero();
@@ -516,30 +573,34 @@ void D3DApp::CreateRenderObjects()
 	XMMATRIX world = XMLoadFloat4x4(&mWorld);
 
 
-	XMStoreFloat4x4(&renderObject.World,
+	XMStoreFloat4x4(&renderObject->World,
 		world);
-	renderObject.ConstantBufferIndex = cbIndex;
+	renderObject->ConstantBufferIndex = cbIndex;
 
-	for (int x = -1; x <= 1; x++)
+	mRubikCube.Initialize(this, cbIndex);
+	std::vector<std::unique_ptr<RenderObject>> Cubes = mRubikCube.GetRenderObjects();
+	for (int i = 0; i < Cubes.size(); i++)
 	{
-		for (int y = -1; y <= 1; y++)
-		{
-			for (int z = -1; z <= 1; z++)
-			{
-				world = XMMatrixTranslation(x * 2, y * 2, z*2);
-				XMStoreFloat4x4(&renderObject.World,
-					world);
-				renderObject.ConstantBufferIndex = cbIndex;
-				RenderObjects.push_back(renderObject);
-				cbIndex++;
-			}
-		}
+		OpaqueObjects.push_back(Cubes[i].get());
+		AllRenderObjects.push_back(std::move(Cubes[i]));
 	}
+
+	//sphere
+	renderObject->Geometry = Geometries["Sphere"].get();
+	renderObject->IndexCount = Geometries["Sphere"]->mIndexCount;
+	renderObject->ConstantBufferIndex = cbIndex;
+	//renderObject.World = MathHelper::Identity4x4();
+	world = XMMatrixTranslation(0, 0, 0);
+	XMStoreFloat4x4(&renderObject->World,
+		world);
+	SkyObjects.push_back(renderObject.get());
+	AllRenderObjects.push_back(std::move(renderObject));
+
 }
 
 void D3DApp::CreateConstantBufferViewsForRenderObjects()
 {
-	mObjectConstantsBuffer = new ConstantBuffer<ObjectConstants>(m_device, RenderObjects.size());
+	mObjectConstantsBuffer = new ConstantBuffer<ObjectConstants>(m_device, AllRenderObjects.size() );
 	mMainPassConstantBuffer = new ConstantBuffer<PassConstant>(m_device, 1);
 	mMaterialConstantsBuffer = new ConstantBuffer<MaterialConstants>(m_device, mMaterials.size());
 	UINT elementByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -564,19 +625,19 @@ void D3DApp::CreateConstantBufferViewsForRenderObjects()
 	//);
 
 	D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc;
-	cbvHeapDesc.NumDescriptors = RenderObjects.size() + 1 + mMaterials.size() + mTextures.size();
+	cbvHeapDesc.NumDescriptors = AllRenderObjects.size() + 1 + mMaterials.size() + mTextures.size();
 	cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	cbvHeapDesc.NodeMask = 0;
-	mPassCbOffset = RenderObjects.size();
-	mTextureOffset = RenderObjects.size() + 1 + mMaterials.size();
+	mPassCbOffset = AllRenderObjects.size();
+	mTextureOffset = AllRenderObjects.size() + 1 + mMaterials.size();
 	m_device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mCbvHeap));
 	//mUploadCBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mMappedData));
 	//mUploadPassBuffer->Map(0, nullptr, reinterpret_cast<void**>(&mMappedPassData));
-	for (int i = 0; i != RenderObjects.size(); i++)
+	for (int i = 0; i != AllRenderObjects.size(); i++)
 	{
 		ObjectConstants objConstants;
-		objConstants.World = RenderObjects[i].World;
+		objConstants.World = AllRenderObjects[i]->World;
 		//ObjectConstantsBuffer->CopyData(i, objConstants);
 		//memcpy(&mMappedData[elementByteSize*i], &objConstants, elementByteSize);
 		
@@ -620,7 +681,14 @@ void D3DApp::CreateConstantBufferViewsForRenderObjects()
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 	m_device->CreateShaderResourceView(woodCrateTex->Resource.Get(), &srvDesc, hDescriptor);
 
-
+	hDescriptor.Offset(1, m_cbvSrvDescriptorSize);
+	Texture* skyTex = mTextures["skyTex"].get();
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+	srvDesc.TextureCube.MostDetailedMip = 0;
+	srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+	srvDesc.TextureCube.MipLevels = skyTex->Resource->GetDesc().MipLevels;
+	srvDesc.Format = skyTex->Resource->GetDesc().Format;
+	m_device->CreateShaderResourceView(skyTex->Resource.Get(), &srvDesc, hDescriptor);
 }
 
 void D3DApp::CreateMaterials()
@@ -640,40 +708,45 @@ void D3DApp::CreateMaterials()
 	water->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	water->DiffuseSrvHeapIndex = 0;
 
+	std::unique_ptr<Material> sky = std::make_unique<Material>();
+	sky->Name = "sky";
+	sky->MatCBIndex = 2;
+	sky->DiffuseAlbedo = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+	sky->DiffuseSrvHeapIndex = 0;
+
+	std::unique_ptr<Material> selectedCube = std::make_unique<Material>();
+	selectedCube->Name = "selectedCube";
+	selectedCube->MatCBIndex = 3;
+	selectedCube->DiffuseAlbedo = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
+	selectedCube->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+	selectedCube->DiffuseSrvHeapIndex = 0;
+
+
 	mMaterials["grass"] = std::move(grass);
 	mMaterials["water"] = std::move(water);
+	mMaterials["sky"] = std::move(sky);
+	mMaterials["selectedCube"] = std::move(selectedCube);
 }
 
 void D3DApp::CreateTextures()
 {
 	std::unique_ptr<Texture> woodCrateTex = std::make_unique<Texture>();
 	woodCrateTex->Name = "woodCrateTex";
-	woodCrateTex->Filename = L"Textures/WoodCrate01.dds";
+	woodCrateTex->Filename = L"Textures/rubicPallet.dds";
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
 		m_device, mCommandList.Get(), woodCrateTex->Filename.c_str(),
 		woodCrateTex->Resource, woodCrateTex->UploadHeap));
-	//change this heap into cbvHeap and offset by all the objects to get texture descriptors instead
-	//D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	//srvHeapDesc.NumDescriptors = 1;
-	//srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	//srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	//ThrowIfFailed(m_device->CreateDescriptorHeap(
-	//	&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)
-	//));
 
-	//CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
-	//	mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart()
-	//);
-	//D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-	//srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	//srvDesc.Format = woodCrateTex->Resource->GetDesc().Format;
-	//srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	//srvDesc.Texture2D.MostDetailedMip = 0;
-	//srvDesc.Texture2D.MipLevels = woodCrateTex->Resource->GetDesc().MipLevels;
-	//srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-	//m_device->CreateShaderResourceView(woodCrateTex->Resource.Get(), &srvDesc, hDescriptor);
+	std::unique_ptr<Texture> skyTex = std::make_unique<Texture>();
+	skyTex->Name = "skyTex";
+	skyTex->Filename = L"Textures/grasscube1024.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+		m_device, mCommandList.Get(), skyTex->Filename.c_str(),
+		skyTex->Resource, skyTex->UploadHeap));
 
 	mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
+	mTextures[skyTex->Name] = std::move(skyTex);
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3DApp::CurrentBackBufferView() const
@@ -831,20 +904,29 @@ void D3DApp::Update(GameTimer& mTimer)
 
 
 	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-	for (int i = 0; RenderObjects.size() != i; i++)
+	for (int i = 0; AllRenderObjects.size() != i; i++)
 	{
 		ObjectConstants objConstants;
-		RenderObject& ro = RenderObjects[i];
+		RenderObject& ro = *AllRenderObjects[i];
 		XMMATRIX objWorld = XMLoadFloat4x4(&ro.World);
 		XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(objWorld));
 		mObjectConstantsBuffer->CopyData(i, objConstants);
 	}
 
+	for (int i = 0; SkyObjects.size() != i; i++)
+	{
+		ObjectConstants objConstants;
+		RenderObject& ro = *SkyObjects[i];
+		XMMATRIX objWorld = XMLoadFloat4x4(&ro.World);
+		XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(objWorld));
+		mObjectConstantsBuffer->CopyData(AllRenderObjects.size() + i, objConstants);
+	}
+
 	if (d3dUtil::IsKeyDown('W'))
 	{
-		for (int i = 0; i != RenderObjects.size(); i++)
+		for (int i = 0; i != AllRenderObjects.size(); i++)
 		{
-			RenderObject& ro = RenderObjects[i];
+			RenderObject& ro = *AllRenderObjects[i];
 			XMMATRIX tempWorld = XMLoadFloat4x4(&ro.World);
 			XMVECTOR trans;
 			XMVECTOR scale;
@@ -855,16 +937,16 @@ void D3DApp::Update(GameTimer& mTimer)
 			
 			if ( MathHelper::AlmostSame(transStored.z,2.0f))
 			{
-				tempWorld = tempWorld * XMMatrixRotationAxis(XMVectorSet(0, 0.0f, 1.0f, 1.0f), DirectX::XM_PIDIV2);
+				tempWorld = tempWorld * XMMatrixRotationAxis(XMVectorSet(0, 0.0f, 1.0f, 1.0f), DirectX::XM_PIDIV2 * 0.001f);
 				XMStoreFloat4x4(&ro.World, tempWorld);
 			}
 		}
 	}
 	if (d3dUtil::IsKeyDown('A'))
 	{
-		for (int i = 0; i != RenderObjects.size(); i++)
+		for (int i = 0; i != AllRenderObjects.size(); i++)
 		{
-			RenderObject& ro = RenderObjects[i];
+			RenderObject& ro = *AllRenderObjects[i];
 			XMMATRIX tempWorld = XMLoadFloat4x4(&ro.World);
 			XMVECTOR trans;
 			XMVECTOR scale;
@@ -878,6 +960,11 @@ void D3DApp::Update(GameTimer& mTimer)
 				XMStoreFloat4x4(&ro.World, tempWorld);
 			}
 		}
+	}
+	if (d3dUtil::IsKeyDown('S'))
+	{
+		mRubikCube.RotateSelectedFace(RubikCube::Clockwise);
+		mRubikCube.RotateFace(RubikCube::FaceDirection::back, RubikCube::Clockwise);
 	}
 }
 
@@ -900,26 +987,51 @@ void D3DApp::Draw(GameTimer& mTimer)
 	auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
 	passCbvHandle.Offset(mPassCbOffset, m_cbvSrvDescriptorSize);
 	mCommandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
+	//mCommandList->SetPipelineState(mPSOs["sky"].Get());
+
 	UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
-	for (int i = 0; i != RenderObjects.size(); i++)
+	for (int i = 0; i != OpaqueObjects.size(); i++)
 	{
-		RenderObject& ro = RenderObjects[i];
-		mCommandList->IASetVertexBuffers(0, 1, &ro.Geometry->GetVertexBufferView());
-		mCommandList->IASetIndexBuffer(&ro.Geometry->GetIndexBufferView());
+		RenderObject* ro = OpaqueObjects[i];
+		mCommandList->IASetVertexBuffers(0, 1, &ro->Geometry->GetVertexBufferView());
+		mCommandList->IASetIndexBuffer(&ro->Geometry->GetIndexBufferView());
 		mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		auto CbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
 		CbvHandle.Offset(i, m_cbvSrvDescriptorSize);
 		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress()
-			+ ro.Mat->MatCBIndex * matCBByteSize;
+			+ ro->GetMatIndex() * matCBByteSize;
 		mCommandList->SetGraphicsRootDescriptorTable(0, CbvHandle);
 		mCommandList->SetGraphicsRootConstantBufferView(2, matCBAddress);
 
 		CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
 			mCbvHeap->GetGPUDescriptorHandleForHeapStart());
-		tex.Offset(mTextureOffset + ro.Mat->DiffuseSrvHeapIndex, m_cbvSrvDescriptorSize);
+		tex.Offset(mTextureOffset + ro->Mat->DiffuseSrvHeapIndex, m_cbvSrvDescriptorSize);
 		mCommandList->SetGraphicsRootDescriptorTable(3, tex);
-		mCommandList->DrawIndexedInstanced(36, 1, 0, 0, 0);
+		mCommandList->DrawIndexedInstanced(ro->IndexCount, 1, 0, 0, 0);
 	}
+
+	mCommandList->SetPipelineState(mPSOs["sky"].Get());
+
+	RenderObject& sky = *SkyObjects[0];
+	mCommandList->IASetVertexBuffers(0, 1, &sky.Geometry->GetVertexBufferView());
+	mCommandList->IASetIndexBuffer(&sky.Geometry->GetIndexBufferView());
+	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	auto CbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
+	CbvHandle.Offset(OpaqueObjects.size(), m_cbvSrvDescriptorSize);
+	D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress()
+		+ sky.Mat->MatCBIndex * matCBByteSize;
+	mCommandList->SetGraphicsRootDescriptorTable(0, CbvHandle);
+	mCommandList->SetGraphicsRootConstantBufferView(2, matCBAddress);
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE tex(
+		mCbvHeap->GetGPUDescriptorHandleForHeapStart());
+	tex.Offset(mTextureOffset + sky.Mat->DiffuseSrvHeapIndex, m_cbvSrvDescriptorSize);
+	mCommandList->SetGraphicsRootDescriptorTable(3, tex);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
+	skyTexDescriptor.Offset(mTextureOffset + 1, m_cbvSrvDescriptorSize);
+	mCommandList->SetGraphicsRootDescriptorTable(4, skyTexDescriptor);
+	mCommandList->DrawIndexedInstanced(sky.IndexCount, 1, 0, 0, 0);
 
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mSwapChainBuffer[mCurrBackBuffer].Get(),
 		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
@@ -995,10 +1107,17 @@ void D3DApp::UpdateMaterialCb(const GameTimer& mTimer)
 
 void D3DApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
-	mLastMousePos.x = x;
-	mLastMousePos.y = y;
+	if ((btnState & MK_LBUTTON) != 0)
+	{
+		mLastMousePos.x = x;
+		mLastMousePos.y = y;
 
-	SetCapture(mhMainWnd);
+		SetCapture(mhMainWnd);
+	}
+	else if ((btnState & MK_RBUTTON) != 0)
+	{
+		Pick(x, y);
+	}
 }
 
 void D3DApp::OnMouseUp(WPARAM btnState, int x, int y)
@@ -1031,11 +1150,64 @@ void D3DApp::OnMouseMove(WPARAM btnState, int x, int y)
 		mRadius += dx - dy;
 
 		// Restrict the radius.
-		mRadius = MathHelper::Clamp(mRadius, 3.0f, 15.0f);
+		mRadius = MathHelper::Clamp(mRadius, 3.0f, 200.0f);
 	}
 
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
+}
+
+void D3DApp::Pick(int sx, int sy)
+{
+	mRubikCube.DeselectCubes();
+	
+	XMFLOAT4X4 P = mProj;
+
+	float vx = (+2.0f * sx / mClientWidth - 1.0f) / P(0, 0);
+	float vy = (-2.0f * sy / mClientHeight + 1.0f) / P(1, 1);
+
+
+
+	XMMATRIX V = XMLoadFloat4x4(&mView);
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(V), V);
+
+	RenderObject* closestObject = nullptr;
+	float closestDistance = INFINITE;
+	float tmin = 0.0f;
+	for (auto ri : OpaqueObjects)
+	{
+		auto geo = ri->Geometry;
+
+
+		XMMATRIX W = XMLoadFloat4x4(&ri->World);
+		XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
+
+		XMMATRIX toLocal = XMMatrixMultiply(invView, invWorld);
+		XMVECTOR rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+		XMVECTOR rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+		rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
+		rayDir = XMVector3TransformNormal(rayDir, toLocal);
+
+		rayDir = XMVector3Normalize(rayDir);
+
+		
+		if (ri->Bounds.Intersects(rayOrigin, rayDir, tmin))
+		{
+			if (tmin < closestDistance)
+			{
+				closestDistance = tmin;
+				closestObject = ri;
+			}
+		}
+		
+	}
+
+	if (closestObject)
+	{
+		std::cout << "Hit cube: " << closestObject->Name << std::endl;
+		auto cub = static_cast<Cube*>(closestObject);
+		mRubikCube.GetAdjecantCubes(cub->mIdx, cub->mIdy, cub->mIdz);
+	}
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> D3DApp::GetStaticSamplers()

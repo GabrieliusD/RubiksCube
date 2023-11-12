@@ -131,11 +131,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Common.cpp" />
+    <ClCompile Include="Cube.cpp" />
     <ClCompile Include="D3DApp.cpp" />
     <ClCompile Include="d3dUtil.cpp" />
     <ClCompile Include="DDSTextureLoader.cpp" />
     <ClCompile Include="GameTimer.cpp" />
     <ClCompile Include="Geometry.cpp" />
+    <ClCompile Include="GeometryGenerator.cpp" />
     <ClCompile Include="Graphics\Buffer.cpp" />
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="RenderObject.cpp" />
@@ -143,12 +145,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Common.h" />
+    <ClInclude Include="Cube.h" />
     <ClInclude Include="D3DApp.h" />
     <ClInclude Include="d3dUtil.h" />
     <ClInclude Include="d3dx12.h" />
     <ClInclude Include="DDSTextureLoader.h" />
     <ClInclude Include="GameTimer.h" />
     <ClInclude Include="Geometry.h" />
+    <ClInclude Include="GeometryGenerator.h" />
     <ClInclude Include="Graphics\Buffer.h" />
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="PassConstant.h" />

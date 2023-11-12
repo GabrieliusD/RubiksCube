@@ -51,23 +51,31 @@ public:
 	virtual void OnMouseUp(WPARAM btnState, int x, int y);
 	virtual void OnMouseMove(WPARAM btnState, int x, int y);
 
+	void Pick(int sx, int sy);
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 private:
 	DirectX::XMFLOAT3 mEyePos;
 	float mTheta = 1.5f * DirectX::XM_PI;
 	float mPhi = DirectX::XM_PIDIV4;
-	float mRadius = 15.0f;
+	float mRadius = 50.0f;
+	
 	POINT mLastMousePos;
 	DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	BYTE* mMappedData = nullptr;
 	BYTE* mMappedPassData = nullptr;
 	DirectX::XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 	DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+	RubikCube mRubikCube;
+public:
 	std::unordered_map<std::string, std::unique_ptr<Geometry>> Geometries;
-	std::vector<RenderObject> RenderObjects;
+	std::vector<std::unique_ptr<RenderObject>> AllRenderObjects;
+	std::vector<RenderObject*> OpaqueObjects;
+	std::vector<RenderObject*> SkyObjects;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
+	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
+	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
 private:
 	bool m4xMsaaState = false;    // 4X MSAA enabled
 	UINT64 mCurrentFence = 0;
@@ -103,7 +111,7 @@ private:
 	float mSunPhi = XM_PIDIV4;
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mVertexDesc;
-	std::vector<D3D12_INPUT_ELEMENT_DESC> mVertexDescSlots;
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mSkyVertex;
 	ComPtr<ID3D12DescriptorHeap> mCbvHeap;
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap;
 	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
@@ -112,6 +120,7 @@ private:
 	D3D12_VERTEX_BUFFER_VIEW vbv = {};
 	D3D12_INDEX_BUFFER_VIEW ibv;
 	ComPtr<ID3D12PipelineState> mPSO;
+	ComPtr<ID3D12PipelineState> mPSOSky;
 	ComPtr<ID3DBlob> mvsByteCode = nullptr;//d3dUtil::LoadBinary(L"Shaders/VertexShader.cso");
 	ComPtr<ID3DBlob> mpsByteCode = nullptr;// d3dUtil::LoadBinary(L"Shaders/PixelShader.cso");
 
