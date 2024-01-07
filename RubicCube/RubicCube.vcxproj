@@ -104,7 +104,8 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>F:\Projects\RubicCube\RubicCube\Graphics;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)thirdparty\imgui;$(ProjectDir)Graphics;$(ProjectDir)thirdparty\dxr;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -138,10 +139,21 @@
     <ClCompile Include="GameTimer.cpp" />
     <ClCompile Include="Geometry.cpp" />
     <ClCompile Include="GeometryGenerator.cpp" />
-    <ClCompile Include="Graphics\Buffer.cpp" />
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="RenderObject.cpp" />
     <ClCompile Include="Source.cpp" />
+    <ClCompile Include="thirdparty\dxr\nv_helpers_dx12\BottomLevelASGenerator.cpp" />
+    <ClCompile Include="thirdparty\dxr\nv_helpers_dx12\RaytracingPipelineGenerator.cpp" />
+    <ClCompile Include="thirdparty\dxr\nv_helpers_dx12\RootSignatureGenerator.cpp" />
+    <ClCompile Include="thirdparty\dxr\nv_helpers_dx12\ShaderBindingTableGenerator.cpp" />
+    <ClCompile Include="thirdparty\dxr\nv_helpers_dx12\TopLevelASGenerator.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_demo.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_draw.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_impl_dx12.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_tables.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_widgets.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Common.h" />
@@ -157,6 +169,20 @@
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="PassConstant.h" />
     <ClInclude Include="RenderObject.h" />
+    <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\DXRHelper.h" />
+    <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\BottomLevelASGenerator.h" />
+    <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\RaytracingPipelineGenerator.h" />
+    <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\RootSignatureGenerator.h" />
+    <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\ShaderBindingTableGenerator.h" />
+    <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\TopLevelASGenerator.h" />
+    <ClInclude Include="thirdparty\imgui\imconfig.h" />
+    <ClInclude Include="thirdparty\imgui\imgui.h" />
+    <ClInclude Include="thirdparty\imgui\imgui_impl_dx12.h" />
+    <ClInclude Include="thirdparty\imgui\imgui_impl_win32.h" />
+    <ClInclude Include="thirdparty\imgui\imgui_internal.h" />
+    <ClInclude Include="thirdparty\imgui\imstb_rectpack.h" />
+    <ClInclude Include="thirdparty\imgui\imstb_textedit.h" />
+    <ClInclude Include="thirdparty\imgui\imstb_truetype.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shaders\Default.hlsl">

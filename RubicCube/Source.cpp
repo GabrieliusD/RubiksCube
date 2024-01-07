@@ -4,8 +4,7 @@ int main()
 {
 	D3DApp myApp;
 	myApp.InitWindow();
-	myApp.Init();
+	myApp.InitDirectX();
 	myApp.Run();
-	//myApp.Init();
 	return 0;
 }

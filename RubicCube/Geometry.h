@@ -4,22 +4,21 @@ using Microsoft::WRL::ComPtr;
 class Geometry
 {
 public:
-	ComPtr<ID3D12Resource> mVertexUploadBuffer;
-	ComPtr<ID3D12Resource> mVertexBuffer;
+	ComPtr<ID3D12Resource> vertexUploadBuffer;
+	ComPtr<ID3D12Resource> vertexBuffer;
 
-	ComPtr<ID3D12Resource> mIndexUploadBuffer;
-	ComPtr<ID3D12Resource> mIndexBuffer;
+	ComPtr<ID3D12Resource> indexUploadBuffer;
+	ComPtr<ID3D12Resource> indexBuffer;
 
-public:
 	D3D12_VERTEX_BUFFER_VIEW GetVertexBufferView();
 	D3D12_INDEX_BUFFER_VIEW GetIndexBufferView();
 
-	UINT64 mVbByteSize;
-	UINT64 mIbByteSize;
-	UINT64 mStrideInBytes;
-	DXGI_FORMAT mIbFormat;
-	UINT mIndexCount;
-	DirectX::BoundingBox Bounds;
+	UINT64 vbByteSize;
+	UINT64 ibByteSize;
+	UINT64 strideInBytes;
+	DXGI_FORMAT ibFormat;
+	UINT indexCount;
+	DirectX::BoundingBox bounds;
 private:
 	D3D12_VERTEX_BUFFER_VIEW mVbv;
 	D3D12_INDEX_BUFFER_VIEW mIbv;

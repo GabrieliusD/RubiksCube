@@ -1,6 +1,7 @@
 #include "RenderObject.h"
 #include "D3DApp.h"
 #include <iostream>
+#include <random>
 
 RubikCube::RubikCube() :
     m_Front{
@@ -31,7 +32,7 @@ RubikCube::RubikCube() :
         { 2, 1, 1 },
     { 'B' },
     { DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f) }}
-    , m_Left{
+    , m_Down{
         {
             {2, 0, 0},
             {1, 0, 0},
@@ -43,9 +44,9 @@ RubikCube::RubikCube() :
             {2, 1, 0}
         },
         { 1, 1, 0 },
-    { 'L' },
+    { 'D' },
     { DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f) }}
-    , m_Right{
+    , m_Up{
         {
             {0, 0, 2},
             {1, 0, 2},
@@ -57,9 +58,9 @@ RubikCube::RubikCube() :
             {0, 1, 2}
         },
         { 1, 1, 2 },
-    { 'R' },
+    { 'U' },
     { DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f) } }
-    , m_Up{
+    , m_Right{
         {
             {2, 0, 0},
             {2, 0, 1},
@@ -71,9 +72,9 @@ RubikCube::RubikCube() :
             {1, 0, 0}
         },
         { 1, 0, 1 },
-    { 'U' },
+    { 'R' },
     { DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f) }}
-    , m_Down{
+    , m_Left{
         {
             {1, 2, 2},
             {2, 2, 2},
@@ -85,7 +86,7 @@ RubikCube::RubikCube() :
             {0, 2, 2}
         },
         { 1, 2, 1 },
-    { 'D' },
+    { 'L' },
     { DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f) }}
 {
     Faces.push_back(m_Front);
@@ -96,8 +97,9 @@ RubikCube::RubikCube() :
     Faces.push_back(m_Right);
 }
 
-void RubikCube::Initialize(D3DApp* app, UINT cbIndex)
+void RubikCube::Initialize(UINT cbIndex)
 {
+    D3DApp* app = D3DApp::GetApp();
     //todo 
     //Store an index of the cube in render items
     //use that index to check which face the cube belongs to
@@ -109,20 +111,20 @@ void RubikCube::Initialize(D3DApp* app, UINT cbIndex)
         for (int j = 0; j < 3; j++)
         {
             std::unique_ptr<Cube> renderObjectCube = std::make_unique<Cube>();
-            renderObjectCube->ConstantBufferIndex = cbIndex;
-            renderObjectCube->Geometry = app->Geometries["Cube"].get();
-            renderObjectCube->IndexCount = app->Geometries["Cube"]->mIndexCount;
-            renderObjectCube->Mat = app->mMaterials["grass"].get();
-            renderObjectCube->SelectedMat = app->mMaterials["selectedCube"].get();
-            renderObjectCube->Bounds = renderObjectCube->Geometry->Bounds;
-            renderObjectCube->Name = "Front" + std::to_string(3 * i + j);
+            renderObjectCube->constantBufferIndex = cbIndex;
+            renderObjectCube->geometry = app->geometries["Cube"].get();
+            renderObjectCube->indexCount = app->geometries["Cube"]->indexCount;
+            renderObjectCube->material = app->materials["grass"].get();
+            renderObjectCube->SelectedMat = app->materials["selectedCube"].get();
+            renderObjectCube->bounds = renderObjectCube->geometry->bounds;
+            renderObjectCube->name = "Front" + std::to_string(3 * i + j);
 
             world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2, -2);
-            XMStoreFloat4x4(&renderObjectCube->World, world);
+            XMStoreFloat4x4(&renderObjectCube->world, world);
 
-            renderObjectCube->mIdx = 0;
-            renderObjectCube->mIdy = i;
-            renderObjectCube->mIdz = j;
+            renderObjectCube->idx = 0;
+            renderObjectCube->idy = i;
+            renderObjectCube->idz = j;
             CubePtr[0][i][j] = renderObjectCube.get();
             Cubes[0][i][j] = std::move(renderObjectCube);
             cbIndex++;
@@ -136,20 +138,20 @@ void RubikCube::Initialize(D3DApp* app, UINT cbIndex)
         {
 
             std::unique_ptr<Cube> renderObjectCube = std::make_unique<Cube>();
-            renderObjectCube->ConstantBufferIndex = cbIndex;
-            renderObjectCube->Geometry = app->Geometries["Cube"].get();
-            renderObjectCube->IndexCount = app->Geometries["Cube"]->mIndexCount;
-            renderObjectCube->Mat = app->mMaterials["grass"].get();
-            renderObjectCube->SelectedMat = app->mMaterials["selectedCube"].get();
-            renderObjectCube->Bounds = renderObjectCube->Geometry->Bounds;
-            renderObjectCube->Name = "Middle" + std::to_string(i + j);
+            renderObjectCube->constantBufferIndex = cbIndex;
+            renderObjectCube->geometry = app->geometries["Cube"].get();
+            renderObjectCube->indexCount = app->geometries["Cube"]->indexCount;
+            renderObjectCube->material = app->materials["grass"].get();
+            renderObjectCube->SelectedMat = app->materials["selectedCube"].get();
+            renderObjectCube->bounds = renderObjectCube->geometry->bounds;
+            renderObjectCube->name = "Middle" + std::to_string(i + j);
 
             world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2, 0);
-            XMStoreFloat4x4(&renderObjectCube->World, world);
+            XMStoreFloat4x4(&renderObjectCube->world, world);
 
-            renderObjectCube->mIdx = 1;
-            renderObjectCube->mIdy = i;
-            renderObjectCube->mIdz = j;
+            renderObjectCube->idx = 1;
+            renderObjectCube->idy = i;
+            renderObjectCube->idz = j;
             CubePtr[1][i][j] = renderObjectCube.get();
             Cubes[1][i][j] = std::move(renderObjectCube);
             cbIndex++;
@@ -163,20 +165,20 @@ void RubikCube::Initialize(D3DApp* app, UINT cbIndex)
         {
 
             std::unique_ptr<Cube> renderObjectCube = std::make_unique<Cube>();
-            renderObjectCube->ConstantBufferIndex = cbIndex;
-            renderObjectCube->Geometry = app->Geometries["Cube"].get();
-            renderObjectCube->IndexCount = app->Geometries["Cube"]->mIndexCount;
-            renderObjectCube->Mat = app->mMaterials["grass"].get();
-            renderObjectCube->SelectedMat = app->mMaterials["selectedCube"].get();
-            renderObjectCube->Bounds = renderObjectCube->Geometry->Bounds;
-            renderObjectCube->Name = "Back" + std::to_string(i + j);
+            renderObjectCube->constantBufferIndex = cbIndex;
+            renderObjectCube->geometry = app->geometries["Cube"].get();
+            renderObjectCube->indexCount = app->geometries["Cube"]->indexCount;
+            renderObjectCube->material = app->materials["grass"].get();
+            renderObjectCube->SelectedMat = app->materials["selectedCube"].get();
+            renderObjectCube->bounds = renderObjectCube->geometry->bounds;
+            renderObjectCube->name = "Back" + std::to_string(i + j);
 
             world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2, 2);
-            XMStoreFloat4x4(&renderObjectCube->World, world);
+            XMStoreFloat4x4(&renderObjectCube->world, world);
 
-            renderObjectCube->mIdx = 2;
-            renderObjectCube->mIdy = i;
-            renderObjectCube->mIdz = j;
+            renderObjectCube->idx = 2;
+            renderObjectCube->idy = i;
+            renderObjectCube->idz = j;
             CubePtr[2][i][j] = renderObjectCube.get();
             Cubes[2][i][j] = std::move(renderObjectCube);
             cbIndex++;
@@ -207,9 +209,9 @@ std::vector<std::unique_ptr<RenderObject>> RubikCube::GetRenderObjects()
     return TempCubes;
 }
 
-void RubikCube::RotateFace(FaceDirection faceDir, RotationDirection rotationDir)
+void RubikCube::RotateFaceData(Face* tempFace, RotationDirection rotationDir)
 {
-    Face face = *m_SelectedFace;
+    Face face = *tempFace;
     const int size = 8;
     const int shift = rotationDir == RotationDirection::Clockwise ? 2 : 6 ;   // For clockwise rotation right-shift by 2 is equal to left-shift by 6. For counter clockwise rotation left-shift by 2.
     const int gcd = 2;                                                          // gcd(2, 8) = gcd(6, 8) = 2
@@ -242,7 +244,7 @@ void RubikCube::GetAdjecantCubes(int idx, int idy, int idz)
         size_t ids[3] = {idx, idy, idz };
         if (Faces[i].Center[0] == idx && Faces[i].Center[1] == idy && Faces[i].Center[2] == idz)
         {
-            std::cout << "Face found" << std::endl;
+            std::cout << "Face found: " << Faces[i].Siganture << std::endl;
             m_SelectedFace = &Faces[i];
             SelectCubesFromFace(Faces[i]);
             //face found
@@ -262,7 +264,7 @@ void RubikCube::DeselectCubes()
             {
                 if (CubePtr[i][j][k])
                 {
-                    CubePtr[i][j][k]->mIsSelected = false;
+                    CubePtr[i][j][k]->isSelected = false;
                 }
             }
         }
@@ -277,43 +279,212 @@ void RubikCube::SelectCubesFromFace(Face& face)
         int y = face.CubiesAround[i][1];
         int z = face.CubiesAround[i][2];
 
-        CubePtr[x][y][z]->mIsSelected = true;
+        CubePtr[x][y][z]->isSelected = true;
     }
 
-    CubePtr[face.Center[0]][face.Center[1]][face.Center[2]]->mIsSelected = true;
+    CubePtr[face.Center[0]][face.Center[1]][face.Center[2]]->isSelected = true;
 }
 
-void RubikCube::RotateSelectedFace(RotationDirection rotationDir)
+void RubikCube::RotateFaceVisual(Face* face, RotationDirection rotationDir)
 {
-    if (m_SelectedFace)
+    if (face)
     {
         for (int i = 0; i < 8; i++)
         {
-            int x = m_SelectedFace->CubiesAround[i][0];
-            int y = m_SelectedFace->CubiesAround[i][1];
-            int z = m_SelectedFace->CubiesAround[i][2];
+            int x = face->CubiesAround[i][0];
+            int y = face->CubiesAround[i][1];
+            int z = face->CubiesAround[i][2];
 
-
+            XMMATRIX tempWorld = XMLoadFloat4x4(&CubePtr[x][y][z]->world);
+            XMVECTOR trans;
+            XMVECTOR scale;
+            XMVECTOR rot;
+            XMMatrixDecompose(&scale, &rot, &trans, tempWorld);
 
             switch (rotationDir)
             {
             case RotationDirection::Clockwise:
-                XMMATRIX tempWorld = XMLoadFloat4x4(&CubePtr[x][y][z]->World);
-                XMVECTOR trans;
-                XMVECTOR scale;
-                XMVECTOR rot;
-                XMMatrixDecompose(&scale, &rot, &trans, tempWorld);
-                XMFLOAT3 transStored;
-
-                tempWorld = tempWorld * XMMatrixRotationAxis(XMLoadFloat3(&m_SelectedFace->Axis), DirectX::XM_PIDIV2);
-                XMStoreFloat4x4(&CubePtr[x][y][z]->World, tempWorld);
-                
+                tempWorld = tempWorld * XMMatrixRotationAxis(XMLoadFloat3(&face->Axis), DirectX::XM_PIDIV2);
+                XMStoreFloat4x4(&CubePtr[x][y][z]->world, tempWorld);
+                break;
+            case RotationDirection::Anticlockwise:
+                tempWorld = tempWorld * XMMatrixRotationAxis(XMLoadFloat3(&face->Axis), -DirectX::XM_PIDIV2);
+                XMStoreFloat4x4(&CubePtr[x][y][z]->world, tempWorld);
                 break;
             default: break;
             }
         }
     }
 }
+
+void RubikCube::CheckWinCondition()
+{
+    for (int i = 0; i < 3; i++)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                auto cube = CubePtr[i][j][k];
+                if (cube->idx != i || cube->idy != j || cube->idz != k)
+                {
+                    std::cout << "not all cubes are in the correct place" << std::endl;
+                    return;
+                }
+            }
+        }
+    }
+
+    SetVictory(true);
+}
+
+void RubikCube::Scramble(std::string ScrambleOrder)
+{
+    //' anticlockwise
+    //U'4D2 F B L R 
+
+    std::vector<std::string> Commands;
+    std::string TempCommand = "";
+    bool FirstLetter = false;
+    for (int i = 0; i < ScrambleOrder.size(); i++)
+    {
+        char Letter = ScrambleOrder[i];
+        if (std::isalpha(Letter) && FirstLetter)
+        {
+            FirstLetter = false;
+            Commands.push_back(TempCommand);
+            TempCommand.clear();
+        }
+        if (std::isalpha(Letter) && !FirstLetter)
+        {
+            FirstLetter = true;
+            TempCommand += Letter;
+            continue;
+        }
+        if (Letter == '\'')
+        {
+            TempCommand += Letter;
+            continue;
+        }
+        if (std::isdigit(Letter))
+        {
+            TempCommand += Letter;
+            continue;
+        }
+
+    }
+
+    Commands.push_back(TempCommand);
+
+    for (std::string command : Commands)
+    {
+        std::cout << command << std::endl;
+        std::string letter = "";
+        RotationDirection rotDir = Clockwise;
+        int numRotations = 1;
+
+        letter += command[0];
+        Face& face = FindFaceByLetter(letter);
+        if (command.length() == 2 && command[1] == '\'')
+        {
+            rotDir = Anticlockwise;
+        }
+        else if (command.length() == 2 && std::isdigit(command[1]))
+        {
+            std::string num{ command[1] };
+            numRotations = std::stoi(num);
+        }
+        if (command.length() == 3 && std::isdigit(command[2]))
+        {
+            std::string num{ command[2] };
+            numRotations = std::stoi(num);
+        }
+
+        for (int i = 0; i < numRotations; i++)
+        {
+            RotateFaceVisual(&face, rotDir);
+            RotateFaceData(&face, rotDir);
+        }
+    }
+}
+
+std::string RubikCube::GenerateRandomScrambleString(int size)
+{
+    std::string faceLetters = "FRULD";
+    int lastIndex = faceLetters.size() - 1;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> letterDistr(0, lastIndex);
+    std::uniform_int_distribution<> backwardsDistr(0, 1);
+    std::uniform_int_distribution<> rotationDistr(0, 3);
+
+    std::string scramble;
+
+    for (int i = 0; i != size; i++)
+    {
+        int randomLetter = letterDistr(gen);
+        bool backwards = backwardsDistr(gen) == 0 ? true : false;
+        int numRotations = rotationDistr(gen);
+
+        scramble += faceLetters[randomLetter];
+        scramble += backwards ? "'" : "";
+        scramble += std::to_string(numRotations);
+    }
+
+    return scramble;
+}
+
+RubikCube::Face& RubikCube::FindFaceByLetter(std::string faceLetter)
+{
+    for (Face& face : Faces)
+    {
+        if (face.Siganture == faceLetter)
+        {
+            return face;
+        }
+    }
+
+    return Face();
+}
+
+void RubikCube::Rotate(RotationDirection rotationDir)
+{
+    RotateFaceVisual(m_SelectedFace, rotationDir);
+    RotateFaceData(m_SelectedFace, rotationDir);
+    CheckWinCondition();
+}
+
+void RubikCube::Reset()
+{
+
+}
+
+std::vector<Cube*> RubikCube::GetAllCubies()
+{
+    std::vector<Cube*> cubies;
+    for (int i = 0; i < 3; i++)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                auto cube = CubePtr[i][j][k];
+                cubies.push_back(cube);
+            }
+        }
+    }
+    return cubies;
+}
+
+void RubikCube::ResetCubeData()
+{
+}
+
+void RubikCube::ResetCubePos()
+{
+}
+
+
 
 
 

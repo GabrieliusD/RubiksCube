@@ -2,21 +2,21 @@
 #include "MathHelper.h"
 struct PassConstant
 {
-	DirectX::XMFLOAT4X4 View = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 InvView = MathHelper::Identity4x4();
-	DirectX::XMFLOAT4X4 Proj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 InvProj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT4X4 InvViewProj = MathHelper::Identity4x4();
-    DirectX::XMFLOAT3 EyePosW = { 0.0f, 0.0f, 0.0f };
+	DirectX::XMFLOAT4X4 view = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 invView = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 proj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 invProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 viewProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 invViewProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT3 eyePosW = { 0.0f, 0.0f, 0.0f };
     float cbPerObjectPad1 = 0.0f;
-    DirectX::XMFLOAT2 RenderTargetSize = { 0.0f, 0.0f };
-    DirectX::XMFLOAT2 InvRenderTargetSize = { 0.0f, 0.0f };
-    float NearZ = 0.0f;
-    float FarZ = 0.0f;
-    float TotalTime = 0.0f;
-    float DeltaTime = 0.0f;
+    DirectX::XMFLOAT2 renderTargetSize = { 0.0f, 0.0f };
+    DirectX::XMFLOAT2 invRenderTargetSize = { 0.0f, 0.0f };
+    float nearZ = 0.0f;
+    float farZ = 0.0f;
+    float totalTime = 0.0f;
+    float deltaTime = 0.0f;
 
-    DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
-    Light Lights[MaxLights];
+    DirectX::XMFLOAT4 ambientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+    Light lights[MaxLights];
 };

@@ -6,21 +6,38 @@
 #include "RenderObject.h"
 #include "PassConstant.h"
 #include "Common.h"
-#pragma comment(lib,"d3dcompiler.lib")
-#pragma comment(lib, "D3D12.lib")
-#pragma comment(lib, "dxgi.lib")
 
 #include "Graphics/Buffer.h"
+#include <utility>
+#include <dxcapi.h>
+#include "nv_helpers_dx12\TopLevelASGenerator.h"
+#include "nv_helpers_dx12\ShaderBindingTableGenerator.h"
+
+#pragma comment(lib,"d3dcompiler.lib")
+#pragma comment(lib,"dxcompiler.lib")
+#pragma comment(lib, "D3D12.lib")
+#pragma comment(lib, "dxgi.lib")
 using Microsoft::WRL::ComPtr;
+
+struct AccelerationStructureBuffers
+{
+	ComPtr<ID3D12Resource> pScratch;
+	ComPtr<ID3D12Resource> pResult;
+	ComPtr<ID3D12Resource> pInstanceDesc;
+};
 class D3DApp
 {
+
 public: 
-	static const int SwapChainBufferCount = 2;
+	static const int kSwapChainBufferCount = 2;
+	std::unordered_map<std::string, std::unique_ptr<Geometry>> geometries;
+	std::unordered_map<std::string, std::unique_ptr<Material>> materials;
+
 public:
 	D3DApp();
 	static D3DApp* GetApp();
 	virtual ~D3DApp();
-	void Init();
+	void InitDirectX();
 	bool InitWindow();
 	void CreateSwapChain();
 	void CreateRtvAndDsvDescriptorHeaps();
@@ -31,34 +48,37 @@ public:
 	//getting ready to draw
 	void VertexInputLayout();
 	void CreateVertexAndIndexBuffer();
-	void SeperatePosAndColorBuffer();
 	void CreateRenderObjects();
 	void CreateConstantBufferViewsForRenderObjects();
 	void CreateMaterials();
 	void CreateTextures();
+	void InitImgui();
+	void RenderImgui();
+	void VictoryScreen(bool Enable);
 	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const;
 	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const;
 	int Run();
 	virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 	void FlushCommandQueue();
-
 	void CalculateFrameStats();
-	virtual void Update(GameTimer& mTimer);
-	virtual void Draw(GameTimer& mTimer);
-	void UpdateMainPasCb(const GameTimer& mTimer);
-	void UpdateMaterialCb(const GameTimer& mTimer);
+	virtual void Update(GameTimer& timer);
+	virtual void Draw(GameTimer& timer);
+	void UpdateMainPasCb(const GameTimer& timer);
+	void UpdateMaterialCb(const GameTimer& timer);
+	void UpdateRubikCubeInstances();
 	virtual void OnMouseDown(WPARAM btnState, int x, int y);
 	virtual void OnMouseUp(WPARAM btnState, int x, int y);
 	virtual void OnMouseMove(WPARAM btnState, int x, int y);
-
+	virtual void OnKeyDown(WPARAM btnState);
 	void Pick(int sx, int sy);
-
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
+
+	void CheckRaytracingSupport();
 private:
 	DirectX::XMFLOAT3 mEyePos;
 	float mTheta = 1.5f * DirectX::XM_PI;
 	float mPhi = DirectX::XM_PIDIV4;
-	float mRadius = 50.0f;
+	float mRadius = 50;
 	
 	POINT mLastMousePos;
 	DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
@@ -67,16 +87,13 @@ private:
 	DirectX::XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
 	DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();
 	RubikCube mRubikCube;
-public:
-	std::unordered_map<std::string, std::unique_ptr<Geometry>> Geometries;
-	std::vector<std::unique_ptr<RenderObject>> AllRenderObjects;
-	std::vector<RenderObject*> OpaqueObjects;
-	std::vector<RenderObject*> SkyObjects;
-	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
+
+	std::vector<std::unique_ptr<RenderObject>> mAllRenderObjects;
+	std::vector<RenderObject*> mOpaqueObjects;
+	std::vector<RenderObject*> mSkyObjects;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
-private:
 	bool m4xMsaaState = false;    // 4X MSAA enabled
 	UINT64 mCurrentFence = 0;
 	bool mAppPaused = false;
@@ -85,14 +102,14 @@ private:
 	std::wstring mMainWndCaption = L"d3d App";
 	HINSTANCE mhAppInst = nullptr; 
 
-	ID3D12Device *m_device = nullptr;
-	ComPtr<ID3D12Fence> m_fence;
-	UINT m_rtvDescriptorSize;
-	UINT m_dsvDescriptorSize;
-	UINT m_cbvSrvDescriptorSize;
+	ID3D12Device5 *mDevice = nullptr;
+	ComPtr<ID3D12Fence> mFence;
+	UINT mRtvDescriptorSize;
+	UINT mDsvDescriptorSize;
+	UINT mCbvSrvDescriptorSize;
 	ComPtr<ID3D12CommandQueue> mCommandQueue;
 	ComPtr<ID3D12CommandAllocator> mDirectCmdListAlloc;
-	ComPtr<ID3D12GraphicsCommandList> mCommandList;
+	ComPtr<ID3D12GraphicsCommandList4> mCommandList;
 	ComPtr<IDXGISwapChain> mSwapChain;
 	UINT mClientWidth = 800;
 	UINT mClientHeight = 600;
@@ -103,7 +120,7 @@ private:
 	ComPtr<ID3D12DescriptorHeap> mRtvHeap;
 	ComPtr<ID3D12DescriptorHeap> mDsvHeap;
 	int mCurrBackBuffer = 0;
-	ComPtr<ID3D12Resource> mSwapChainBuffer[SwapChainBufferCount];
+	ComPtr<ID3D12Resource> mSwapChainBuffer[kSwapChainBufferCount];
 	ComPtr<ID3D12Resource> mDepthStencilBuffer;
 	D3D12_VIEWPORT mScreenViewport;
 	D3D12_RECT mScissorRect;
@@ -115,33 +132,58 @@ private:
 	ComPtr<ID3D12DescriptorHeap> mCbvHeap;
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap;
 	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
-	ComPtr<ID3D12Resource> IndexBufferGPU = nullptr;
-	ComPtr<ID3D12Resource> VertexBufferGPU = nullptr;
-	D3D12_VERTEX_BUFFER_VIEW vbv = {};
-	D3D12_INDEX_BUFFER_VIEW ibv;
 	ComPtr<ID3D12PipelineState> mPSO;
 	ComPtr<ID3D12PipelineState> mPSOSky;
-	ComPtr<ID3DBlob> mvsByteCode = nullptr;//d3dUtil::LoadBinary(L"Shaders/VertexShader.cso");
-	ComPtr<ID3DBlob> mpsByteCode = nullptr;// d3dUtil::LoadBinary(L"Shaders/PixelShader.cso");
-
-	ComPtr<ID3D12Resource> VertexBufferUploader = nullptr;
-	ComPtr<ID3D12Resource> IndexBufferUploader = nullptr;
+	ComPtr<ID3DBlob> mvsByteCode = nullptr;
+	ComPtr<ID3DBlob> mpsByteCode = nullptr;
 
 	ConstantBuffer<PassConstant>* mMainPassConstantBuffer;
 	ConstantBuffer<ObjectConstants>* mObjectConstantsBuffer;
 	ConstantBuffer<MaterialConstants>* mMaterialConstantsBuffer;
-	//practice
-	ComPtr<ID3D12Resource> VertexPosBuffer = nullptr;
-	ComPtr<ID3D12Resource> VertexColorBuffer = nullptr;
-	D3D12_VERTEX_BUFFER_VIEW PosBufferView;
-	D3D12_VERTEX_BUFFER_VIEW ColorBufferView;
-	ComPtr<ID3D12Resource> VertexColorBufferUploader = nullptr;
-	ComPtr<ID3D12Resource> VertexPosBufferUploader = nullptr;
-
 
 	PassConstant mMainPassCb;
 	UINT mPassCbOffset;
 	UINT mTextureOffset;
+	UINT mImGuiOffset;
+
+	//ray tracing
+	bool mRaster = true;
+	ComPtr<ID3D12Resource> mBottomLevelAS;
+	nv_helpers_dx12::TopLevelASGenerator mTopLevelAsGenerator;
+	AccelerationStructureBuffers mTopLevelASBuffers;
+	std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>> mInstances;
+
+	ComPtr<IDxcBlob> mRayGenLibrary;
+	ComPtr<IDxcBlob> mHitLibrary;
+	ComPtr<IDxcBlob> mMissLibrary;
+
+	ComPtr<ID3D12RootSignature> mRayGenSignature;
+	ComPtr<ID3D12RootSignature> mHitSignature;
+	ComPtr<ID3D12RootSignature> mMissSignature;
+
+	ComPtr<ID3D12StateObject> mRtStateObject;
+	ComPtr<ID3D12StateObjectProperties> mRtStateObjectProps;
+
+	ComPtr<ID3D12Resource> mOutputResource;
+	//Attempt to reuse the mCbvHeap
+	ComPtr<ID3D12DescriptorHeap> mSrvUavHeap;
+
+	ComPtr<ID3D12Resource> mSbtStorage;
+	nv_helpers_dx12::ShaderBindingTableGenerator mSbtHelper;
+private:
+	AccelerationStructureBuffers CreateBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t >> vertexBuffer, 
+		std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> indexBuffers = {});
+	void CreateTopLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>>& instances, bool updateOnly = false);
+	void CreateAccelerationStructures();
+	ComPtr<ID3D12RootSignature> CreateRayGenSignature();
+	ComPtr<ID3D12RootSignature> CreateMissSignature();
+	ComPtr<ID3D12RootSignature> CreateHitSignature();
+	void CreateRaytracingPipeline();
+
+	void CreateRaytracingOutputBuffer();
+	void CreateShaderResourceHeap();
+
+	void CreateShaderBindingTable();
 protected:
 	static D3DApp* mApp;
 
