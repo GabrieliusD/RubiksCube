@@ -61,7 +61,7 @@ public:
 
 
 public:
-    void Initialize(UINT cbIndex);
+    void Initialize(UINT& cbIndex);
     void BuildRenderObjects(UINT cbIndex);
     std::vector<std::unique_ptr<RenderObject>> GetRenderObjects();
     void RotateFaceData(Face* face, RotationDirection rotationDir);

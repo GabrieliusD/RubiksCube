@@ -12,7 +12,15 @@
 #include <dxcapi.h>
 #include "nv_helpers_dx12\TopLevelASGenerator.h"
 #include "nv_helpers_dx12\ShaderBindingTableGenerator.h"
+#define XR_USE_GRAPHICS_API_D3D12
 
+#if defined(XR_USE_GRAPHICS_API_D3D12)
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#endif
+
+// OpenXR Helper
+#include <OpenXRHelper.h>
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib,"dxcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -39,6 +47,7 @@ public:
 	virtual ~D3DApp();
 	void InitDirectX();
 	bool InitWindow();
+	void InitVrHeadset();
 	void CreateSwapChain();
 	void CreateRtvAndDsvDescriptorHeaps();
 	void CreateRenderTargetResources();
@@ -74,6 +83,27 @@ public:
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
 	void CheckRaytracingSupport();
+	inline int GetWidth() { return mClientWidth; }
+	inline int GetHeight() { return mClientHeight; }
+	enum Hand : uint8_t
+	{
+		left,
+		right
+	};
+	void UpdateHandPosition(Hand hand, XMFLOAT4X4 world);
+	void* GetXrSwapchainImage(XrSwapchain swapchain, uint32_t index);
+	enum class SwapchainType : uint8_t {
+		COLOR,
+		DEPTH
+	};
+	std::unordered_map<XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageD3D12KHR>>> swapchainImagesMap{};
+
+	XrSwapchainImageBaseHeader* AllocateSwapchainImageData(XrSwapchain swapchain, SwapchainType type, uint32_t count);
+
+	const DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+	const DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D16_UNORM; //DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	XMFLOAT3 GetEyePosition() { return mEyePos; }
 private:
 	DirectX::XMFLOAT3 mEyePos;
 	float mTheta = 1.5f * DirectX::XM_PI;
@@ -91,6 +121,8 @@ private:
 	std::vector<std::unique_ptr<RenderObject>> mAllRenderObjects;
 	std::vector<RenderObject*> mOpaqueObjects;
 	std::vector<RenderObject*> mSkyObjects;
+	RenderObject* mLeftController;
+	RenderObject* mRightController;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
@@ -113,8 +145,6 @@ private:
 	ComPtr<IDXGISwapChain> mSwapChain;
 	UINT mClientWidth = 800;
 	UINT mClientHeight = 600;
-	const DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-	const DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	UINT m4xMsaaQuality;
 	ComPtr<IDXGIFactory4> mdxgiFactory;
 	ComPtr<ID3D12DescriptorHeap> mRtvHeap;
@@ -170,6 +200,8 @@ private:
 
 	ComPtr<ID3D12Resource> mSbtStorage;
 	nv_helpers_dx12::ShaderBindingTableGenerator mSbtHelper;
+
+	class OpenXrManager* openXrManager;
 private:
 	AccelerationStructureBuffers CreateBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t >> vertexBuffer, 
 		std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> indexBuffers = {});

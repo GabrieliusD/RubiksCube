@@ -23,6 +23,7 @@ cbuffer cbPass : register(b0)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
+    Light gLights[16];
 };
 
 [shader("raygeneration")] 
@@ -30,7 +31,7 @@ void RayGen() {
   // Initialize the ray payload
   HitInfo payload;
   payload.colorAndDistance = float4(0.0, 0.0, 0.0, 0.0);
-
+   payload.depth = 0;
   // Get the location within the dispatched 2D grid of work items
   // (often maps to pixels, so this could represent a pixel coordinate).
   uint2 launchIndex = DispatchRaysIndex().xy;
@@ -49,7 +50,7 @@ void RayGen() {
     ray.TMin = 0;
     ray.TMax = 100000;
     
-    TraceRay(SceneBVH, RAY_FLAG_NONE, 0xFF, 0, 0, 0, ray, payload);
+    TraceRay(SceneBVH, 0, 0xFF, 0, 0, 0, ray, payload);
 
   gOutput[launchIndex] = float4(payload.colorAndDistance.rgb, 1.f);
 }

@@ -104,13 +104,13 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)thirdparty\imgui;$(ProjectDir)Graphics;$(ProjectDir)thirdparty\dxr;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)thirdparty\openxr\Common;$(ProjectDir)thirdparty\openxr;$(ProjectDir);$(ProjectDir)thirdparty\imgui;$(ProjectDir)Graphics;$(ProjectDir)thirdparty;$(ProjectDir)thirdparty\dxr;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>D3DCompiler.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>D3DCompiler.lib;openxr_loaderd.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -140,6 +140,8 @@
     <ClCompile Include="Geometry.cpp" />
     <ClCompile Include="GeometryGenerator.cpp" />
     <ClCompile Include="MathHelper.cpp" />
+    <ClCompile Include="openxr\MathLib.cpp" />
+    <ClCompile Include="openxr\OpenXrManager.cpp" />
     <ClCompile Include="RenderObject.cpp" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="thirdparty\dxr\nv_helpers_dx12\BottomLevelASGenerator.cpp" />
@@ -167,6 +169,8 @@
     <ClInclude Include="GeometryGenerator.h" />
     <ClInclude Include="Graphics\Buffer.h" />
     <ClInclude Include="MathHelper.h" />
+    <ClInclude Include="openxr\MathLib.h" />
+    <ClInclude Include="openxr\OpenXrManager.h" />
     <ClInclude Include="PassConstant.h" />
     <ClInclude Include="RenderObject.h" />
     <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\DXRHelper.h" />

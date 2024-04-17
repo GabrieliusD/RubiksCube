@@ -90,6 +90,12 @@
     <ClCompile Include="thirdparty\dxr\nv_helpers_dx12\TopLevelASGenerator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="openxr\OpenXrManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="openxr\MathLib.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="D3DApp.h">
@@ -171,6 +177,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="thirdparty\dxr\nv_helpers_dx12\ShaderBindingTableGenerator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="openxr\OpenXrManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="openxr\MathLib.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

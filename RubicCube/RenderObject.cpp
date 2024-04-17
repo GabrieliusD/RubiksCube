@@ -97,7 +97,7 @@ RubikCube::RubikCube() :
     Faces.push_back(m_Right);
 }
 
-void RubikCube::Initialize(UINT cbIndex)
+void RubikCube::Initialize(UINT &cbIndex)
 {
     D3DApp* app = D3DApp::GetApp();
     //todo 
@@ -105,6 +105,8 @@ void RubikCube::Initialize(UINT cbIndex)
     //use that index to check which face the cube belongs to
     //If the face is found use the face object to get other cubes
     XMMATRIX world = XMMatrixTranslation(-2, 0, 0);
+    float offsetY = 40;
+    float offsetZ = -20;
     // first row
     for (int i = 0; i < 3; i++)
     {
@@ -119,7 +121,7 @@ void RubikCube::Initialize(UINT cbIndex)
             renderObjectCube->bounds = renderObjectCube->geometry->bounds;
             renderObjectCube->name = "Front" + std::to_string(3 * i + j);
 
-            world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2, -2);
+            world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2 + offsetY, -2 + offsetZ);
             XMStoreFloat4x4(&renderObjectCube->world, world);
 
             renderObjectCube->idx = 0;
@@ -146,7 +148,7 @@ void RubikCube::Initialize(UINT cbIndex)
             renderObjectCube->bounds = renderObjectCube->geometry->bounds;
             renderObjectCube->name = "Middle" + std::to_string(i + j);
 
-            world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2, 0);
+            world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2 + offsetY, 0 + offsetZ);
             XMStoreFloat4x4(&renderObjectCube->world, world);
 
             renderObjectCube->idx = 1;
@@ -173,7 +175,7 @@ void RubikCube::Initialize(UINT cbIndex)
             renderObjectCube->bounds = renderObjectCube->geometry->bounds;
             renderObjectCube->name = "Back" + std::to_string(i + j);
 
-            world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2, 2);
+            world = XMMatrixTranslation(i * 2 - 2, j * 2 - 2 + offsetY, 2 + offsetZ);
             XMStoreFloat4x4(&renderObjectCube->world, world);
 
             renderObjectCube->idx = 2;
@@ -449,6 +451,7 @@ RubikCube::Face& RubikCube::FindFaceByLetter(std::string faceLetter)
 
 void RubikCube::Rotate(RotationDirection rotationDir)
 {
+    if (!m_SelectedFace) return;
     RotateFaceVisual(m_SelectedFace, rotationDir);
     RotateFaceData(m_SelectedFace, rotationDir);
     CheckWinCondition();

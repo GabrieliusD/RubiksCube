@@ -9,6 +9,7 @@
 #include "nv_helpers_dx12\BottomLevelASGenerator.h"
 #include "nv_helpers_dx12\RaytracingPipelineGenerator.h"
 #include "nv_helpers_dx12\RootSignatureGenerator.h"
+#include <openxr\OpenXrManager.h>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -125,6 +126,9 @@ void D3DApp::InitDirectX()
 	CreateRaytracingOutputBuffer();
 	CreateShaderResourceHeap();
 	CreateShaderBindingTable();
+
+	//vr
+	InitVrHeadset();
 }
 
 bool D3DApp::InitWindow()
@@ -163,6 +167,12 @@ bool D3DApp::InitWindow()
 	ShowWindow(mhMainWnd, SW_SHOW);
 	UpdateWindow(mhMainWnd);
 	return true;
+}
+
+void D3DApp::InitVrHeadset()
+{
+	openXrManager = new OpenXrManager(mDevice, mCommandQueue.Get());
+	openXrManager->Run();
 }
 
 void D3DApp::CreateSwapChain()
@@ -532,7 +542,7 @@ void D3DApp::CreateRenderObjects()
 	renderObject->constantBufferIndex = cbIndex;
 
 	mRubikCube.Initialize(cbIndex);
-	mRubikCube.Scramble("U1F2B'3");
+	//mRubikCube.Scramble("U1F2B'3");
 	std::vector<std::unique_ptr<RenderObject>> Cubes = mRubikCube.GetRenderObjects();
 	for (int i = 0; i < Cubes.size(); i++)
 	{
@@ -540,12 +550,51 @@ void D3DApp::CreateRenderObjects()
 		mAllRenderObjects.push_back(std::move(Cubes[i]));
 	}
 
+	// controller meshes
+
+	renderObject = std::make_unique<RenderObject>();
+
+	renderObject->constantBufferIndex = cbIndex;
+	renderObject->geometry = geometries["Cube"].get();
+	renderObject->indexCount = geometries["Cube"]->indexCount;
+	renderObject->material = materials["grass"].get();
+	renderObject->bounds = renderObject->geometry->bounds;
+	renderObject->name = "Left Controller";
+
+	world = XMMatrixTranslation(10, 10, 0) * XMMatrixScaling(0.1f, 0.1f, 0.1f);
+	XMStoreFloat4x4(&renderObject->world, world);
+	mOpaqueObjects.push_back(renderObject.get());
+	mLeftController = renderObject.get();
+	mAllRenderObjects.push_back(std::move(renderObject));
+
+	cbIndex++;
+
+	renderObject = std::make_unique<RenderObject>();
+
+	renderObject->constantBufferIndex = cbIndex;
+	renderObject->geometry = geometries["Cube"].get();
+	renderObject->indexCount = geometries["Cube"]->indexCount;
+	renderObject->material = materials["grass"].get();
+	renderObject->bounds = renderObject->geometry->bounds;
+	renderObject->name = "Right Controller";
+
+	world = XMMatrixTranslation(5, 10, -10) * XMMatrixScaling(0.1f, 0.1f, 0.1f);
+	XMStoreFloat4x4(&renderObject->world, world);
+	mOpaqueObjects.push_back(renderObject.get());
+	mRightController = renderObject.get();
+	mAllRenderObjects.push_back(std::move(renderObject));
+
 	//sphere
+	cbIndex++;
+
+	renderObject = std::make_unique<RenderObject>();
+
 	renderObject->geometry = geometries["Sphere"].get();
 	renderObject->indexCount = geometries["Sphere"]->indexCount;
 	renderObject->constantBufferIndex = cbIndex;
+	renderObject->material = materials["grass"].get();
 	//renderObject.World = MathHelper::Identity4x4();
-	world = XMMatrixTranslation(0, 0, 0);
+	world = XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(0.5f, 0.5f, 0.5f);
 	XMStoreFloat4x4(&renderObject->world,
 		world);
 	mSkyObjects.push_back(renderObject.get());
@@ -806,9 +855,13 @@ int D3DApp::Run()
 			mTimer.Tick();
 			if (!mAppPaused)
 			{
+				openXrManager->Update();
 				CalculateFrameStats();
+				openXrManager->StartFrame();
+				openXrManager->AcquireSwapchainImages();
 				Update(mTimer);
 				Draw(mTimer);
+				
 			}
 			else
 			{
@@ -911,11 +964,27 @@ void D3DApp::Update(GameTimer& mTimer)
 	mEyePos.y = mRadius * cosf(mPhi);
 
 	// Build the view matrix.
-	XMVECTOR pos = XMVectorSet(mEyePos.x, mEyePos.y, mEyePos.z, 1.0f);
+	//XMVECTOR pos = XMVectorSet(mEyePos.x, mEyePos.y, mEyePos.z, 1.0f);
+	XMVECTOR pos = XMVectorSet(0, 0, 0, 1.0f);
 	XMVECTOR target = XMVectorZero();
 	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+	XMMATRIX view;
+	if (openXrManager->HasSession())
+	{
+		XMStoreFloat4x4(&mProj, XMMatrixPerspectiveFovRH(0.6f * MathHelper::Pi, 800.0f / 600.0f, 0.05f, 1000.0f));
 
-	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+		XMVECTOR XRPos;
+		XMVECTOR temp;
+		XMMatrixDecompose(&temp, &temp, &XRPos, openXrManager->GetViewMatrix(0));
+		XMStoreFloat3(&mEyePos, XRPos);
+		view = openXrManager->GetViewMatrix(1);
+		view = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+		//view = XMMatrixMultiply(view, XMMatrixLookAtLH(pos, target, up));
+	}
+	else
+	{
+		view = XMMatrixLookAtLH(pos, target, up);
+	}
 	XMStoreFloat4x4(&mView, view);
 
 	XMMATRIX world = XMLoadFloat4x4(&mWorld);
@@ -1112,10 +1181,11 @@ void D3DApp::Draw(GameTimer& mTimer)
 	}
 
 
-
+	openXrManager->SetCurrentSwapchainImage(mSwapChainBuffer[mCurrBackBuffer].Get(), mDepthStencilBuffer.Get(), mCommandList.Get());
 
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mSwapChainBuffer[mCurrBackBuffer].Get(),
 		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+
 	ThrowIfFailed(mCommandList->Close());
 
 	ID3D12CommandList* cmdsList[] = { mCommandList.Get() };
@@ -1125,6 +1195,8 @@ void D3DApp::Draw(GameTimer& mTimer)
 	mCurrBackBuffer = (mCurrBackBuffer + 1) % kSwapChainBufferCount;
 
 	FlushCommandQueue();
+	
+	openXrManager->EndFrame();
 }
 
 void D3DApp::UpdateMainPasCb(const GameTimer& mTimer)
@@ -1380,6 +1452,32 @@ void D3DApp::CheckRaytracingSupport()
 	}
 }
 
+void D3DApp::UpdateHandPosition(Hand hand, XMFLOAT4X4 world)
+{
+	if (hand == Hand::left)
+	{
+		mLeftController->world = world;
+	}
+	else
+	{
+		mRightController->world = world;
+	}
+}
+
+void* D3DApp::GetXrSwapchainImage(XrSwapchain swapchain, uint32_t index)
+{
+	ID3D12Resource* image = swapchainImagesMap[swapchain].second[index].texture;
+	D3D12_RESOURCE_STATES state = swapchainImagesMap[swapchain].first == SwapchainType::COLOR ? D3D12_RESOURCE_STATE_RENDER_TARGET : D3D12_RESOURCE_STATE_DEPTH_WRITE;
+	return image;
+}
+
+XrSwapchainImageBaseHeader* D3DApp::AllocateSwapchainImageData(XrSwapchain swapchain, SwapchainType type, uint32_t count)
+{
+	swapchainImagesMap[swapchain].first = type;
+	swapchainImagesMap[swapchain].second.resize(count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
+	return reinterpret_cast<XrSwapchainImageBaseHeader*>(swapchainImagesMap[swapchain].second.data());
+}
+
 AccelerationStructureBuffers D3DApp::CreateBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> vertexBuffers,
 	std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> indexBuffers)
 {
@@ -1415,7 +1513,7 @@ void D3DApp::CreateTopLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, Dire
 	{
 		for (size_t i = 0; i < instances.size(); i++)
 		{
-			mTopLevelAsGenerator.AddInstance(instances[i].first.Get(), instances[i].second, static_cast<UINT>(i), static_cast<UINT>(0));
+			mTopLevelAsGenerator.AddInstance(instances[i].first.Get(), instances[i].second, static_cast<UINT>(i), static_cast<UINT>(i));
 		}
 
 		UINT64 scratchSize, resultSize, instanceDescSize;
@@ -1447,7 +1545,7 @@ void D3DApp::CreateAccelerationStructures()
 	std::vector<Cube*> cubes = mRubikCube.GetAllCubies();
 	for (int i = 0; i != cubes.size(); i++)
 	{
-		
+		if (cubes[i] == nullptr) break;
 		mInstances.push_back({ bottomLevelBuffers.pResult, XMLoadFloat4x4(&cubes[i]->world) });
 	}
 
@@ -1492,13 +1590,20 @@ ComPtr<ID3D12RootSignature> D3DApp::CreateMissSignature()
 ComPtr<ID3D12RootSignature> D3DApp::CreateHitSignature()
 {
 	nv_helpers_dx12::RootSignatureGenerator rsc;
-	rsc.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV);
-	rsc.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 1);
 	rsc.AddHeapRangesParameter(
 		{
-			{2, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1}
+			{0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1},
+			{0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2}
 		}
 	);
+	rsc.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 1);
+	rsc.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 2);
+	rsc.AddHeapRangesParameter(
+		{
+			{3, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1}
+		}
+	);
+	rsc.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_CBV, 1);
 	return rsc.Generate(mDevice, true);
 }
 
@@ -1524,9 +1629,9 @@ void D3DApp::CreateRaytracingPipeline()
 	pipeline.AddRootSignatureAssociation(mMissSignature.Get(), { L"Miss" });
 	pipeline.AddRootSignatureAssociation(mHitSignature.Get(), { L"HitGroup" });
 
-	pipeline.SetMaxPayloadSize(4 * sizeof(float));
+	pipeline.SetMaxPayloadSize(4 * sizeof(float) + sizeof(UINT));
 	pipeline.SetMaxAttributeSize(2 * sizeof(float));
-	pipeline.SetMaxRecursionDepth(1);
+	pipeline.SetMaxRecursionDepth(2);
 
 	mRtStateObject = pipeline.Generate();
 
@@ -1622,7 +1727,16 @@ void D3DApp::CreateShaderBindingTable()
 	srvUavHeapHandle.ptr += mDevice->GetDescriptorHandleIncrementSize(
 		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * 2;
 	auto texturePointer = reinterpret_cast<void*>(srvUavHeapHandle.ptr);
-	mSbtHelper.AddHitGroup(L"HitGroup", { (void*)(geometries["Cube"]->vertexBuffer->GetGPUVirtualAddress()), (void*)(geometries["Cube"]->indexBuffer->GetGPUVirtualAddress()),texturePointer});
+
+	std::vector<Cube*> cubes = mRubikCube.GetAllCubies();
+	UINT elementByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+
+	for (int i = 0; i != cubes.size(); i++)
+	{
+		D3D12_GPU_VIRTUAL_ADDRESS cbAddress = mObjectConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
+		cbAddress += cubes[i]->constantBufferIndex * elementByteSize;
+		mSbtHelper.AddHitGroup(L"HitGroup", { heapPointer, (void*)(geometries["Cube"]->vertexBuffer->GetGPUVirtualAddress()), (void*)(geometries["Cube"]->indexBuffer->GetGPUVirtualAddress()),texturePointer, (void*)cbAddress });
+	}
 
 
 	uint32_t sbtSize = mSbtHelper.ComputeSBTSize();
