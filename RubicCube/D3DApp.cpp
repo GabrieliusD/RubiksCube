@@ -983,6 +983,8 @@ void D3DApp::Update(GameTimer& mTimer)
 	}
 	else
 	{
+		pos = XMVectorSet(mEyePos.x, mEyePos.y, mEyePos.z, 1.0f);
+
 		view = XMMatrixLookAtLH(pos, target, up);
 	}
 	XMStoreFloat4x4(&mView, view);

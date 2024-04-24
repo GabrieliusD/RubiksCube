@@ -92,7 +92,7 @@ private:
 	}
 private:
 	std::vector<DirectX::XMMATRIX> ViewMatrix;
-	bool mEnableVr = true;
+	bool mEnableVr = false;
 	XrInstance m_xrInstance = XR_NULL_HANDLE;
 	std::vector<const char*> mActiveApiLayers = {};
 	std::vector<const char*> mActiveInstanceExtensions = {};
