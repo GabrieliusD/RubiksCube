@@ -118,14 +118,18 @@ void D3DApp::InitDirectX()
 
 	//ray trace thing
 
-	CreateAccelerationStructures();
+	if (mSupportsRaytracing)
+	{
+		CreateAccelerationStructures();
 
-	ThrowIfFailed(mCommandList->Close());
+		ThrowIfFailed(mCommandList->Close());
 
-	CreateRaytracingPipeline();
-	CreateRaytracingOutputBuffer();
-	CreateShaderResourceHeap();
-	CreateShaderBindingTable();
+		CreateRaytracingPipeline();
+		CreateRaytracingOutputBuffer();
+		CreateShaderResourceHeap();
+		CreateShaderBindingTable();
+	
+	}
 
 	//vr
 	InitVrHeadset();
@@ -768,7 +772,7 @@ void D3DApp::RenderImgui()
 	ImGui::NewFrame();
 
 	// 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-		ImGui::ShowDemoWindow();
+		//ImGui::ShowDemoWindow();
 
 	// 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
 	{
@@ -1339,7 +1343,14 @@ void D3DApp::OnKeyDown(WPARAM btnState)
 	else 
 	if(d3dUtil::IsKeyDown('R'))
 	{
-		mRaster = !mRaster;
+		if (mSupportsRaytracing)
+		{
+			mRaster = !mRaster;
+		}
+		else
+		{
+			mRaster = true;
+		}
 	}
 }
 
@@ -1450,8 +1461,12 @@ void D3DApp::CheckRaytracingSupport()
 		&options5, sizeof(options5)));
 	if (options5.RaytracingTier < D3D12_RAYTRACING_TIER_1_0)
 	{
-		throw std::runtime_error("Raytracing not supported on device");
+		mSupportsRaytracing = false;
+		return;
+		//throw std::runtime_error("Raytracing not supported on device");
 	}
+
+	mSupportsRaytracing = true;
 }
 
 void D3DApp::UpdateHandPosition(Hand hand, XMFLOAT4X4 world)

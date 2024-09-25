@@ -203,6 +203,7 @@ private:
 
 	class OpenXrManager* openXrManager;
 private:
+	bool mSupportsRaytracing = false;
 	AccelerationStructureBuffers CreateBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t >> vertexBuffer, 
 		std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> indexBuffers = {});
 	void CreateTopLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>>& instances, bool updateOnly = false);

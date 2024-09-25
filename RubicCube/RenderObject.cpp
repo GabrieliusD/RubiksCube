@@ -105,8 +105,8 @@ void RubikCube::Initialize(UINT &cbIndex)
     //use that index to check which face the cube belongs to
     //If the face is found use the face object to get other cubes
     XMMATRIX world = XMMatrixTranslation(-2, 0, 0);
-    float offsetY = 40;
-    float offsetZ = -20;
+    float offsetY = 0;
+    float offsetZ = 0;
     // first row
     for (int i = 0; i < 3; i++)
     {
