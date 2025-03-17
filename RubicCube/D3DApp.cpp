@@ -10,6 +10,8 @@
 #include "nv_helpers_dx12\RaytracingPipelineGenerator.h"
 #include "nv_helpers_dx12\RootSignatureGenerator.h"
 #include <openxr\OpenXrManager.h>
+#include <Entity.h>
+#include <RenderSystem.h>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -177,6 +179,24 @@ void D3DApp::InitVrHeadset()
 {
 	openXrManager = new OpenXrManager(mDevice, mCommandQueue.Get());
 	openXrManager->Run();
+}
+
+Coordinator gCoordinator;
+
+void D3DApp::InitECS()
+{
+	gCoordinator.Init();
+
+	gCoordinator.RegisterComponent<Transform>();
+	gCoordinator.RegisterComponent<Renderable>();
+
+	auto renderSystem = gCoordinator.RegisterSystem<RenderSystem>();
+
+	Signature signature;
+	signature.set(gCoordinator.GetComponentType<Transform>());
+	signature.set(gCoordinator.GetComponentType<Renderable>());
+
+	gCoordinator.SetSystemSignature<RenderSystem>(signature);
 }
 
 void D3DApp::CreateSwapChain()

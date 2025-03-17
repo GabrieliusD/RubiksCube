@@ -48,6 +48,7 @@ public:
 	void InitDirectX();
 	bool InitWindow();
 	void InitVrHeadset();
+	void InitECS();
 	void CreateSwapChain();
 	void CreateRtvAndDsvDescriptorHeaps();
 	void CreateRenderTargetResources();

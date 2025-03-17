@@ -19,7 +19,7 @@ set(HEADERS
 	Graphics/Buffer.h
 	openxr/MathLib.h
 	openxr/OpenXrManager.h
-)
+ "Entity.h" "RenderSystem.h")
 
 set(SOURCES
 	Source.cpp
@@ -36,7 +36,7 @@ set(SOURCES
 	RenderObject.cpp
 	openxr/MathLib.cpp
 	openxr/OpenXrManager.cpp
-)
+ "Entity.h" "RenderSystem.h" "RenderSystem.cpp")
 
 
 add_subdirectory(thirdparty/dxr/nv_helpers_dx12)
