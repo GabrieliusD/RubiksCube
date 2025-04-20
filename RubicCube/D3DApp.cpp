@@ -43,80 +43,80 @@ D3DApp::~D3DApp()
 
 void D3DApp::InitDirectX()
 {
-#define DEBUG
-#if defined(DEBUG) || defined(_DEBUG)
-	{
-		Microsoft::WRL::ComPtr<ID3D12Debug> debugController;
-		ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
-		debugController->EnableDebugLayer();
-	}
-#endif
-	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
-
-	HRESULT hardwareResult = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&mDevice));
-
-	if (FAILED(hardwareResult))
-	{
-		Microsoft::WRL::ComPtr<IDXGIAdapter> pWarpAdapter;
-		ThrowIfFailed(mdxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(&pWarpAdapter)));
-		ThrowIfFailed(D3D12CreateDevice(
-			pWarpAdapter.Get(),
-			D3D_FEATURE_LEVEL_11_0,
-			IID_PPV_ARGS(&mDevice)));
-	}
-
-	mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&mFence));
-	mRtvDescriptorSize = mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	mDsvDescriptorSize = mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-	mCbvSrvDescriptorSize = mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-	D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msQualityLevels;
-	msQualityLevels.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	msQualityLevels.SampleCount = 4;
-	msQualityLevels.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
-	msQualityLevels.NumQualityLevels = 0;
-	mDevice->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &msQualityLevels, sizeof(msQualityLevels));
-	m4xMsaaQuality = msQualityLevels.NumQualityLevels;
-	assert(m4xMsaaQuality > 0 && "Unexpected MSAA quality level.");
-
-
-
-	D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-	queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-
-	ThrowIfFailed(mDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&mCommandQueue)));
-
-	ThrowIfFailed(mDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-		IID_PPV_ARGS(mDirectCmdListAlloc.GetAddressOf())));
-
-	ThrowIfFailed(mDevice->CreateCommandList(0,
-		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		mDirectCmdListAlloc.Get(),
-		nullptr,
-		IID_PPV_ARGS(mCommandList.GetAddressOf())));
-
-	mCommandList->Close();
-	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(),
-		nullptr));
-	CheckRaytracingSupport();
-	CreateSwapChain();
-	CreateRtvAndDsvDescriptorHeaps();
-	CreateRenderTargetResources();
-	CreateDepthStencilResource();
-	CreateViewport();
-	VertexInputLayout();
+	InitECS();
+//#define DEBUG
+//#if defined(DEBUG) || defined(_DEBUG)
+//	{
+//		Microsoft::WRL::ComPtr<ID3D12Debug> debugController;
+//		ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
+//		debugController->EnableDebugLayer();
+//	}
+//#endif
+//	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
+//
+//	HRESULT hardwareResult = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&mDevice));
+//
+//	if (FAILED(hardwareResult))
+//	{
+//		Microsoft::WRL::ComPtr<IDXGIAdapter> pWarpAdapter;
+//		ThrowIfFailed(mdxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(&pWarpAdapter)));
+//		ThrowIfFailed(D3D12CreateDevice(
+//			pWarpAdapter.Get(),
+//			D3D_FEATURE_LEVEL_11_0,
+//			IID_PPV_ARGS(&mDevice)));
+//	}
+//
+//	mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&mFence));
+//	mRtvDescriptorSize = mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+//	mDsvDescriptorSize = mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+//	mCbvSrvDescriptorSize = mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+//
+//	D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msQualityLevels;
+//	msQualityLevels.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+//	msQualityLevels.SampleCount = 4;
+//	msQualityLevels.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
+//	msQualityLevels.NumQualityLevels = 0;
+//	mDevice->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &msQualityLevels, sizeof(msQualityLevels));
+//	m4xMsaaQuality = msQualityLevels.NumQualityLevels;
+//	assert(m4xMsaaQuality > 0 && "Unexpected MSAA quality level.");
+//
+//
+//
+//	D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+//	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+//	queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+//
+//	ThrowIfFailed(mDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&mCommandQueue)));
+//
+//	ThrowIfFailed(mDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+//		IID_PPV_ARGS(mDirectCmdListAlloc.GetAddressOf())));
+//
+//	ThrowIfFailed(mDevice->CreateCommandList(0,
+//		D3D12_COMMAND_LIST_TYPE_DIRECT,
+//		mDirectCmdListAlloc.Get(),
+//		nullptr,
+//		IID_PPV_ARGS(mCommandList.GetAddressOf())));
+//
+//	mCommandList->Close();
+//	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(),
+//		nullptr));
+//	CheckRaytracingSupport();
+//	CreateSwapChain();
+//	CreateRtvAndDsvDescriptorHeaps();
+//	CreateRenderTargetResources();
+//	CreateDepthStencilResource();
+//	CreateViewport();
+	//VertexInputLayout();
 	CreateVertexAndIndexBuffer();
-	CreateMaterials();
-	CreateTextures();
-	CreateRenderObjects();
-	CreateConstantBufferViewsForRenderObjects();
-	InitImgui();
-	ThrowIfFailed(mCommandList->Close());
-	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+	//CreateMaterials();
+	//CreateTextures();
+	//CreateRenderObjects();
+	//CreateConstantBufferViewsForRenderObjects();
+	//InitImgui();
+	mRenderSystem->CmdListCloseAndExecute();
+
 	// Wait until initialization is complete.
-	FlushCommandQueue();
+	mRenderSystem->FlushCommandQueue();
 
 	//ray trace thing
 
@@ -190,13 +190,19 @@ void D3DApp::InitECS()
 	gCoordinator.RegisterComponent<Transform>();
 	gCoordinator.RegisterComponent<Renderable>();
 
-	auto renderSystem = gCoordinator.RegisterSystem<RenderSystem>();
+	mRenderSystem = gCoordinator.RegisterSystem<RenderSystem>();
+
+	RenderSystemParams renderSystemParams;
+	renderSystemParams.hwnd = mhMainWnd;
+	mRenderSystem->Init(renderSystemParams);
 
 	Signature signature;
 	signature.set(gCoordinator.GetComponentType<Transform>());
 	signature.set(gCoordinator.GetComponentType<Renderable>());
 
 	gCoordinator.SetSystemSignature<RenderSystem>(signature);
+
+	auto test = gCoordinator.CreateEntity();
 }
 
 void D3DApp::CreateSwapChain()
@@ -214,7 +220,7 @@ void D3DApp::CreateSwapChain()
 	sd.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	sd.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	sd.OutputWindow = mhMainWnd; //todo create window;
+	sd.OutputWindow = mhMainWnd; 
 	sd.Windowed = true;
 	sd.BufferCount = kSwapChainBufferCount;
 	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -405,9 +411,12 @@ void D3DApp::CreateVertexAndIndexBuffer()
 
 	const UINT ibByteSize = 36 * sizeof(std::uint32_t);
 
+	auto commandList = mRenderSystem->GetCommandList();
+	auto device = mRenderSystem->GetDevice();
+
 	std::unique_ptr<Geometry> Cube(new Geometry());
-	Cube->vertexBuffer = d3dUtil::CreateDefaultBuffer(mDevice, mCommandList.Get(), vertices, vbByteSize, Cube->vertexUploadBuffer);
-	Cube->indexBuffer = d3dUtil::CreateDefaultBuffer(mDevice, mCommandList.Get(), indices, ibByteSize, Cube->indexUploadBuffer);
+	Cube->vertexBuffer = d3dUtil::CreateDefaultBuffer(device.Get(), commandList.Get(), vertices, vbByteSize, Cube->vertexUploadBuffer);
+	Cube->indexBuffer = d3dUtil::CreateDefaultBuffer(device.Get(), commandList.Get(), indices, ibByteSize, Cube->indexUploadBuffer);
 	Cube->ibFormat = DXGI_FORMAT_R32_UINT;
 	Cube->ibByteSize = ibByteSize;
 	Cube->strideInBytes = sizeof(Vertex);
@@ -440,8 +449,8 @@ void D3DApp::CreateVertexAndIndexBuffer()
 	float sphereVbByteSize = sphereMesh.Vertices.size() * sizeof(Vertex);
 	float sphereIbByteSize = sphereMesh.GetIndices16().size() * sizeof(std::uint16_t);
 
-	sphereGeo->vertexBuffer = d3dUtil::CreateDefaultBuffer(mDevice, mCommandList.Get(), sphereVertices.data(), sphereVbByteSize, sphereGeo->vertexUploadBuffer);
-	sphereGeo->indexBuffer = d3dUtil::CreateDefaultBuffer(mDevice, mCommandList.Get(), sphereMesh.GetIndices16().data(), sphereIbByteSize, sphereGeo->indexUploadBuffer);
+	sphereGeo->vertexBuffer = d3dUtil::CreateDefaultBuffer(device.Get(), commandList.Get(), sphereVertices.data(), sphereVbByteSize, sphereGeo->vertexUploadBuffer);
+	sphereGeo->indexBuffer = d3dUtil::CreateDefaultBuffer(device.Get(), commandList.Get(), sphereMesh.GetIndices16().data(), sphereIbByteSize, sphereGeo->indexUploadBuffer);
 	sphereGeo->ibFormat = DXGI_FORMAT_R16_UINT;
 	sphereGeo->ibByteSize = sphereIbByteSize;
 	sphereGeo->strideInBytes = sizeof(Vertex);
@@ -450,89 +459,89 @@ void D3DApp::CreateVertexAndIndexBuffer()
 	geometries.emplace("Sphere", std::move(sphereGeo));
 
 	//root signature
-	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
-	CD3DX12_DESCRIPTOR_RANGE cbvTable;
-	cbvTable.Init(
-		D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
-		1,
-		0
-	);
-	CD3DX12_DESCRIPTOR_RANGE cbvTable1;
-	cbvTable1.Init(
-		D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
-		1,
-		1
-	);
+	//CD3DX12_ROOT_PARAMETER slotRootParameter[5];
+	//CD3DX12_DESCRIPTOR_RANGE cbvTable;
+	//cbvTable.Init(
+	//	D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
+	//	1,
+	//	0
+	//);
+	//CD3DX12_DESCRIPTOR_RANGE cbvTable1;
+	//cbvTable1.Init(
+	//	D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
+	//	1,
+	//	1
+	//);
 
-	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-	//cube map
-	CD3DX12_DESCRIPTOR_RANGE texTable2;
-	texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
-	slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable);
-	slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable1);
-	slotRootParameter[2].InitAsConstantBufferView(2);
-	slotRootParameter[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[4].InitAsDescriptorTable(1, &texTable2, D3D12_SHADER_VISIBILITY_PIXEL);
+	//CD3DX12_DESCRIPTOR_RANGE texTable;
+	//texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	////cube map
+	//CD3DX12_DESCRIPTOR_RANGE texTable2;
+	//texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
+	//slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable);
+	//slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable1);
+	//slotRootParameter[2].InitAsConstantBufferView(2);
+	//slotRootParameter[3].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	//slotRootParameter[4].InitAsDescriptorTable(1, &texTable2, D3D12_SHADER_VISIBILITY_PIXEL);
 
-	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> staticSamplers = GetStaticSamplers();
+	//std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, staticSamplers.size(), staticSamplers.data(),
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-	ComPtr<ID3DBlob> serializedRootSig = nullptr;
-	ComPtr<ID3DBlob> errorBlob = nullptr;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+	//CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, staticSamplers.size(), staticSamplers.data(),
+	//	D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	//ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	//ComPtr<ID3DBlob> errorBlob = nullptr;
+	//HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+	//	serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
 
-	ThrowIfFailed(mDevice->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&mRootSignature)));
+	//ThrowIfFailed(mDevice->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&mRootSignature)));
 
 
 
-	mvsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
-		"VS", "vs_5_0");
-	mpsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
-		"PS", "ps_5_0");
+	//mvsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
+	//	"VS", "vs_5_0");
+	//mpsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
+	//	"PS", "ps_5_0");
 
-	mShaders["SkyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_0");
-	mShaders["SkyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_0");
+	//mShaders["SkyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_0");
+	//mShaders["SkyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_0");
 
-	CD3DX12_RASTERIZER_DESC rsDesc(D3D12_DEFAULT);
-	rsDesc.FillMode = D3D12_FILL_MODE_SOLID;
-	rsDesc.CullMode = D3D12_CULL_MODE_NONE;
+	//CD3DX12_RASTERIZER_DESC rsDesc(D3D12_DEFAULT);
+	//rsDesc.FillMode = D3D12_FILL_MODE_SOLID;
+	//rsDesc.CullMode = D3D12_CULL_MODE_NONE;
 
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
-	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	psoDesc.InputLayout = { mVertexDesc.data(), (UINT)mVertexDesc.size() };
-	psoDesc.pRootSignature = mRootSignature.Get();
-	psoDesc.VS = { reinterpret_cast<BYTE*>(mvsByteCode->GetBufferPointer()), mvsByteCode->GetBufferSize()};
-	psoDesc.PS = { reinterpret_cast<BYTE*>(mpsByteCode->GetBufferPointer()), mpsByteCode->GetBufferSize() };
+	//D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
+	//ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+	//psoDesc.InputLayout = { mVertexDesc.data(), (UINT)mVertexDesc.size() };
+	//psoDesc.pRootSignature = mRootSignature.Get();
+	//psoDesc.VS = { reinterpret_cast<BYTE*>(mvsByteCode->GetBufferPointer()), mvsByteCode->GetBufferSize()};
+	//psoDesc.PS = { reinterpret_cast<BYTE*>(mpsByteCode->GetBufferPointer()), mpsByteCode->GetBufferSize() };
 
-	psoDesc.RasterizerState = rsDesc;
-	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoDesc.NumRenderTargets = 1;
-	psoDesc.RTVFormats[0] = mBackBufferFormat;
-	psoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	psoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	psoDesc.DSVFormat = mDepthStencilFormat;
+	//psoDesc.RasterizerState = rsDesc;
+	//psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	//psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	//psoDesc.SampleMask = UINT_MAX;
+	//psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	//psoDesc.NumRenderTargets = 1;
+	//psoDesc.RTVFormats[0] = mBackBufferFormat;
+	//psoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	//psoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	//psoDesc.DSVFormat = mDepthStencilFormat;
 
-	ThrowIfFailed(mDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSO)));
-	
-	mPSOs["opaque"] = mPSO;
+	//ThrowIfFailed(mDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSO)));
+	//
+	//mPSOs["opaque"] = mPSO;
 
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = psoDesc;
-	skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	skyPsoDesc.pRootSignature = mRootSignature.Get();
-	skyPsoDesc.InputLayout = { mSkyVertex.data(), (UINT)mSkyVertex.size() };
-	skyPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["SkyVS"]->GetBufferPointer()), mShaders["SkyVS"]->GetBufferSize() };
-	skyPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["SkyPS"]->GetBufferPointer()), mShaders["SkyPS"]->GetBufferSize() };
+	//D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = psoDesc;
+	//skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	//skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	//skyPsoDesc.pRootSignature = mRootSignature.Get();
+	//skyPsoDesc.InputLayout = { mSkyVertex.data(), (UINT)mSkyVertex.size() };
+	//skyPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["SkyVS"]->GetBufferPointer()), mShaders["SkyVS"]->GetBufferSize() };
+	//skyPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["SkyPS"]->GetBufferPointer()), mShaders["SkyPS"]->GetBufferSize() };
 
-	ThrowIfFailed(mDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOSky)));
+	//ThrowIfFailed(mDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOSky)));
 
-	mPSOs["sky"] = mPSOSky;
+	//mPSOs["sky"] = mPSOSky;
 }
 
 void D3DApp::CreateRenderObjects()
@@ -1372,6 +1381,20 @@ void D3DApp::OnKeyDown(WPARAM btnState)
 			mRaster = true;
 		}
 	}
+}
+
+void D3DApp::CreateEntities()
+{
+	Coordinator coordinator;
+	coordinator.Init();
+
+	Entity entity = coordinator.CreateEntity();
+	coordinator.RegisterSystem<RenderSystem>();
+	coordinator.RegisterComponent<Renderable>();
+	Signature signature;
+	signature.set(coordinator.GetComponentType<Renderable>());
+
+	coordinator.SetSystemSignature<RenderSystem>(signature);
 }
 
 void D3DApp::Pick(int sx, int sy)

@@ -80,6 +80,7 @@ public:
 	virtual void OnMouseUp(WPARAM btnState, int x, int y);
 	virtual void OnMouseMove(WPARAM btnState, int x, int y);
 	virtual void OnKeyDown(WPARAM btnState);
+	void CreateEntities();
 	void Pick(int sx, int sy);
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -220,6 +221,7 @@ private:
 	void CreateShaderBindingTable();
 protected:
 	static D3DApp* mApp;
+	std::shared_ptr<class RenderSystem> mRenderSystem;
 
 };
 

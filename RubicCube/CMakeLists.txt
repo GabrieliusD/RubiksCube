@@ -19,7 +19,7 @@ set(HEADERS
 	Graphics/Buffer.h
 	openxr/MathLib.h
 	openxr/OpenXrManager.h
- "Entity.h" "RenderSystem.h")
+ "Entity.h" "RenderSystem.h" "Transform.h")
 
 set(SOURCES
 	Source.cpp

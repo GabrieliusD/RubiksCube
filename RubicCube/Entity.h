@@ -7,19 +7,13 @@
 #include <queue>
 #include <DirectXMath.h>
 #include <bitset>
+#include <Transform.h>
 
 using Entity = std::uint32_t;
 
 const Entity MAX_ENTITIES = 5000;
 
 using namespace DirectX;
-
-struct Transform
-{
-	XMFLOAT3 position;
-	XMFLOAT3 rotation;
-	XMFLOAT3 scale;
-};
 
 using ComponentType = std::uint8_t;
 
@@ -299,7 +293,7 @@ public:
 	}
 
 	template<typename T>
-	void GetComponent(Entity entity)
+	T& GetComponent(Entity entity)
 	{
 		return mComponentManager->GetComponent<T>(entity);
 	}
