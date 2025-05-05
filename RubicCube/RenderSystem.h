@@ -3,6 +3,7 @@
 #include <d3dUtil.h>
 #include <Geometry.h>
 #include "Graphics/Buffer.h"
+#include "Graphics/DescriptorHeap.h"
 
 struct Renderable
 {
@@ -18,6 +19,7 @@ struct RenderSystemParams
 class RenderSystem : public System
 {
 public:
+	RenderSystem() {}
 	void Init(RenderSystemParams renderSystemParams);
 
 	void Update(float dt);
@@ -59,7 +61,6 @@ private:
 	ComPtr<ID3D12GraphicsCommandList4> mCommandList = nullptr;
 	ComPtr<ID3D12PipelineState> mPSO = nullptr;
 	ComPtr<ID3D12Resource> mSwapChainBuffer[kSwapChainBufferCount];
-	ComPtr<ID3D12DescriptorHeap> mCbvHeap = nullptr;
 	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
 	ComPtr<IDXGIFactory4> mdxgiFactory = nullptr;
 	UINT mPassCbOffset = -1;
@@ -71,8 +72,6 @@ private:
 	UINT mClientHeight = 600;
 	bool m4xMsaaState = false;    // 4X MSAA enabled
 	ConstantBuffer<MaterialConstants>* mMaterialConstantsBuffer = nullptr;
-	ComPtr<ID3D12DescriptorHeap> mRtvHeap = nullptr;
-	ComPtr<ID3D12DescriptorHeap> mDsvHeap = nullptr;
 
 	D3D12_VIEWPORT mScreenViewport = D3D12_VIEWPORT();
 	D3D12_RECT mScissorRect = D3D12_RECT();
@@ -93,4 +92,7 @@ private:
 	ComPtr<ID3D12Resource> mDepthStencilBuffer;
 	UINT64 mCurrentFence = 0;
 
+	DescriptorHeap mRtvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_RTV };
+	DescriptorHeap mDsvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_DSV };;
+	DescriptorHeap mSrvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV };
 };

@@ -5,7 +5,7 @@ project(RubicCube VERSION 1.0)
 set(HEADERS 
 	Common.h
 	Cube.h
-	D3D12Resources.h
+	
 	D3DApp.h
 	d3dUtil.h
 	d3dx12.h
@@ -19,13 +19,13 @@ set(HEADERS
 	Graphics/Buffer.h
 	openxr/MathLib.h
 	openxr/OpenXrManager.h
- "Entity.h" "RenderSystem.h" "Transform.h")
+ "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h")
 
 set(SOURCES
 	Source.cpp
 	Common.cpp
 	Cube.cpp
-	D3D12Resources.cpp
+	
 	D3DApp.cpp
 	d3dUtil.cpp
 	DDSTextureLoader.cpp
@@ -36,7 +36,7 @@ set(SOURCES
 	RenderObject.cpp
 	openxr/MathLib.cpp
 	openxr/OpenXrManager.cpp
- "Entity.h" "RenderSystem.h" "RenderSystem.cpp")
+ "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp")
 
 
 add_subdirectory(thirdparty/dxr/nv_helpers_dx12)
@@ -62,6 +62,7 @@ target_include_directories(RubicCube PUBLIC "${PROJECT_SOURCE_DIR}"
 "${PROJECT_SOURCE_DIR}/thirdparty/imgui")
 
 file(COPY Textures DESTINATION ${RubicCube_BINARY_DIR})
+file(COPY Shaders DESTINATION ${RubicCube_BINARY_DIR})
 
 
 add_custom_command(TARGET RubicCube POST_BUILD        

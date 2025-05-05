@@ -1,4 +1,5 @@
 #include "RenderSystem.h"
+#include <Graphics\D3DCore.h>
 
 extern Coordinator gCoordinator;
 void RenderSystem::Init(RenderSystemParams renderSystemParams)
@@ -22,27 +23,7 @@ void RenderSystem::Init(RenderSystemParams renderSystemParams)
 
 void RenderSystem::CreateD3D12Device()
 {
-#define DEBUG
-#if defined(DEBUG) || defined(_DEBUG)
-	{
-		Microsoft::WRL::ComPtr<ID3D12Debug> debugController;
-		ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
-		debugController->EnableDebugLayer();
-	}
-#endif
-	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
-
-	HRESULT hardwareResult = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&mDevice));
-
-	if (FAILED(hardwareResult))
-	{
-		Microsoft::WRL::ComPtr<IDXGIAdapter> pWarpAdapter;
-		ThrowIfFailed(mdxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(&pWarpAdapter)));
-		ThrowIfFailed(D3D12CreateDevice(
-			pWarpAdapter.Get(),
-			D3D_FEATURE_LEVEL_11_0,
-			IID_PPV_ARGS(&mDevice)));
-	}
+	mDevice = D3DCore::Device();
 }
 
 void RenderSystem::CreateFence()
@@ -112,35 +93,24 @@ void RenderSystem::CreateSwapChain()
 	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
-	ThrowIfFailed(mdxgiFactory->CreateSwapChain(mCommandQueue.Get(), &sd,
+	ThrowIfFailed(D3DCore::Factory()->CreateSwapChain(mCommandQueue.Get(), &sd,
 		mSwapChain.GetAddressOf()));
 }
 
 void RenderSystem::CreateRtvAndDsvDescriptorHeaps()
 {
-	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = 2;
-	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	rtvHeapDesc.NodeMask = 0;
 
-	ThrowIfFailed(mDevice->CreateDescriptorHeap(
-		&rtvHeapDesc, IID_PPV_ARGS(mRtvHeap.GetAddressOf()
-		)));
-	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 1;
-	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	dsvHeapDesc.NodeMask = 0;
-	ThrowIfFailed(mDevice->CreateDescriptorHeap(
-		&dsvHeapDesc, IID_PPV_ARGS(mDsvHeap.GetAddressOf()
-		)));
+	bool result = true;
+
+	result &= mRtvDescHeap.initialize(512, false);
+	result &= mDsvDescHeap.initialize(512, false);
+	result &= mSrvDescHeap.initialize(512, true);
 }
 
 void RenderSystem::CreateRenderTargetResource()
 {
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(
-		mRtvHeap->GetCPUDescriptorHandleForHeapStart()
+		mRtvDescHeap.cpu_start()
 	);
 	for (UINT i = 0; i < kSwapChainBufferCount; i++)
 	{
@@ -343,7 +313,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> RenderSystem::GetStaticSamplers
 D3D12_CPU_DESCRIPTOR_HANDLE RenderSystem::CurrentBackBufferView() const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
-		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+		mRtvDescHeap.cpu_start(),
 		mCurrBackBuffer,
 		mRtvDescriptorSize
 	);
@@ -351,7 +321,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE RenderSystem::CurrentBackBufferView() const
 
 D3D12_CPU_DESCRIPTOR_HANDLE RenderSystem::DepthStencilView() const
 {
-	return mDsvHeap->GetCPUDescriptorHandleForHeapStart();
+	return mDsvDescHeap.cpu_start();
 }
 
 void RenderSystem::Update(float dt)
@@ -365,39 +335,42 @@ void RenderSystem::Update(float dt)
 
 	if (mRaster)
 	{
-		mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Tomato, 0, nullptr);
+		mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Green, 0, nullptr);
 		mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 		mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-		ID3D12DescriptorHeap* DescriptorHeaps[] = { mCbvHeap.Get() };
+		ID3D12DescriptorHeap* DescriptorHeaps[] = { mSrvDescHeap.heap()};
 		mCommandList->SetDescriptorHeaps(_countof(DescriptorHeaps), DescriptorHeaps);
 		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
-		auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
-		passCbvHandle.Offset(mPassCbOffset, mCbvSrvDescriptorSize);
-		mCommandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
-
-		UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
-
-		for (auto& const entity : mEntities)
+		if (mSrvDescHeap.size() > 0)
 		{
-			auto& renderable = gCoordinator.GetComponent<Renderable>(entity);
-			mCommandList->IASetVertexBuffers(0, 1, &renderable.geometry->GetVertexBufferView());
-			mCommandList->IASetIndexBuffer(&renderable.geometry->GetIndexBufferView());
-			mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescHeap.gpu_start());
+			passCbvHandle.Offset(mPassCbOffset, mCbvSrvDescriptorSize);
+			mCommandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
 
-			//Set the position to draw the entity at
-			auto CbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
-			CbvHandle.Offset(entity, mCbvSrvDescriptorSize);
-			mCommandList->SetGraphicsRootDescriptorTable(0, CbvHandle);
+			UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
-			//material
-			D3D12_GPU_VIRTUAL_ADDRESS matCbAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
-			mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress);
+			for (auto& const entity : mEntities)
+			{
+				auto& renderable = gCoordinator.GetComponent<Renderable>(entity);
+				mCommandList->IASetVertexBuffers(0, 1, &renderable.geometry->GetVertexBufferView());
+				mCommandList->IASetIndexBuffer(&renderable.geometry->GetIndexBufferView());
+				mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-			//texture
-			CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
-			tex.Offset(mTextureOffset + renderable.material->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
-			mCommandList->SetGraphicsRootDescriptorTable(3, tex);
-			mCommandList->DrawIndexedInstanced(renderable.geometry->indexCount, 1, 0, 0, 0);
+				//Set the position to draw the entity at
+				auto CbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescHeap.gpu_start());
+				CbvHandle.Offset(entity, mCbvSrvDescriptorSize);
+				mCommandList->SetGraphicsRootDescriptorTable(0, CbvHandle);
+
+				//material
+				D3D12_GPU_VIRTUAL_ADDRESS matCbAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
+				mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress);
+
+				//texture
+				CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescHeap.gpu_start());
+				tex.Offset(mTextureOffset + renderable.material->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+				mCommandList->SetGraphicsRootDescriptorTable(3, tex);
+				mCommandList->DrawIndexedInstanced(renderable.geometry->indexCount, 1, 0, 0, 0);
+			}
 		}
 	}
 

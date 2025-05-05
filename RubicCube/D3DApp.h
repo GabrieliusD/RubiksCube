@@ -21,6 +21,7 @@
 
 // OpenXR Helper
 #include <OpenXRHelper.h>
+#include <Graphics\D3DCore.h>
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib,"dxcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -107,6 +108,7 @@ public:
 
 	XMFLOAT3 GetEyePosition() { return mEyePos; }
 private:
+	D3DCore mD3DCore;
 	DirectX::XMFLOAT3 mEyePos;
 	float mTheta = 1.5f * DirectX::XM_PI;
 	float mPhi = DirectX::XM_PIDIV4;

@@ -43,6 +43,7 @@ D3DApp::~D3DApp()
 
 void D3DApp::InitDirectX()
 {
+	mD3DCore.Initialize();
 	InitECS();
 //#define DEBUG
 //#if defined(DEBUG) || defined(_DEBUG)
@@ -892,8 +893,9 @@ int D3DApp::Run()
 				CalculateFrameStats();
 				openXrManager->StartFrame();
 				openXrManager->AcquireSwapchainImages();
-				Update(mTimer);
-				Draw(mTimer);
+				//Update(mTimer);
+				//Draw(mTimer);
+				mRenderSystem->Update(mTimer.DeltaTime());
 				
 			}
 			else
