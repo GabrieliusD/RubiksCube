@@ -12,6 +12,8 @@
 #include <openxr\OpenXrManager.h>
 #include <Entity.h>
 #include <RenderSystem.h>
+#include <CameraSystem.h>
+#include <Camera.h>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -44,7 +46,10 @@ D3DApp::~D3DApp()
 void D3DApp::InitDirectX()
 {
 	mD3DCore.Initialize();
+
 	InitECS();
+	CreateVertexAndIndexBuffer();
+	CreateEntities();
 //#define DEBUG
 //#if defined(DEBUG) || defined(_DEBUG)
 //	{
@@ -108,7 +113,6 @@ void D3DApp::InitDirectX()
 //	CreateDepthStencilResource();
 //	CreateViewport();
 	//VertexInputLayout();
-	CreateVertexAndIndexBuffer();
 	//CreateMaterials();
 	//CreateTextures();
 	//CreateRenderObjects();
@@ -190,20 +194,43 @@ void D3DApp::InitECS()
 
 	gCoordinator.RegisterComponent<Transform>();
 	gCoordinator.RegisterComponent<Renderable>();
+	gCoordinator.RegisterComponent<Camera>();
 
+	mCameraSystem = gCoordinator.RegisterSystem<CameraSystem>();
 	mRenderSystem = gCoordinator.RegisterSystem<RenderSystem>();
+
+	Signature renderSignature;
+	renderSignature.set(gCoordinator.GetComponentType<Transform>());
+	renderSignature.set(gCoordinator.GetComponentType<Renderable>());
+
+	gCoordinator.SetSystemSignature<RenderSystem>(renderSignature);
+
+	Signature cameraSignature;
+	cameraSignature.set(gCoordinator.GetComponentType<Transform>());
+	cameraSignature.set(gCoordinator.GetComponentType<Camera>());
+
+	gCoordinator.SetSystemSignature<CameraSystem>(cameraSignature);
+
+	mCameraSystem->Init();
 
 	RenderSystemParams renderSystemParams;
 	renderSystemParams.hwnd = mhMainWnd;
+
+	Entity camera = mCameraSystem->GetCamera();
+	renderSystemParams.camera = camera;
+
 	mRenderSystem->Init(renderSystemParams);
+}
 
-	Signature signature;
-	signature.set(gCoordinator.GetComponentType<Transform>());
-	signature.set(gCoordinator.GetComponentType<Renderable>());
-
-	gCoordinator.SetSystemSignature<RenderSystem>(signature);
-
+void D3DApp::CreateEntities()
+{
 	auto test = gCoordinator.CreateEntity();
+
+	gCoordinator.AddComponent<Transform>(test, Transform{});
+	Renderable renderable;
+	renderable.geometry = geometries["Cube"].get();
+	renderable.material = materials["grass"].get();
+	gCoordinator.AddComponent<Renderable>(test, renderable);
 }
 
 void D3DApp::CreateSwapChain()
@@ -1383,20 +1410,6 @@ void D3DApp::OnKeyDown(WPARAM btnState)
 			mRaster = true;
 		}
 	}
-}
-
-void D3DApp::CreateEntities()
-{
-	Coordinator coordinator;
-	coordinator.Init();
-
-	Entity entity = coordinator.CreateEntity();
-	coordinator.RegisterSystem<RenderSystem>();
-	coordinator.RegisterComponent<Renderable>();
-	Signature signature;
-	signature.set(coordinator.GetComponentType<Renderable>());
-
-	coordinator.SetSystemSignature<RenderSystem>(signature);
 }
 
 void D3DApp::Pick(int sx, int sy)

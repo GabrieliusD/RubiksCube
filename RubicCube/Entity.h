@@ -188,6 +188,8 @@ private:
 class System
 {
 public:
+	virtual void OnEntityAdded(Entity entity) {};
+	virtual void OnEntityRemoved(Entity entity) {};
 	std::set<Entity> mEntities;
 };
 
@@ -230,10 +232,12 @@ public:
 			if ((entitySignature & systemSignature) == systemSignature)
 			{
 				system->mEntities.insert(entity);
+				system->OnEntityAdded(entity);
 			}
 			else
 			{
 				system->mEntities.erase(entity);
+				system->OnEntityRemoved(entity);
 			}
 		}
 	}

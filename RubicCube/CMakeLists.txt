@@ -19,7 +19,7 @@ set(HEADERS
 	Graphics/Buffer.h
 	openxr/MathLib.h
 	openxr/OpenXrManager.h
- "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h")
+ "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h" "Camera.h" "CameraSystem.h")
 
 set(SOURCES
 	Source.cpp
@@ -36,7 +36,7 @@ set(SOURCES
 	RenderObject.cpp
 	openxr/MathLib.cpp
 	openxr/OpenXrManager.cpp
- "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp")
+ "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp" "CameraSystem.cpp")
 
 
 add_subdirectory(thirdparty/dxr/nv_helpers_dx12)

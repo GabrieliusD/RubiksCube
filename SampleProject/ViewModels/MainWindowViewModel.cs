@@ -7,6 +7,7 @@ namespace StartingApp.ViewModels
     public partial class MainWindowViewModel : ViewModelBase
     {
         public string Greeting { get; } = "Welcome to Avalonia! This is my first tests";
+        public SimpleViewModel SimpleViewModel { get; } = new SimpleViewModel();
     }
 
     internal class WindowHost : NativeControlHost

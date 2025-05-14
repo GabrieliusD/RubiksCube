@@ -5,6 +5,18 @@
 #include "Graphics/Buffer.h"
 #include "Graphics/DescriptorHeap.h"
 
+template <typename T>
+struct ConstantBufferWrapper
+{
+	ConstantBufferWrapper(ConstantBuffer<T>* buffer, descriptor_handle handle)
+	{
+		constantBuffer = buffer;
+		descriptorHandle = handle;
+	}
+	ConstantBuffer<T>* constantBuffer;
+	descriptor_handle descriptorHandle;
+};
+
 struct Renderable
 {
 	Material* material = nullptr;
@@ -14,6 +26,7 @@ struct Renderable
 struct RenderSystemParams
 {
 	HWND hwnd = nullptr;
+	Entity camera = -1;
 };
 
 class RenderSystem : public System
@@ -21,7 +34,10 @@ class RenderSystem : public System
 public:
 	RenderSystem() {}
 	void Init(RenderSystemParams renderSystemParams);
-
+	virtual void OnEntityAdded(Entity entity);
+	virtual void OnEntityRemoved(Entity entity);
+	void UpdateCbs(float dt);
+	void UpdateEntityCbs(float dt);
 	void Update(float dt);
 
 	ComPtr<ID3D12GraphicsCommandList4> GetCommandList() { return mCommandList; }
@@ -45,6 +61,7 @@ private:
 	void CreateVertexInputLayout();
 	void CreateRootSignature();
 	void CreatePSO();
+	void CreateConstantBuffers();
 	
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -92,7 +109,14 @@ private:
 	ComPtr<ID3D12Resource> mDepthStencilBuffer;
 	UINT64 mCurrentFence = 0;
 
+	RenderSystemParams mRenderSystemParams;
+
 	DescriptorHeap mRtvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_RTV };
 	DescriptorHeap mDsvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_DSV };;
 	DescriptorHeap mSrvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV };
+
+	ConstantBufferWrapper<class PassConstant>* mMainPassCbWrapper;
+	ConstantBuffer<class ObjectConstants>* mObjectConstantsBuffer;
+	std::unordered_map<Entity, descriptor_handle> mEntityToDescriptorHandleMap;
+	std::unordered_map<Entity, UINT16> mEntityToCbIndexMap;
 };

@@ -1,9 +1,12 @@
 #include "RenderSystem.h"
 #include <Graphics\D3DCore.h>
+#include <PassConstant.h>
+#include <Camera.h>
 
 extern Coordinator gCoordinator;
 void RenderSystem::Init(RenderSystemParams renderSystemParams)
 {
+	mRenderSystemParams = renderSystemParams;
 	mHwnd = renderSystemParams.hwnd;
 	CreateD3D12Device();
 	CreateFence();
@@ -18,6 +21,40 @@ void RenderSystem::Init(RenderSystemParams renderSystemParams)
 	CreateVertexInputLayout();
 	CreateRootSignature();
 	CreatePSO();
+	CreateConstantBuffers();
+}
+
+void RenderSystem::OnEntityAdded(Entity entity)
+{
+	descriptor_handle handle = mSrvDescHeap.allocate();
+	mEntityToDescriptorHandleMap.emplace(entity, handle);
+
+	D3D12_GPU_VIRTUAL_ADDRESS cbAddress = mObjectConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
+
+	int index = mEntities.size() - 1;
+	mEntityToCbIndexMap.emplace(entity, index);
+	UINT elementByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	cbAddress += index * elementByteSize;
+
+	D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc;
+	cbvDesc.BufferLocation = cbAddress;
+	cbvDesc.SizeInBytes = elementByteSize;
+
+	mDevice->CreateConstantBufferView(
+		&cbvDesc,
+		handle.cpu
+	);
+}
+
+void RenderSystem::OnEntityRemoved(Entity entity)
+{
+	if (mEntityToDescriptorHandleMap.find(entity) == mEntityToDescriptorHandleMap.end())
+	{
+		return;
+	}
+	descriptor_handle handle = mEntityToDescriptorHandleMap[entity];
+	mSrvDescHeap.free(handle);
+
 }
 
 
@@ -263,6 +300,24 @@ void RenderSystem::CreatePSO()
 	mPSOs["opaque"] = mPSO;
 }
 
+void RenderSystem::CreateConstantBuffers()
+{
+	auto mainPassConstantBuffer = new ConstantBuffer<PassConstant>(mDevice.Get(), 1);
+	UINT passByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstant));
+
+	auto descriptorHandle = mSrvDescHeap.allocate();
+
+	D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc;
+	cbvDesc.BufferLocation = mainPassConstantBuffer->GetBuffer()->GetGPUVirtualAddress();
+	cbvDesc.SizeInBytes = passByteSize;
+
+	mDevice->CreateConstantBufferView(&cbvDesc, descriptorHandle.cpu);
+
+	mMainPassCbWrapper = new ConstantBufferWrapper<PassConstant>(mainPassConstantBuffer, descriptorHandle);
+
+	mObjectConstantsBuffer = new ConstantBuffer<ObjectConstants>(mDevice.Get(), 1024);
+}
+
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> RenderSystem::GetStaticSamplers()
 {
 	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
@@ -324,8 +379,72 @@ D3D12_CPU_DESCRIPTOR_HANDLE RenderSystem::DepthStencilView() const
 	return mDsvDescHeap.cpu_start();
 }
 
+void RenderSystem::UpdateCbs(float dt)
+{
+	PassConstant mMainPassCb;
+	Entity camera = mRenderSystemParams.camera;
+	auto cameraTransform = gCoordinator.GetComponent<Transform>(camera);
+	auto cameraData = gCoordinator.GetComponent<Camera>(camera);
+	cameraData.CreateViewFromTransform(cameraTransform);
+
+	XMMATRIX view = XMLoadFloat4x4(&cameraData.view);
+	XMMATRIX proj = XMLoadFloat4x4(&cameraData.proj);
+	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+	XMStoreFloat4x4(&mMainPassCb.view, XMMatrixTranspose(view));
+	XMStoreFloat4x4(&mMainPassCb.invView, XMMatrixTranspose(invView));
+	XMStoreFloat4x4(&mMainPassCb.proj, XMMatrixTranspose(proj));
+	XMStoreFloat4x4(&mMainPassCb.invProj, XMMatrixTranspose(invProj));
+	XMStoreFloat4x4(&mMainPassCb.viewProj, XMMatrixTranspose(viewProj));
+	XMStoreFloat4x4(&mMainPassCb.invViewProj, XMMatrixTranspose(invViewProj));
+
+	mMainPassCb.eyePosW = cameraTransform.position;
+	mMainPassCb.renderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+	mMainPassCb.invRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+	mMainPassCb.nearZ = 1.0f;
+	mMainPassCb.farZ = 1000.0f;
+	mMainPassCb.totalTime = dt;
+	mMainPassCb.deltaTime = dt;
+	mMainPassCb.ambientLight = { 0.25f, 0.25f, 0.35f, 0.1f };
+
+	mMainPassCb.lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+	mMainPassCb.lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+	mMainPassCb.lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+	mMainPassCb.lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+	mMainPassCb.lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+	mMainPassCb.lights[2].Strength = { 0.15f, 0.15f, 0.15f };
+
+	mMainPassCbWrapper->constantBuffer->CopyData(0, mMainPassCb);
+}
+
+void RenderSystem::UpdateEntityCbs(float dt)
+{
+	for (Entity entity : mEntities)
+	{
+		Transform transform = gCoordinator.GetComponent<Transform>(entity);
+		XMFLOAT3 position = transform.position;
+		XMMATRIX translationMatrix = XMMatrixTranslation(position.x, position.y, position.z);
+		XMFLOAT3 rotation = transform.rotation;
+		XMMATRIX rotationMatrix = XMMatrixRotationRollPitchYawFromVector(XMVectorSet(rotation.x, rotation.y, rotation.z, 0));
+		XMFLOAT3 scale = transform.scale;
+		XMMATRIX scaleMatrix = XMMatrixScalingFromVector(XMVectorSet(scale.x, scale.y, scale.z, 0));
+
+		XMMATRIX objWorld = translationMatrix * rotationMatrix * scaleMatrix;
+		ObjectConstants objectConstant;
+		XMStoreFloat4x4(&objectConstant.World, XMMatrixTranspose(objWorld));
+
+		UINT16 index = mEntityToCbIndexMap[entity];
+		mObjectConstantsBuffer->CopyData(index, objectConstant);
+	}
+}
+
 void RenderSystem::Update(float dt)
 {
+	UpdateCbs(dt);
+	UpdateEntityCbs(dt);
 	ThrowIfFailed(mDirectCmdListAlloc->Reset());
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSO.Get()));
 
@@ -343,9 +462,7 @@ void RenderSystem::Update(float dt)
 		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 		if (mSrvDescHeap.size() > 0)
 		{
-			auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescHeap.gpu_start());
-			passCbvHandle.Offset(mPassCbOffset, mCbvSrvDescriptorSize);
-			mCommandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
+			mCommandList->SetGraphicsRootDescriptorTable(1, mMainPassCbWrapper->descriptorHandle.gpu);
 
 			UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
@@ -357,9 +474,8 @@ void RenderSystem::Update(float dt)
 				mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 				//Set the position to draw the entity at
-				auto CbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescHeap.gpu_start());
-				CbvHandle.Offset(entity, mCbvSrvDescriptorSize);
-				mCommandList->SetGraphicsRootDescriptorTable(0, CbvHandle);
+				descriptor_handle handle = mEntityToDescriptorHandleMap[entity];
+				mCommandList->SetGraphicsRootDescriptorTable(0, handle.gpu);
 
 				//material
 				D3D12_GPU_VIRTUAL_ADDRESS matCbAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();

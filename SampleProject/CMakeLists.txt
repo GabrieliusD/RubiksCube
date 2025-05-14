@@ -26,6 +26,7 @@ add_executable(SampleProject
 
 	"ViewModels/MainWindowViewModel.cs"
 	"ViewModels/ViewModelBase.cs"
+	"ViewModels/SimpleViewModel.cs"
 
 	"Views/MainWindow.axaml"
 	"Views/MainWindow.axaml.cs"
