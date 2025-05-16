@@ -38,12 +38,15 @@ public:
 	virtual void OnEntityRemoved(Entity entity);
 	void UpdateCbs(float dt);
 	void UpdateEntityCbs(float dt);
+	void UpdateMaterialCbs(float dt);
 	void Update(float dt);
 
 	ComPtr<ID3D12GraphicsCommandList4> GetCommandList() { return mCommandList; }
 	ComPtr<ID3D12Device5> GetDevice() { return mDevice; }
 	void FlushCommandQueue();
 	void CmdListCloseAndExecute();
+	void CreateMaterial(std::string name, XMFLOAT4 diffuseAlbedo, XMFLOAT3 fresnelR0, float roughness, int diffuseSrvHeapIndex = 0);
+	Material* GetMaterial(std::string name);
 
 	static const int kSwapChainBufferCount = 2;
 
@@ -89,6 +92,7 @@ private:
 	UINT mClientHeight = 600;
 	bool m4xMsaaState = false;    // 4X MSAA enabled
 	ConstantBuffer<MaterialConstants>* mMaterialConstantsBuffer = nullptr;
+	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
 
 	D3D12_VIEWPORT mScreenViewport = D3D12_VIEWPORT();
 	D3D12_RECT mScissorRect = D3D12_RECT();

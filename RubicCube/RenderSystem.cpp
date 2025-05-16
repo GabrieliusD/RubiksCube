@@ -44,6 +44,9 @@ void RenderSystem::OnEntityAdded(Entity entity)
 		&cbvDesc,
 		handle.cpu
 	);
+
+	Renderable renderable = gCoordinator.GetComponent<Renderable>(entity);
+	renderable.material;
 }
 
 void RenderSystem::OnEntityRemoved(Entity entity)
@@ -316,6 +319,7 @@ void RenderSystem::CreateConstantBuffers()
 	mMainPassCbWrapper = new ConstantBufferWrapper<PassConstant>(mainPassConstantBuffer, descriptorHandle);
 
 	mObjectConstantsBuffer = new ConstantBuffer<ObjectConstants>(mDevice.Get(), 1024);
+	mMaterialConstantsBuffer = new ConstantBuffer<MaterialConstants>(mDevice.Get(), 1024);
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> RenderSystem::GetStaticSamplers()
@@ -441,6 +445,10 @@ void RenderSystem::UpdateEntityCbs(float dt)
 	}
 }
 
+void RenderSystem::UpdateMaterialCbs(float dt)
+{
+}
+
 void RenderSystem::Update(float dt)
 {
 	UpdateCbs(dt);
@@ -532,4 +540,27 @@ void RenderSystem::CmdListCloseAndExecute()
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+}
+
+void RenderSystem::CreateMaterial(std::string name, XMFLOAT4 diffuseAlbedo, XMFLOAT3 fresnelR0, float roughness, int diffuseSrvHeapIndex)
+{
+	std::unique_ptr<Material> material = std::make_unique<Material>();
+	material->Name = name;
+	material->MatCBIndex = mMaterials.size();
+	material->DiffuseAlbedo = diffuseAlbedo;
+	material->FresnelR0 = fresnelR0;
+	material->Roughness = roughness;
+	material->DiffuseSrvHeapIndex = diffuseSrvHeapIndex;
+
+	mMaterials[name] = std::move(material);
+}
+
+Material* RenderSystem::GetMaterial(std::string name)
+{
+	if (mMaterials.find(name) != mMaterials.end())
+	{
+		return mMaterials[name].get();
+	}
+
+	return nullptr;
 }

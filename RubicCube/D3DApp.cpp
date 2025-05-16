@@ -49,6 +49,7 @@ void D3DApp::InitDirectX()
 
 	InitECS();
 	CreateVertexAndIndexBuffer();
+	CreateMaterials();
 	CreateEntities();
 //#define DEBUG
 //#if defined(DEBUG) || defined(_DEBUG)
@@ -229,7 +230,7 @@ void D3DApp::CreateEntities()
 	gCoordinator.AddComponent<Transform>(test, Transform{});
 	Renderable renderable;
 	renderable.geometry = geometries["Cube"].get();
-	renderable.material = materials["grass"].get();
+	renderable.material = mRenderSystem->GetMaterial("grass");
 	gCoordinator.AddComponent<Renderable>(test, renderable);
 }
 
@@ -744,40 +745,10 @@ void D3DApp::CreateConstantBufferViewsForRenderObjects()
 
 void D3DApp::CreateMaterials()
 {
-	std::unique_ptr<Material> grass = std::make_unique<Material>();
-	grass->Name = "grass";
-	grass->MatCBIndex = 0;
-	grass->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	grass->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
-	grass->Roughness = 0.3f;
-	grass->DiffuseSrvHeapIndex = 0;
-
-	std::unique_ptr<Material> water = std::make_unique<Material>();
-	water->Name = "water";
-	water->MatCBIndex = 1;
-	water->DiffuseAlbedo = XMFLOAT4(0.0f, 0.2f, 0.6f, 1.0f);
-	water->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-	water->DiffuseSrvHeapIndex = 0;
-
-	std::unique_ptr<Material> sky = std::make_unique<Material>();
-	sky->Name = "sky";
-	sky->MatCBIndex = 2;
-	sky->DiffuseAlbedo = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
-	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-	sky->DiffuseSrvHeapIndex = 0;
-
-	std::unique_ptr<Material> selectedCube = std::make_unique<Material>();
-	selectedCube->Name = "selectedCube";
-	selectedCube->MatCBIndex = 3;
-	selectedCube->DiffuseAlbedo = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
-	selectedCube->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
-	selectedCube->DiffuseSrvHeapIndex = 0;
-
-
-	materials["grass"] = std::move(grass);
-	materials["water"] = std::move(water);
-	materials["sky"] = std::move(sky);
-	materials["selectedCube"] = std::move(selectedCube);
+	mRenderSystem->CreateMaterial("grass", XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
+	mRenderSystem->CreateMaterial("water", XMFLOAT4(0.0f, 0.2f, 0.6f, 1.0f), XMFLOAT3(0.1f, 0.1f, 0.1f), 0.0f);
+	mRenderSystem->CreateMaterial("sky", XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), XMFLOAT3(0.1f, 0.1f, 0.1f), 0.0f);
+	mRenderSystem->CreateMaterial("selectedCube", XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f), XMFLOAT3(0.1f, 0.1f, 0.1f), 0.0f);
 }
 
 void D3DApp::CreateTextures()
