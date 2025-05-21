@@ -51,6 +51,7 @@ void D3DApp::InitDirectX()
 	CreateVertexAndIndexBuffer();
 	CreateMaterials();
 	CreateEntities();
+	CreateTextures();
 //#define DEBUG
 //#if defined(DEBUG) || defined(_DEBUG)
 //	{
@@ -226,8 +227,10 @@ void D3DApp::InitECS()
 void D3DApp::CreateEntities()
 {
 	auto test = gCoordinator.CreateEntity();
-
-	gCoordinator.AddComponent<Transform>(test, Transform{});
+	Transform transform;
+	transform.scale = XMFLOAT3(1, 1, 1);
+	transform.position = XMFLOAT3(0, 0, 10);
+	gCoordinator.AddComponent<Transform>(test, transform);
 	Renderable renderable;
 	renderable.geometry = geometries["Cube"].get();
 	renderable.material = mRenderSystem->GetMaterial("grass");
@@ -753,22 +756,7 @@ void D3DApp::CreateMaterials()
 
 void D3DApp::CreateTextures()
 {
-	std::unique_ptr<Texture> woodCrateTex = std::make_unique<Texture>();
-	woodCrateTex->Name = "woodCrateTex";
-	woodCrateTex->Filename = L"Textures/rubicPallet.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
-		mDevice, mCommandList.Get(), woodCrateTex->Filename.c_str(),
-		woodCrateTex->Resource, woodCrateTex->UploadHeap));
-
-	std::unique_ptr<Texture> skyTex = std::make_unique<Texture>();
-	skyTex->Name = "skyTex";
-	skyTex->Filename = L"Textures/grasscube1024.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
-		mDevice, mCommandList.Get(), skyTex->Filename.c_str(),
-		skyTex->Resource, skyTex->UploadHeap));
-
-	mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
-	mTextures[skyTex->Name] = std::move(skyTex);
+	mRenderSystem->CreateTexture("woodCrateTex", L"Textures/rubicPallet.dds");
 }
 
 void D3DApp::InitImgui()

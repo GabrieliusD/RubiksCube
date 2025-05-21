@@ -28,6 +28,7 @@
 #include "d3dx12.h"
 #include "DDSTextureLoader.h"
 #include "MathHelper.h"
+#include "Graphics/DescriptorHeap.h"
 
 extern const int gNumFrameResources;
 
@@ -250,6 +251,8 @@ struct Material
 	// Index into SRV heap for diffuse texture.
 	int DiffuseSrvHeapIndex = -1;
 
+    int TextureId = -1;
+
 	// Index into SRV heap for normal texture.
 	int NormalSrvHeapIndex = -1;
 
@@ -275,6 +278,7 @@ struct Texture
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> Resource = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> UploadHeap = nullptr;
+    descriptor_handle DescHandle;
 };
 
 #ifndef ThrowIfFailed

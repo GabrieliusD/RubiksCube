@@ -27,5 +27,6 @@ struct Camera
 		XMFLOAT3 rotation = transform.rotation;
 		XMMATRIX rotationMatrix = XMMatrixRotationRollPitchYawFromVector(XMVectorSet(rotation.x, rotation.y, rotation.z, 0));
 		XMMATRIX viewMatrix = XMMatrixMultiply(translationMatrix, rotationMatrix);
+		XMStoreFloat4x4(&view, viewMatrix);
 	}
 };

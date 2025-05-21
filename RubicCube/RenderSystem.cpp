@@ -57,7 +57,6 @@ void RenderSystem::OnEntityRemoved(Entity entity)
 	}
 	descriptor_handle handle = mEntityToDescriptorHandleMap[entity];
 	mSrvDescHeap.free(handle);
-
 }
 
 
@@ -487,12 +486,11 @@ void RenderSystem::Update(float dt)
 
 				//material
 				D3D12_GPU_VIRTUAL_ADDRESS matCbAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
-				mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress);
+				mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress * renderable.material->MatCBIndex);
 
 				//texture
-				CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescHeap.gpu_start());
-				tex.Offset(mTextureOffset + renderable.material->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
-				mCommandList->SetGraphicsRootDescriptorTable(3, tex);
+				Texture* texture = mIdToTexture[renderable.material->TextureId];
+				mCommandList->SetGraphicsRootDescriptorTable(3, texture->DescHandle.gpu);
 				mCommandList->DrawIndexedInstanced(renderable.geometry->indexCount, 1, 0, 0, 0);
 			}
 		}
@@ -551,6 +549,7 @@ void RenderSystem::CreateMaterial(std::string name, XMFLOAT4 diffuseAlbedo, XMFL
 	material->FresnelR0 = fresnelR0;
 	material->Roughness = roughness;
 	material->DiffuseSrvHeapIndex = diffuseSrvHeapIndex;
+	material->TextureId = 0;
 
 	mMaterials[name] = std::move(material);
 }
@@ -563,4 +562,34 @@ Material* RenderSystem::GetMaterial(std::string name)
 	}
 
 	return nullptr;
+}
+
+int RenderSystem::CreateTexture(const std::string& name, const std::wstring& file)
+{
+	std::unique_ptr<Texture> texture = std::make_unique<Texture>();
+	texture->Name = "woodCrateTex";
+	texture->Filename = file;
+
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(
+		mDevice.Get(), mCommandList.Get(), texture->Filename.c_str(),
+		texture->Resource, texture->UploadHeap));
+
+
+	descriptor_handle handle = mSrvDescHeap.allocate();
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
+	srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Format = texture->Resource->GetDesc().Format;
+	srvDesc.Texture2D.MostDetailedMip = 0;
+	srvDesc.Texture2D.MipLevels = texture->Resource->GetDesc().MipLevels;
+	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	mDevice->CreateShaderResourceView(texture->Resource.Get(), &srvDesc, handle.cpu);
+
+	texture->DescHandle = handle;
+	int id = mTextures.size();
+	mIdToTexture[id] = texture.get();
+	mTextures[texture->Name] = std::move(texture);
+
+	return id;
 }

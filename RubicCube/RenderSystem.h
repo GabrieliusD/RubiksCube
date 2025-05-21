@@ -47,6 +47,7 @@ public:
 	void CmdListCloseAndExecute();
 	void CreateMaterial(std::string name, XMFLOAT4 diffuseAlbedo, XMFLOAT3 fresnelR0, float roughness, int diffuseSrvHeapIndex = 0);
 	Material* GetMaterial(std::string name);
+	int CreateTexture(const std::string& name, const std::wstring& file);
 
 	static const int kSwapChainBufferCount = 2;
 
@@ -93,6 +94,9 @@ private:
 	bool m4xMsaaState = false;    // 4X MSAA enabled
 	ConstantBuffer<MaterialConstants>* mMaterialConstantsBuffer = nullptr;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
+	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
+	std::unordered_map<int, Texture*> mIdToTexture;
+	std::unordered_map<int, D3D12_GPU_VIRTUAL_ADDRESS> mTextureIdToGpuAddress;
 
 	D3D12_VIEWPORT mScreenViewport = D3D12_VIEWPORT();
 	D3D12_RECT mScissorRect = D3D12_RECT();
