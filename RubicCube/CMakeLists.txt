@@ -75,4 +75,7 @@ add_custom_command(TARGET RubicCube POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${PROJECT_SOURCE_DIR}/Shaders"
         $<TARGET_FILE_DIR:RubicCube>/Shaders
+	COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${PROJECT_SOURCE_DIR}/Textures"
+        $<TARGET_FILE_DIR:RubicCube>/Textures
 )                 
