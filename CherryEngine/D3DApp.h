@@ -34,6 +34,8 @@ struct AccelerationStructureBuffers
 	ComPtr<ID3D12Resource> pResult;
 	ComPtr<ID3D12Resource> pInstanceDesc;
 };
+
+extern class D3DApp* CreateApplication();
 class D3DApp
 {
 
@@ -50,42 +52,23 @@ public:
 	bool InitWindow();
 	void InitVrHeadset();
 	void InitECS();
-	void CreateEntities();
-	void CreateSwapChain();
-	void CreateRtvAndDsvDescriptorHeaps();
-	void CreateRenderTargetResources();
-	void CreateDepthStencilResource();
-	void CreateViewport();
+	virtual void OnAppInitialized() {}
 	
-	//getting ready to draw
-	void VertexInputLayout();
-	void CreateVertexAndIndexBuffer();
-	void CreateRenderObjects();
-	void CreateConstantBufferViewsForRenderObjects();
-	void CreateMaterials();
-	void CreateTextures();
 	void InitImgui();
 	void RenderImgui();
 	void VictoryScreen(bool Enable);
-	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const;
-	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const;
+
 	int Run();
 	virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-	void FlushCommandQueue();
 	void CalculateFrameStats();
 	virtual void Update(GameTimer& timer);
-	virtual void Draw(GameTimer& timer);
-	void UpdateMainPasCb(const GameTimer& timer);
-	void UpdateMaterialCb(const GameTimer& timer);
 	void UpdateRubikCubeInstances();
 	virtual void OnMouseDown(WPARAM btnState, int x, int y);
 	virtual void OnMouseUp(WPARAM btnState, int x, int y);
 	virtual void OnMouseMove(WPARAM btnState, int x, int y);
 	virtual void OnKeyDown(WPARAM btnState);
 	void Pick(int sx, int sy);
-	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
-	void CheckRaytracingSupport();
 	inline int GetWidth() { return mClientWidth; }
 	inline int GetHeight() { return mClientHeight; }
 	enum Hand : uint8_t
@@ -93,16 +76,11 @@ public:
 		left,
 		right
 	};
-	void UpdateHandPosition(Hand hand, XMFLOAT4X4 world);
-	void* GetXrSwapchainImage(XrSwapchain swapchain, uint32_t index);
 	enum class SwapchainType : uint8_t {
 		COLOR,
 		DEPTH
 	};
 	std::unordered_map<XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageD3D12KHR>>> swapchainImagesMap{};
-
-	XrSwapchainImageBaseHeader* AllocateSwapchainImageData(XrSwapchain swapchain, SwapchainType type, uint32_t count);
-
 	const DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 	const DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D16_UNORM; //DXGI_FORMAT_D24_UNORM_S8_UINT;
 
@@ -208,19 +186,7 @@ private:
 	class OpenXrManager* openXrManager;
 private:
 	bool mSupportsRaytracing = false;
-	AccelerationStructureBuffers CreateBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t >> vertexBuffer, 
-		std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> indexBuffers = {});
-	void CreateTopLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>>& instances, bool updateOnly = false);
-	void CreateAccelerationStructures();
-	ComPtr<ID3D12RootSignature> CreateRayGenSignature();
-	ComPtr<ID3D12RootSignature> CreateMissSignature();
-	ComPtr<ID3D12RootSignature> CreateHitSignature();
-	void CreateRaytracingPipeline();
 
-	void CreateRaytracingOutputBuffer();
-	void CreateShaderResourceHeap();
-
-	void CreateShaderBindingTable();
 protected:
 	static D3DApp* mApp;
 	std::shared_ptr<class RenderSystem> mRenderSystem;

@@ -43,6 +43,7 @@ public:
 
 	ComPtr<ID3D12GraphicsCommandList4> GetCommandList() { return mCommandList; }
 	ComPtr<ID3D12Device5> GetDevice() { return mDevice; }
+	void ResetCommandList();
 	void FlushCommandQueue();
 	void CmdListCloseAndExecute();
 	void CreateMaterial(std::string name, XMFLOAT4 diffuseAlbedo, XMFLOAT3 fresnelR0, float roughness, int diffuseSrvHeapIndex = 0);

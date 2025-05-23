@@ -402,15 +402,15 @@ void OpenXrManager::CreateSwapChains()
 		OPENXR_CHECK(xrCreateSwapchain(mSession, &swapchainCI, &depthSwapChainInfo.swapchain), "Failed to create color swapchain");
 		depthSwapChainInfo.swapchainFormat = swapchainCI.format;
 
-		uint32_t colorSwapchainImageCount = 0;
-		OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapChainInfo.swapchain, 0, &colorSwapchainImageCount, nullptr), "Failed to enumerate Color swapchain images");
-		XrSwapchainImageBaseHeader* colorSwapchainImages = D3DApp::GetApp()->AllocateSwapchainImageData(colorSwapChainInfo.swapchain, D3DApp::SwapchainType::COLOR, colorSwapchainImageCount);
-		OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapChainInfo.swapchain, colorSwapchainImageCount, &colorSwapchainImageCount, colorSwapchainImages), "Failed to enumerate Color Swapchain images");
+		//uint32_t colorSwapchainImageCount = 0;
+		//OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapChainInfo.swapchain, 0, &colorSwapchainImageCount, nullptr), "Failed to enumerate Color swapchain images");
+		//XrSwapchainImageBaseHeader* colorSwapchainImages = D3DApp::GetApp()->AllocateSwapchainImageData(colorSwapChainInfo.swapchain, D3DApp::SwapchainType::COLOR, colorSwapchainImageCount);
+		//OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapChainInfo.swapchain, colorSwapchainImageCount, &colorSwapchainImageCount, colorSwapchainImages), "Failed to enumerate Color Swapchain images");
 
-		uint32_t depthSwapchainImageCount = 0;
-		OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapChainInfo.swapchain, 0, &depthSwapchainImageCount, nullptr), "Failed to enumerate Depth swapchain images");
-		XrSwapchainImageBaseHeader* depthSwapchainImages = D3DApp::GetApp()->AllocateSwapchainImageData(depthSwapChainInfo.swapchain, D3DApp::SwapchainType::DEPTH, depthSwapchainImageCount);
-		OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapChainInfo.swapchain, depthSwapchainImageCount, &depthSwapchainImageCount, depthSwapchainImages), "Failed to enumerate depth swapchain images");
+		//uint32_t depthSwapchainImageCount = 0;
+		//OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapChainInfo.swapchain, 0, &depthSwapchainImageCount, nullptr), "Failed to enumerate Depth swapchain images");
+		//XrSwapchainImageBaseHeader* depthSwapchainImages = D3DApp::GetApp()->AllocateSwapchainImageData(depthSwapChainInfo.swapchain, D3DApp::SwapchainType::DEPTH, depthSwapchainImageCount);
+		//OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapChainInfo.swapchain, depthSwapchainImageCount, &depthSwapchainImageCount, depthSwapchainImages), "Failed to enumerate depth swapchain images");
 
 		// find out if I need to descriptor view into this resource since im planning to copy into this buffer and not render
 
@@ -553,8 +553,8 @@ bool OpenXrManager::RenderLayer(RenderLayerInfo& renderLayerInfo)
 
 		// render stuff
 
-		D3DApp::GetApp()->GetXrSwapchainImage(colorSwapchainInfo.swapchain, colorImageIndex);
-		D3DApp::GetApp()->GetXrSwapchainImage(colorSwapchainInfo.swapchain, depthImageIndex);
+//		D3DApp::GetApp()->GetXrSwapchainImage(colorSwapchainInfo.swapchain, colorImageIndex);
+//		D3DApp::GetApp()->GetXrSwapchainImage(colorSwapchainInfo.swapchain, depthImageIndex);
 
 		// done rendering release swapchain
 
@@ -769,7 +769,7 @@ void OpenXrManager::BlockInteraction()
 	std::cout << "Controller Pos: x: " << myNewPos.x << " y: " << myNewPos.y << " z: " << myNewPos.z << std::endl;
 	XMFLOAT4X4 M;
 	XMStoreFloat4x4(&M, XMMatrixAffineTransformation(scale, zero, Q, P));
-	D3DApp::GetApp()->UpdateHandPosition(D3DApp::Hand::left, M);
+	//D3DApp::GetApp()->UpdateHandPosition(D3DApp::Hand::left, M);
 
 }
 
@@ -827,11 +827,11 @@ void OpenXrManager::AcquireSwapchainImages()
 		renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.height = height;
 		renderLayerInfo.layerProjectionViews[i].subImage.imageArrayIndex = 0;
 	
-		void* colorImage = D3DApp::GetApp()->GetXrSwapchainImage(colorSwapchainInfo.swapchain, colorImageIndex);
-		void* depthImage = D3DApp::GetApp()->GetXrSwapchainImage(depthSwapchainInfo.swapchain, depthImageIndex);
+//		void* colorImage = D3DApp::GetApp()->GetXrSwapchainImage(colorSwapchainInfo.swapchain, colorImageIndex);
+//		void* depthImage = D3DApp::GetApp()->GetXrSwapchainImage(depthSwapchainInfo.swapchain, depthImageIndex);
 
-		mCurrentAcquiredSwapchainColorImages[i] = (reinterpret_cast<ID3D12Resource*>(colorImage));
-		mCurrentAcquiredSwapchainDepthImages[i] = (reinterpret_cast<ID3D12Resource*>(depthImage));
+//		mCurrentAcquiredSwapchainColorImages[i] = (reinterpret_cast<ID3D12Resource*>(colorImage));
+//		mCurrentAcquiredSwapchainDepthImages[i] = (reinterpret_cast<ID3D12Resource*>(depthImage));
 
 
 		//views[i].pose.position.z -= 2;

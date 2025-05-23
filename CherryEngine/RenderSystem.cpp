@@ -446,12 +446,24 @@ void RenderSystem::UpdateEntityCbs(float dt)
 
 void RenderSystem::UpdateMaterialCbs(float dt)
 {
+	for (const auto& pair : mMaterials)
+	{
+		const auto& material = pair.second;
+		MaterialConstants materialConstant;
+		materialConstant.diffuseAlbedo = material->DiffuseAlbedo;
+		materialConstant.fresnelR0 = material->FresnelR0;
+		materialConstant.roughness = material->Roughness;
+		materialConstant.matTransform = material->MatTransform;
+
+		mMaterialConstantsBuffer->CopyData(material->MatCBIndex, materialConstant);
+	}
 }
 
 void RenderSystem::Update(float dt)
 {
 	UpdateCbs(dt);
 	UpdateEntityCbs(dt);
+	UpdateMaterialCbs(dt);
 	ThrowIfFailed(mDirectCmdListAlloc->Reset());
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSO.Get()));
 
@@ -485,8 +497,9 @@ void RenderSystem::Update(float dt)
 				mCommandList->SetGraphicsRootDescriptorTable(0, handle.gpu);
 
 				//material
-				D3D12_GPU_VIRTUAL_ADDRESS matCbAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
-				mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress * renderable.material->MatCBIndex);
+				D3D12_GPU_VIRTUAL_ADDRESS matCbAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress()
+					+ renderable.material->MatCBIndex;
+				mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress + renderable.material->MatCBIndex * matCBByteSize);
 
 				//texture
 				Texture* texture = mIdToTexture[renderable.material->TextureId];
@@ -508,6 +521,11 @@ void RenderSystem::Update(float dt)
 	mCurrBackBuffer = (mCurrBackBuffer + 1) % kSwapChainBufferCount;
 
 	FlushCommandQueue();
+}
+
+void RenderSystem::ResetCommandList()
+{
+	mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr);
 }
 
 void RenderSystem::FlushCommandQueue()
