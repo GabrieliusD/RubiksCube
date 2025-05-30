@@ -11,10 +11,3 @@ enum class Side : unsigned char
 };
 
 
-class Cube
-{
-public:
-	Side mSide[3]; 
-private:
-};
-

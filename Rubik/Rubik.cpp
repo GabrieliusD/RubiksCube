@@ -1,5 +1,6 @@
 #include "Rubik.h"
 #include <GeometryGenerator.h>
+#include "RubikManager.h"
 
 void RubikApp::OnAppInitialized()
 {
@@ -146,4 +147,6 @@ void RubikApp::CreateEntities()
 	renderable.geometry = geometries["Cube"].get();
 	renderable.material = mRenderSystem->GetMaterial("grass");
 	gCoordinator.AddComponent<Renderable>(test, renderable);
+
+	RubikManager rubikManager;
 }

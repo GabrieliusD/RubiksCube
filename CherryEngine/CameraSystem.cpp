@@ -7,7 +7,7 @@ extern Coordinator gCoordinator;
 void CameraSystem::Init()
 {
 	mCamera = gCoordinator.CreateEntity();
-	Transform transform{ XMFLOAT3(0,0,0), XMFLOAT3(0,0,0), XMFLOAT3(0,0,0) };
+	Transform transform{ XMFLOAT3(0,-10,10), XMFLOAT3(-0.3,0,0), XMFLOAT3(0,0,0) };
 	gCoordinator.AddComponent(mCamera, transform);
 
 	Camera camera;

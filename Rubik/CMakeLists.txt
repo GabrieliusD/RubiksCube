@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.30.5)
 
 project(Rubik LANGUAGES CXX)
 
-set(RubikSrc "Rubik.cpp" "Rubik.h")
+set(RubikSrc "Rubik.cpp" "Rubik.h" "RubikManager.h" "RubikManager.cpp")
 
 add_executable(${PROJECT_NAME} ${RubikSrc})
 

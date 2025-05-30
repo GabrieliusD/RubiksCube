@@ -43,6 +43,7 @@ public:
 	static const int kSwapChainBufferCount = 2;
 	std::unordered_map<std::string, std::unique_ptr<Geometry>> geometries;
 	std::unordered_map<std::string, std::unique_ptr<Material>> materials;
+	auto GetRenderSystem() { return mRenderSystem; }
 
 public:
 	D3DApp();
