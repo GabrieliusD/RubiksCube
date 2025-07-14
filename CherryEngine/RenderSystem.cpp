@@ -3,7 +3,6 @@
 #include <PassConstant.h>
 #include <Camera.h>
 
-extern Coordinator gCoordinator;
 void RenderSystem::Init(RenderSystemParams renderSystemParams)
 {
 	mRenderSystemParams = renderSystemParams;
@@ -45,7 +44,7 @@ void RenderSystem::OnEntityAdded(Entity entity)
 		handle.cpu
 	);
 
-	Renderable renderable = gCoordinator.GetComponent<Renderable>(entity);
+	Renderable renderable = Coordinator::GetSingelton().GetComponent<Renderable>(entity);
 	renderable.material;
 }
 
@@ -386,8 +385,8 @@ void RenderSystem::UpdateCbs(float dt)
 {
 	PassConstant mMainPassCb;
 	Entity camera = mRenderSystemParams.camera;
-	auto cameraTransform = gCoordinator.GetComponent<Transform>(camera);
-	auto cameraData = gCoordinator.GetComponent<Camera>(camera);
+	auto cameraTransform = Coordinator::GetSingelton().GetComponent<Transform>(camera);
+	auto cameraData = Coordinator::GetSingelton().GetComponent<Camera>(camera);
 	cameraData.CreateViewFromTransform(cameraTransform);
 
 	XMMATRIX view = XMLoadFloat4x4(&cameraData.view);
@@ -427,7 +426,7 @@ void RenderSystem::UpdateEntityCbs(float dt)
 {
 	for (Entity entity : mEntities)
 	{
-		Transform transform = gCoordinator.GetComponent<Transform>(entity);
+		Transform transform = Coordinator::GetSingelton().GetComponent<Transform>(entity);
 		XMFLOAT3 position = transform.position;
 		XMMATRIX translationMatrix = XMMatrixTranslation(position.x, position.y, position.z);
 		XMFLOAT3 rotation = transform.rotation;
@@ -487,7 +486,7 @@ void RenderSystem::Update(float dt)
 
 			for (auto& const entity : mEntities)
 			{
-				auto& renderable = gCoordinator.GetComponent<Renderable>(entity);
+				auto& renderable = Coordinator::GetSingelton().GetComponent<Renderable>(entity);
 				mCommandList->IASetVertexBuffers(0, 1, &renderable.geometry->GetVertexBufferView());
 				mCommandList->IASetIndexBuffer(&renderable.geometry->GetIndexBufferView());
 				mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

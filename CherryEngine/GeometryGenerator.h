@@ -14,11 +14,12 @@
 
 #pragma once
 
+#include "Core.h"
 #include <cstdint>
 #include <DirectXMath.h>
 #include <vector>
 
-class GeometryGenerator
+class CHERRY_ENGINE_API GeometryGenerator
 {
 public:
 

@@ -3,8 +3,6 @@
 #include <Entity.h>
 #include <RenderSystem.h>
 
-extern Coordinator gCoordinator;
-
 class RubikApp : public D3DApp
 {
 public:
@@ -16,7 +14,6 @@ private:
 	void CreateMesh();
 	void CreateMaterials();
 	void CreateEntities();
-
 };
 
 D3DApp* CreateApplication()

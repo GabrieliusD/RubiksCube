@@ -100,30 +100,27 @@ void D3DApp::InitVrHeadset()
 	openXrManager->Run();
 }
 
-Coordinator gCoordinator;
-
 void D3DApp::InitECS()
 {
-	gCoordinator.Init();
+	Coordinator& coordinator = Coordinator::GetSingelton();
+	coordinator.RegisterComponent<Transform>();
+	coordinator.RegisterComponent<Renderable>();
+	coordinator.RegisterComponent<Camera>();
 
-	gCoordinator.RegisterComponent<Transform>();
-	gCoordinator.RegisterComponent<Renderable>();
-	gCoordinator.RegisterComponent<Camera>();
-
-	mCameraSystem = gCoordinator.RegisterSystem<CameraSystem>();
-	mRenderSystem = gCoordinator.RegisterSystem<RenderSystem>();
+	mCameraSystem = coordinator.RegisterSystem<CameraSystem>();
+	mRenderSystem = coordinator.RegisterSystem<RenderSystem>();
 
 	Signature renderSignature;
-	renderSignature.set(gCoordinator.GetComponentType<Transform>());
-	renderSignature.set(gCoordinator.GetComponentType<Renderable>());
+	renderSignature.set(coordinator.GetComponentType<Transform>());
+	renderSignature.set(coordinator.GetComponentType<Renderable>());
 
-	gCoordinator.SetSystemSignature<RenderSystem>(renderSignature);
+	coordinator.SetSystemSignature<RenderSystem>(renderSignature);
 
 	Signature cameraSignature;
-	cameraSignature.set(gCoordinator.GetComponentType<Transform>());
-	cameraSignature.set(gCoordinator.GetComponentType<Camera>());
+	cameraSignature.set(coordinator.GetComponentType<Transform>());
+	cameraSignature.set(coordinator.GetComponentType<Camera>());
 
-	gCoordinator.SetSystemSignature<CameraSystem>(cameraSignature);
+	coordinator.SetSystemSignature<CameraSystem>(cameraSignature);
 
 	mCameraSystem->Init();
 

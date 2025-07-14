@@ -8,6 +8,7 @@
 #include <DirectXMath.h>
 #include <bitset>
 #include <Transform.h>
+#include "Core.h"
 
 using Entity = std::uint32_t;
 
@@ -40,7 +41,7 @@ public:
 		return id;
 	}
 
-	Entity DestroyEntity(Entity entity)
+	void DestroyEntity(Entity entity)
 	{
 		mSignatures[entity].reset();
 		mAvailableEntities.push(entity);
@@ -127,7 +128,7 @@ public:
 	template<typename T>
 	void RegisterComponent()
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName(typeid(T).name());
 
 		mComponentTypes.insert({ typeName, mNextComponentType });
 		mComponentArrays.insert({ typeName, std::make_shared<ComponentArray<T>>() });
@@ -138,7 +139,7 @@ public:
 	template<typename T>
 	ComponentType GetComponentType()
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName(typeid(T).name());
 
 		return mComponentTypes[typeName];
 	}
@@ -171,15 +172,15 @@ public:
 	}
 
 private:
-	std::unordered_map<const char*, ComponentType> mComponentTypes{};
-	std::unordered_map<const char*, std::shared_ptr<IComponentArray>> mComponentArrays{};
+	std::unordered_map<std::string, ComponentType> mComponentTypes{};
+	std::unordered_map<std::string, std::shared_ptr<IComponentArray>> mComponentArrays{};
 
 	ComponentType mNextComponentType{};
 
 	template<typename T>
 	std::shared_ptr<ComponentArray<T>> GetComponentArray()
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName(typeid(T).name());
 
 		return std::static_pointer_cast<ComponentArray<T>>(mComponentArrays[typeName]);
 	}
@@ -247,14 +248,25 @@ private:
 	std::unordered_map<const char*, std::shared_ptr<System>> mSystems{};
 };
 
-class Coordinator
+class CHERRY_ENGINE_API Coordinator
 {
+private:
+	bool mInitialized = false;
 public:
+	static Coordinator& GetSingelton();
+
 	void Init()
 	{
+		if (mInitialized)
+		{
+			return;
+		}
+
 		mComponentManager = std::make_unique<ComponentManager>();
 		mEntityManager = std::make_unique<EntityManager>();
 		mSystemManager = std::make_unique<SystemManager>();
+
+		mInitialized = true;
 	}
 
 	Entity CreateEntity()

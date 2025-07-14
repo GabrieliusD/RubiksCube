@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 
 project(CherryEngine VERSION 1.0)
+add_compile_definitions(CherryEngine PRIVATE CE_BUILD_DLL)
+
 
 set(HEADERS 
 	Common.h
@@ -19,7 +21,7 @@ set(HEADERS
 	Graphics/Buffer.h
 	openxr/MathLib.h
 	openxr/OpenXrManager.h
- "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h" "Camera.h" "CameraSystem.h")
+ "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h" "Camera.h" "CameraSystem.h" "Core.h")
 
 set(SOURCES
 	"EntryPoint.h"
@@ -36,8 +38,7 @@ set(SOURCES
 	RenderObject.cpp
 	openxr/MathLib.cpp
 	openxr/OpenXrManager.cpp
- "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp" "CameraSystem.cpp")
-
+ "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp" "CameraSystem.cpp" "Entity.cpp")
 
 add_subdirectory(thirdparty/dxr/nv_helpers_dx12)
 
@@ -45,7 +46,7 @@ add_subdirectory(thirdparty/imgui)
 
 add_subdirectory(thirdparty/openxr)
 
-add_library(CherryEngine STATIC ${SOURCES} ${HEADERS})
+add_library(CherryEngine SHARED ${SOURCES} ${HEADERS})
 
 add_library(dxcompiler SHARED IMPORTED GLOBAL)
 set_property(TARGET dxcompiler PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/lib/dxcompiler.dll")

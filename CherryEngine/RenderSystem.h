@@ -28,8 +28,7 @@ struct RenderSystemParams
 	HWND hwnd = nullptr;
 	Entity camera = -1;
 };
-
-class RenderSystem : public System
+class CHERRY_ENGINE_API RenderSystem : public System
 {
 public:
 	RenderSystem() {}

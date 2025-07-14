@@ -1,4 +1,5 @@
 #pragma once
+#include "Core.h"
 #include <d3d12.h>
 #include "d3dUtil.h"
 #include "GameTimer.h"
@@ -22,11 +23,14 @@
 // OpenXR Helper
 #include <OpenXRHelper.h>
 #include <Graphics\D3DCore.h>
+#include <Transform.h>
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib,"dxcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
 #pragma comment(lib, "dxgi.lib")
 using Microsoft::WRL::ComPtr;
+
+
 
 struct AccelerationStructureBuffers
 {
@@ -35,8 +39,8 @@ struct AccelerationStructureBuffers
 	ComPtr<ID3D12Resource> pInstanceDesc;
 };
 
-extern class D3DApp* CreateApplication();
-class D3DApp
+extern class CHERRY_ENGINE_API D3DApp* CreateApplication();
+class CHERRY_ENGINE_API D3DApp
 {
 
 public: 
@@ -49,6 +53,7 @@ public:
 	D3DApp();
 	static D3DApp* GetApp();
 	virtual ~D3DApp();
+	void CreateObject(std::string meshName, const Transform& transform);
 	void InitDirectX();
 	bool InitWindow();
 	void InitVrHeadset();
