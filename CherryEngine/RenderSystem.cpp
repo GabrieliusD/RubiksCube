@@ -2,6 +2,9 @@
 #include <Graphics\D3DCore.h>
 #include <PassConstant.h>
 #include <Camera.h>
+#include "imgui.h"
+#include "imgui_impl_win32.h"
+#include <imgui_impl_dx12.h>
 
 extern Coordinator gCoordinator;
 void RenderSystem::Init(RenderSystemParams renderSystemParams)
@@ -22,6 +25,7 @@ void RenderSystem::Init(RenderSystemParams renderSystemParams)
 	CreateRootSignature();
 	CreatePSO();
 	CreateConstantBuffers();
+	InitializeImgui();
 }
 
 void RenderSystem::OnEntityAdded(Entity entity)
@@ -368,6 +372,32 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> RenderSystem::GetStaticSamplers
 	return { pointWrap, pointClamp, linearWrap, linearClamp, anisotropicWrap, anisotropicClamp };
 }
 
+void RenderSystem::InitializeImgui() {
+	IMGUI_CHECKVERSION();
+
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+	ImGui_ImplWin32_Init(mHwnd);
+
+
+	ImGui_ImplDX12_InitInfo init_info = {};
+	init_info.Device = mDevice.Get();
+	init_info.CommandQueue = mCommandQueue.Get();
+	init_info.NumFramesInFlight = 1;
+	init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	init_info.SrvDescriptorHeap = mSrvDescHeap.heap();
+	descriptor_handle handle = mSrvDescHeap.allocate();
+	init_info.LegacySingleSrvCpuDescriptor = handle.cpu;
+	init_info.LegacySingleSrvGpuDescriptor = handle.gpu;
+
+	ImGui_ImplDX12_Init(&init_info);
+}
+
 D3D12_CPU_DESCRIPTOR_HANDLE RenderSystem::CurrentBackBufferView() const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
@@ -464,6 +494,15 @@ void RenderSystem::Update(float dt)
 	UpdateCbs(dt);
 	UpdateEntityCbs(dt);
 	UpdateMaterialCbs(dt);
+
+	// (Your code process and dispatch Win32 messages)
+	// Start the Dear ImGui frame
+	ImGui_ImplDX12_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+	ImGui::Begin("Viewport"); // Show demo window! :)
+	ImGui::End();
+
 	ThrowIfFailed(mDirectCmdListAlloc->Reset());
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSO.Get()));
 
@@ -508,6 +547,12 @@ void RenderSystem::Update(float dt)
 			}
 		}
 	}
+
+	// Rendering
+// (Your code clears your framebuffer, renders your other stuff etc.)
+	ImGui::Render();
+	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
+	// (Your code calls ExecuteCommandLists, swapchain's Present(), etc.)
 
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mSwapChainBuffer[mCurrBackBuffer].Get(),
 		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));

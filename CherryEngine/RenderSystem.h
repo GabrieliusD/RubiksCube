@@ -67,6 +67,7 @@ private:
 	void CreateRootSignature();
 	void CreatePSO();
 	void CreateConstantBuffers();
+	void InitializeImgui();
 	
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
