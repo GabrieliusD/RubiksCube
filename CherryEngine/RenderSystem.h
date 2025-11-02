@@ -4,6 +4,9 @@
 #include <Geometry.h>
 #include "Graphics/Buffer.h"
 #include "Graphics/DescriptorHeap.h"
+#include <Graphics/RenderTexture.h>
+#include <UserInterface\ViewportWindow.h>
+
 
 template <typename T>
 struct ConstantBufferWrapper
@@ -74,6 +77,7 @@ private:
 
 
 	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const;
+	//D3D12_CPU_DESCRIPTOR_HANDLE RenderTargetView() const;
 	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const;
 
 	bool mRaster = true;
@@ -129,4 +133,10 @@ private:
 	ConstantBuffer<class ObjectConstants>* mObjectConstantsBuffer;
 	std::unordered_map<Entity, descriptor_handle> mEntityToDescriptorHandleMap;
 	std::unordered_map<Entity, UINT16> mEntityToCbIndexMap;
+
+	std::unique_ptr<RenderTexture> mRenderTexture;
+	std::unique_ptr<ViewportWindow> mViewportWindow;
+	std::unordered_map<UINT, descriptor_handle> mBackBufferIdToDescriptorHandle;
+	std::unordered_map<std::string, descriptor_handle> mRenderTextureNameToDescriptorHandle;
+	D3D12_CPU_DESCRIPTOR_HANDLE mRenderTextureDescHandle;
 };

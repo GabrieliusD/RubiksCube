@@ -5,7 +5,6 @@ project(CherryEngine VERSION 1.0)
 set(HEADERS 
 	Common.h
 	Cube.h
-	
 	D3DApp.h
 	d3dUtil.h
 	d3dx12.h
@@ -19,13 +18,12 @@ set(HEADERS
 	Graphics/Buffer.h
 	openxr/MathLib.h
 	openxr/OpenXrManager.h
- "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h" "Camera.h" "CameraSystem.h")
+ "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h" "Camera.h" "CameraSystem.h" "Graphics/RenderTexture.h" "UserInterface/ViewportWindow.h")
 
 set(SOURCES
 	"EntryPoint.h"
 	Common.cpp
 	Cube.cpp
-	
 	D3DApp.cpp
 	d3dUtil.cpp
 	DDSTextureLoader.cpp
@@ -36,7 +34,8 @@ set(SOURCES
 	RenderObject.cpp
 	openxr/MathLib.cpp
 	openxr/OpenXrManager.cpp
- "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp" "CameraSystem.cpp")
+ "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp" "CameraSystem.cpp" "Graphics/RenderTexture.cpp"
+ "UserInterface/ViewportWindow.cpp")
 
 
 add_subdirectory(thirdparty/dxr/nv_helpers_dx12)
