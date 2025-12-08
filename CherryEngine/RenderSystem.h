@@ -4,6 +4,7 @@
 #include <Geometry.h>
 #include "Graphics/Buffer.h"
 #include "Graphics/DescriptorHeap.h"
+#include <queue>
 
 template <typename T>
 struct ConstantBufferWrapper
@@ -129,4 +130,9 @@ private:
 	ConstantBuffer<class ObjectConstants>* mObjectConstantsBuffer;
 	std::unordered_map<Entity, descriptor_handle> mEntityToDescriptorHandleMap;
 	std::unordered_map<Entity, UINT16> mEntityToCbIndexMap;
+	// Free list for constant buffer indices. When an entity is removed its
+	// CB index is returned to this queue and reused for future entities.
+	std::queue<UINT16> mFreeCbIndices;
+	// Next CB index to allocate when free list is empty.
+	UINT16 mNextCbIndex = 0;
 };

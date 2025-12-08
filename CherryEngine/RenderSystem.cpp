@@ -35,7 +35,14 @@ void RenderSystem::OnEntityAdded(Entity entity)
 
 	D3D12_GPU_VIRTUAL_ADDRESS cbAddress = mObjectConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
 
-	int index = mEntities.size() - 1;
+	// Allocate a CB index either from the free list or from the next counter.
+	UINT16 index;
+	if (!mFreeCbIndices.empty()) {
+		index = mFreeCbIndices.front();
+		mFreeCbIndices.pop();
+	} else {
+		index = mNextCbIndex++;
+	}
 	mEntityToCbIndexMap.emplace(entity, index);
 	UINT elementByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 	cbAddress += index * elementByteSize;
@@ -61,6 +68,17 @@ void RenderSystem::OnEntityRemoved(Entity entity)
 	}
 	descriptor_handle handle = mEntityToDescriptorHandleMap[entity];
 	mSrvDescHeap.free(handle);
+
+	// Reclaim constant buffer index for reuse
+	auto it = mEntityToCbIndexMap.find(entity);
+	if (it != mEntityToCbIndexMap.end()) {
+		UINT16 index = it->second;
+		mFreeCbIndices.push(index);
+		mEntityToCbIndexMap.erase(it);
+	}
+
+	// Remove descriptor mapping
+	mEntityToDescriptorHandleMap.erase(entity);
 }
 
 
