@@ -1,4 +1,6 @@
 #include "Entity.h"
+#include "Export.h"
+#include <memory>
 #include <d3d12.h>
 #include <d3dUtil.h>
 #include <Geometry.h>
@@ -9,12 +11,12 @@
 template <typename T>
 struct ConstantBufferWrapper
 {
-	ConstantBufferWrapper(ConstantBuffer<T>* buffer, descriptor_handle handle)
-	{
-		constantBuffer = buffer;
-		descriptorHandle = handle;
-	}
-	ConstantBuffer<T>* constantBuffer;
+    ConstantBufferWrapper(std::unique_ptr<ConstantBuffer<T>> buffer, descriptor_handle handle)
+    {
+        constantBuffer = std::move(buffer);
+        descriptorHandle = handle;
+    }
+    std::unique_ptr<ConstantBuffer<T>> constantBuffer;
 	descriptor_handle descriptorHandle;
 };
 
@@ -30,7 +32,7 @@ struct RenderSystemParams
 	Entity camera = -1;
 };
 
-class RenderSystem : public System
+class CHERRYENGINE_API RenderSystem : public System
 {
 public:
 	RenderSystem() {}
@@ -95,7 +97,7 @@ private:
 	UINT mClientWidth = 800;
 	UINT mClientHeight = 600;
 	bool m4xMsaaState = false;    // 4X MSAA enabled
-	ConstantBuffer<MaterialConstants>* mMaterialConstantsBuffer = nullptr;
+	std::unique_ptr<ConstantBuffer<MaterialConstants>> mMaterialConstantsBuffer;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<int, Texture*> mIdToTexture;
@@ -126,8 +128,8 @@ private:
 	DescriptorHeap mDsvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_DSV };;
 	DescriptorHeap mSrvDescHeap{ D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV };
 
-	ConstantBufferWrapper<class PassConstant>* mMainPassCbWrapper;
-	ConstantBuffer<class ObjectConstants>* mObjectConstantsBuffer;
+	std::unique_ptr<ConstantBufferWrapper<class PassConstant>> mMainPassCbWrapper;
+	std::unique_ptr<ConstantBuffer<class ObjectConstants>> mObjectConstantsBuffer;
 	std::unordered_map<Entity, descriptor_handle> mEntityToDescriptorHandleMap;
 	std::unordered_map<Entity, UINT16> mEntityToCbIndexMap;
 	// Free list for constant buffer indices. When an entity is removed its

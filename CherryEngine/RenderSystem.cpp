@@ -2,9 +2,9 @@
 #include <Graphics\D3DCore.h>
 #include <PassConstant.h>
 #include <Camera.h>
-#include "imgui.h"
-#include "imgui_impl_win32.h"
-#include <imgui_impl_dx12.h>
+#include "thirdparty/imgui/imgui.h"
+#include "thirdparty/imgui/imgui_impl_win32.h"
+#include "thirdparty/imgui/imgui_impl_dx12.h"
 
 extern Coordinator gCoordinator;
 void RenderSystem::Init(RenderSystemParams renderSystemParams)
@@ -326,7 +326,7 @@ void RenderSystem::CreatePSO()
 
 void RenderSystem::CreateConstantBuffers()
 {
-	auto mainPassConstantBuffer = new ConstantBuffer<PassConstant>(mDevice.Get(), 1);
+    auto mainPassConstantBuffer = std::make_unique<ConstantBuffer<PassConstant>>(mDevice.Get(), 1);
 	UINT passByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstant));
 
 	auto descriptorHandle = mSrvDescHeap.allocate();
@@ -335,12 +335,12 @@ void RenderSystem::CreateConstantBuffers()
 	cbvDesc.BufferLocation = mainPassConstantBuffer->GetBuffer()->GetGPUVirtualAddress();
 	cbvDesc.SizeInBytes = passByteSize;
 
-	mDevice->CreateConstantBufferView(&cbvDesc, descriptorHandle.cpu);
+    mDevice->CreateConstantBufferView(&cbvDesc, descriptorHandle.cpu);
 
-	mMainPassCbWrapper = new ConstantBufferWrapper<PassConstant>(mainPassConstantBuffer, descriptorHandle);
+    mMainPassCbWrapper = std::make_unique<ConstantBufferWrapper<PassConstant>>(std::move(mainPassConstantBuffer), descriptorHandle);
 
-	mObjectConstantsBuffer = new ConstantBuffer<ObjectConstants>(mDevice.Get(), 1024);
-	mMaterialConstantsBuffer = new ConstantBuffer<MaterialConstants>(mDevice.Get(), 1024);
+    mObjectConstantsBuffer = std::make_unique<ConstantBuffer<ObjectConstants>>(mDevice.Get(), 1024);
+    mMaterialConstantsBuffer = std::make_unique<ConstantBuffer<MaterialConstants>>(mDevice.Get(), 1024);
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> RenderSystem::GetStaticSamplers()

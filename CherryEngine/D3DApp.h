@@ -10,8 +10,6 @@
 #include "Graphics/Buffer.h"
 #include <utility>
 #include <dxcapi.h>
-#include "nv_helpers_dx12\TopLevelASGenerator.h"
-#include "nv_helpers_dx12\ShaderBindingTableGenerator.h"
 #define XR_USE_GRAPHICS_API_D3D12
 
 #if defined(XR_USE_GRAPHICS_API_D3D12)
@@ -20,7 +18,6 @@
 #endif
 
 // OpenXR Helper
-#include <OpenXRHelper.h>
 #include <Graphics\D3DCore.h>
 #pragma comment(lib,"d3dcompiler.lib")
 #pragma comment(lib,"dxcompiler.lib")
@@ -81,7 +78,6 @@ public:
 		COLOR,
 		DEPTH
 	};
-	std::unordered_map<XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageD3D12KHR>>> swapchainImagesMap{};
 	const DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 	const DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D16_UNORM; //DXGI_FORMAT_D24_UNORM_S8_UINT;
 
@@ -162,7 +158,6 @@ private:
 	//ray tracing
 	bool mRaster = true;
 	ComPtr<ID3D12Resource> mBottomLevelAS;
-	nv_helpers_dx12::TopLevelASGenerator mTopLevelAsGenerator;
 	AccelerationStructureBuffers mTopLevelASBuffers;
 	std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>> mInstances;
 
@@ -182,9 +177,7 @@ private:
 	ComPtr<ID3D12DescriptorHeap> mSrvUavHeap;
 
 	ComPtr<ID3D12Resource> mSbtStorage;
-	nv_helpers_dx12::ShaderBindingTableGenerator mSbtHelper;
 
-	class OpenXrManager* openXrManager;
 private:
 	bool mSupportsRaytracing = false;
 
