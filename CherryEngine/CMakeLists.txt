@@ -21,8 +21,6 @@ set(HEADERS
     PassConstant.h
     RenderObject.h
     Graphics/Buffer.h
-    openxr/MathLib.h
-    openxr/OpenXrManager.h
     Entity.h
     RenderSystem.h
     Transform.h
@@ -44,8 +42,6 @@ set(SOURCES
     GeometryGenerator.cpp
     MathHelper.cpp
     RenderObject.cpp
-    openxr/MathLib.cpp
-    openxr/OpenXrManager.cpp
     RenderSystem.cpp
     Graphics/DescriptorHeap.cpp
     Graphics/D3DCore.cpp
