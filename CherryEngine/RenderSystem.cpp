@@ -2,9 +2,9 @@
 #include <Graphics\D3DCore.h>
 #include <PassConstant.h>
 #include <Camera.h>
-#include "imgui.h"
-#include "imgui_impl_win32.h"
-#include <imgui_impl_dx12.h>
+#include "thirdparty/imgui/imgui.h"
+#include "thirdparty/imgui/imgui_impl_win32.h"
+#include "thirdparty/imgui/imgui_impl_dx12.h"
 
 extern Coordinator gCoordinator;
 void RenderSystem::Init(RenderSystemParams renderSystemParams)
@@ -35,7 +35,14 @@ void RenderSystem::OnEntityAdded(Entity entity)
 
 	D3D12_GPU_VIRTUAL_ADDRESS cbAddress = mObjectConstantsBuffer->GetBuffer()->GetGPUVirtualAddress();
 
-	int index = mEntities.size() - 1;
+	// Allocate a CB index either from the free list or from the next counter.
+	UINT16 index;
+	if (!mFreeCbIndices.empty()) {
+		index = mFreeCbIndices.front();
+		mFreeCbIndices.pop();
+	} else {
+		index = mNextCbIndex++;
+	}
 	mEntityToCbIndexMap.emplace(entity, index);
 	UINT elementByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 	cbAddress += index * elementByteSize;
@@ -61,6 +68,17 @@ void RenderSystem::OnEntityRemoved(Entity entity)
 	}
 	descriptor_handle handle = mEntityToDescriptorHandleMap[entity];
 	mSrvDescHeap.free(handle);
+
+	// Reclaim constant buffer index for reuse
+	auto it = mEntityToCbIndexMap.find(entity);
+	if (it != mEntityToCbIndexMap.end()) {
+		UINT16 index = it->second;
+		mFreeCbIndices.push(index);
+		mEntityToCbIndexMap.erase(it);
+	}
+
+	// Remove descriptor mapping
+	mEntityToDescriptorHandleMap.erase(entity);
 }
 
 
@@ -321,7 +339,7 @@ void RenderSystem::CreatePSO()
 
 void RenderSystem::CreateConstantBuffers()
 {
-	auto mainPassConstantBuffer = new ConstantBuffer<PassConstant>(mDevice.Get(), 1);
+    auto mainPassConstantBuffer = std::make_unique<ConstantBuffer<PassConstant>>(mDevice.Get(), 1);
 	UINT passByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstant));
 
 	auto descriptorHandle = mSrvDescHeap.allocate();
@@ -330,12 +348,12 @@ void RenderSystem::CreateConstantBuffers()
 	cbvDesc.BufferLocation = mainPassConstantBuffer->GetBuffer()->GetGPUVirtualAddress();
 	cbvDesc.SizeInBytes = passByteSize;
 
-	mDevice->CreateConstantBufferView(&cbvDesc, descriptorHandle.cpu);
+    mDevice->CreateConstantBufferView(&cbvDesc, descriptorHandle.cpu);
 
-	mMainPassCbWrapper = new ConstantBufferWrapper<PassConstant>(mainPassConstantBuffer, descriptorHandle);
+    mMainPassCbWrapper = std::make_unique<ConstantBufferWrapper<PassConstant>>(std::move(mainPassConstantBuffer), descriptorHandle);
 
-	mObjectConstantsBuffer = new ConstantBuffer<ObjectConstants>(mDevice.Get(), 1024);
-	mMaterialConstantsBuffer = new ConstantBuffer<MaterialConstants>(mDevice.Get(), 1024);
+    mObjectConstantsBuffer = std::make_unique<ConstantBuffer<ObjectConstants>>(mDevice.Get(), 1024);
+    mMaterialConstantsBuffer = std::make_unique<ConstantBuffer<MaterialConstants>>(mDevice.Get(), 1024);
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> RenderSystem::GetStaticSamplers()

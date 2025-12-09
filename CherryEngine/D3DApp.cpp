@@ -5,11 +5,6 @@
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx12.h"
-#include "nv_helpers_dx12\DXRHelper.h"
-#include "nv_helpers_dx12\BottomLevelASGenerator.h"
-#include "nv_helpers_dx12\RaytracingPipelineGenerator.h"
-#include "nv_helpers_dx12\RootSignatureGenerator.h"
-#include <openxr\OpenXrManager.h>
 #include <Entity.h>
 #include <RenderSystem.h>
 #include <CameraSystem.h>
@@ -96,8 +91,7 @@ bool D3DApp::InitWindow()
 
 void D3DApp::InitVrHeadset()
 {
-	openXrManager = new OpenXrManager(mDevice, mCommandQueue.Get());
-	openXrManager->Run();
+
 }
 
 Coordinator gCoordinator;
@@ -322,19 +316,6 @@ void D3DApp::Update(GameTimer& mTimer)
 	XMVECTOR target = XMVectorZero();
 	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 	XMMATRIX view;
-	if (openXrManager->HasSession())
-	{
-		XMStoreFloat4x4(&mProj, XMMatrixPerspectiveFovRH(0.6f * MathHelper::Pi, 800.0f / 600.0f, 0.05f, 1000.0f));
-
-		XMVECTOR XRPos;
-		XMVECTOR temp;
-		XMMatrixDecompose(&temp, &temp, &XRPos, openXrManager->GetViewMatrix(0));
-		XMStoreFloat3(&mEyePos, XRPos);
-		view = openXrManager->GetViewMatrix(1);
-		view = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-		//view = XMMatrixMultiply(view, XMMatrixLookAtLH(pos, target, up));
-	}
-	else
 	{
 		pos = XMVectorSet(mEyePos.x, mEyePos.y, mEyePos.z, 1.0f);
 

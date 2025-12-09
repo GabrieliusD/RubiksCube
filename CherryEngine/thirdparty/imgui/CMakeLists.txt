@@ -21,5 +21,8 @@ set(SOURCES
 
 add_library(imgui ${HEADERS} ${SOURCES})
 
+# Expose imgui headers to consumers
+target_include_directories(imgui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 install(TARGETS imgui DESTINATION lib)
 install(FILES ${HEADERS} ${SOURCES} DESTINATION include)
