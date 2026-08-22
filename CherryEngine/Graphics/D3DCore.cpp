@@ -27,3 +27,9 @@ bool D3DCore::Initialize()
 	}
 	return true;
 }
+
+void D3DCore::Shutdown()
+{
+	mMainDevice.Reset();
+	mdxgiFactory.Reset();
+}

@@ -138,15 +138,16 @@ void RubikApp::CreateMaterials()
 
 void RubikApp::CreateEntities()
 {
-	auto test = gCoordinator.CreateEntity();
+	auto& coordinator = GetScene().GetCoordinator();
+	auto test = coordinator.CreateEntity();
 	Transform transform;
 	transform.scale = XMFLOAT3(1, 1, 1);
 	transform.position = XMFLOAT3(2, 2, 10);
-	gCoordinator.AddComponent<Transform>(test, transform);
+	coordinator.AddComponent<Transform>(test, transform);
 	Renderable renderable;
 	renderable.geometry = geometries["Cube"].get();
 	renderable.material = mRenderSystem->GetMaterial("grass");
-	gCoordinator.AddComponent<Renderable>(test, renderable);
+	coordinator.AddComponent<Renderable>(test, renderable);
 
 	RubikManager rubikManager;
 }

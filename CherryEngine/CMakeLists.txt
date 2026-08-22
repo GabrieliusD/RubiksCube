@@ -4,68 +4,64 @@ project(CherryEngine VERSION 1.0 LANGUAGES CXX)
 
 # Allow top-level option to control shared/static build
 if(NOT DEFINED CHERRYENGINE_BUILD_SHARED)
-  option(CHERRYENGINE_BUILD_SHARED "Build CherryEngine as shared library (DLL)" OFF)
+  option(CHERRYENGINE_BUILD_SHARED "Build CherryEngine as shared library (DLL)" ON)
 endif()
 
 set(HEADERS 
-    Common.h
-    Cube.h
-    D3DApp.h
-    d3dUtil.h
-    d3dx12.h
-    DDSTextureLoader.h
-    GameTimer.h
-    Geometry.h
-    GeometryGenerator.h
-    MathHelper.h
-    PassConstant.h
-    RenderObject.h
-    Graphics/Buffer.h
-    Entity.h
-    RenderSystem.h
-    Transform.h
-    Graphics/DescriptorHeap.h
-    Graphics/D3DCore.h
-    Graphics/RenderTexture.h
-    UserInterface/ViewportWindow.h
-    Camera.h
-    CameraSystem.h
- "ShaderSystem/ShaderDesc.h" "ShaderSystem/ShaderCompiler.h" "CommonMacros.h")
+	Common.h
+	Cube.h
+	
+	D3DApp.h
+	d3dUtil.h
+	d3dx12.h
+	DDSTextureLoader.h
+	GameTimer.h
+	Geometry.h
+	GeometryGenerator.h
+	MathHelper.h
+	PassConstant.h
+	RenderObject.h
+	Graphics/Buffer.h
+	ShaderSystem/ShaderDesc.h
+	ShaderSystem/ShaderCompiler.h
+ "Entity.h" "RenderSystem.h" "Transform.h" "Graphics/DescriptorHeap.h" "Graphics/D3DCore.h" "Camera.h" "CameraSystem.h")
 
 set(SOURCES
-    EntryPoint.h
-    Common.cpp
-    Cube.cpp
-    D3DApp.cpp
-    d3dUtil.cpp
-    DDSTextureLoader.cpp
-    GameTimer.cpp
-    Geometry.cpp
-    GeometryGenerator.cpp
-    MathHelper.cpp
-    RenderObject.cpp
-    RenderSystem.cpp
-    Graphics/DescriptorHeap.cpp
-    Graphics/D3DCore.cpp
-    Graphics/RenderTexture.cpp
-    UserInterface/ViewportWindow.cpp
-    CameraSystem.cpp
- "ShaderSystem/ShaderCompiler.cpp")
+	Common.cpp
+	Cube.cpp
+
+	D3DApp.cpp
+	d3dUtil.cpp
+	DDSTextureLoader.cpp
+	GameTimer.cpp
+	Geometry.cpp
+	GeometryGenerator.cpp
+	MathHelper.cpp
+	RenderObject.cpp
+	Graphics/RenderTexture.cpp
+	UserInterface/ViewportWindow.cpp
+	ShaderSystem/ShaderCompiler.cpp
+ "Entity.h" "RenderSystem.h" "RenderSystem.cpp" "Graphics/DescriptorHeap.cpp" "Graphics/D3DCore.cpp" "CameraSystem.cpp")
 
 add_subdirectory(thirdparty/dxr/nv_helpers_dx12)
 add_subdirectory(thirdparty/imgui)
-add_subdirectory(thirdparty/dxc)
 
 if(CHERRYENGINE_BUILD_SHARED)
   add_library(CherryEngine SHARED ${SOURCES} ${HEADERS})
   target_compile_definitions(CherryEngine PRIVATE CHERRYENGINE_EXPORTS)
+  set_target_properties(CherryEngine PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 else()
   add_library(CherryEngine STATIC ${SOURCES} ${HEADERS})
 endif()
 
+# Imported dxcompiler helper
+add_library(dxcompiler SHARED IMPORTED GLOBAL)
+set_property(TARGET dxcompiler PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/lib/dxcompiler.dll")
+set_property(TARGET dxcompiler PROPERTY IMPORTED_IMPLIB "${PROJECT_SOURCE_DIR}/lib/openxr_loaderd.lib")
+
 # Link directories and libraries
 target_link_directories(CherryEngine PUBLIC "${PROJECT_SOURCE_DIR}/lib")
-target_link_libraries(CherryEngine PUBLIC imgui dxr openxr_loaderd DXC::dxcompiler)
+target_link_libraries(CherryEngine PUBLIC imgui dxr openxr_loaderd dxcompiler)
 
 target_compile_definitions(CherryEngine PUBLIC -D_UNICODE -DUNICODE)
 

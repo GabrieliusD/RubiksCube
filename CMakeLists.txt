@@ -14,8 +14,16 @@ endif()
 
 set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "Supported configuration types" FORCE)
 
-# Option to build the engine as shared (DLL) or static library
-option(CHERRYENGINE_BUILD_SHARED "Build CherryEngine as shared library (DLL)" OFF)
+option(CHERRY_MONOLITHIC "Build as a single monolithic executable" OFF)
+set(CHERRY_ACTIVE_GAME_TARGET "RubikGame" CACHE STRING "Game target used by launcher")
+
+# Engine linkage mode is derived from build mode.
+if(CHERRY_MONOLITHIC)
+  set(CHERRYENGINE_BUILD_SHARED OFF CACHE BOOL "Build CherryEngine as shared library (DLL)" FORCE)
+else()
+  set(CHERRYENGINE_BUILD_SHARED ON CACHE BOOL "Build CherryEngine as shared library (DLL)" FORCE)
+endif()
 
 add_subdirectory(CherryEngine)
 add_subdirectory(Rubik)
+add_subdirectory(CherryLaunch)

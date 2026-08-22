@@ -5,8 +5,8 @@
 #include "thirdparty/imgui/imgui.h"
 #include "thirdparty/imgui/imgui_impl_win32.h"
 #include "thirdparty/imgui/imgui_impl_dx12.h"
+#include <D3DApp.h>
 
-extern Coordinator gCoordinator;
 void RenderSystem::Init(RenderSystemParams renderSystemParams)
 {
 	mRenderSystemParams = renderSystemParams;
@@ -57,7 +57,8 @@ void RenderSystem::OnEntityAdded(Entity entity)
 		handle.cpu
 	);
 
-	Renderable renderable = gCoordinator.GetComponent<Renderable>(entity);
+	auto& coordinator = D3DApp::GetApp()->GetScene().GetCoordinator();
+	Renderable renderable = coordinator.GetComponent<Renderable>(entity);
 	renderable.material;
 }
 
@@ -456,8 +457,9 @@ void RenderSystem::UpdateCbs(float dt)
 {
 	PassConstant mMainPassCb;
 	Entity camera = mRenderSystemParams.camera;
-	auto cameraTransform = gCoordinator.GetComponent<Transform>(camera);
-	auto cameraData = gCoordinator.GetComponent<Camera>(camera);
+	auto& coordinator = D3DApp::GetApp()->GetScene().GetCoordinator();
+	auto cameraTransform = coordinator.GetComponent<Transform>(camera);
+	auto cameraData = coordinator.GetComponent<Camera>(camera);
 	cameraData.CreateViewFromTransform(cameraTransform);
 
 	XMMATRIX view = XMLoadFloat4x4(&cameraData.view);
@@ -495,9 +497,10 @@ void RenderSystem::UpdateCbs(float dt)
 
 void RenderSystem::UpdateEntityCbs(float dt)
 {
+	auto& coordinator = D3DApp::GetApp()->GetScene().GetCoordinator();
 	for (Entity entity : mEntities)
 	{
-		Transform transform = gCoordinator.GetComponent<Transform>(entity);
+		Transform transform = coordinator.GetComponent<Transform>(entity);
 		XMFLOAT3 position = transform.position;
 		XMMATRIX translationMatrix = XMMatrixTranslation(position.x, position.y, position.z);
 		XMFLOAT3 rotation = transform.rotation;
@@ -565,9 +568,10 @@ void RenderSystem::Update(float dt)
 
 			UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
+			auto& coordinator = D3DApp::GetApp()->GetScene().GetCoordinator();
 			for (auto& const entity : mEntities)
 			{
-				auto& renderable = gCoordinator.GetComponent<Renderable>(entity);
+				auto& renderable = coordinator.GetComponent<Renderable>(entity);
 				mCommandList->IASetVertexBuffers(0, 1, &renderable.geometry->GetVertexBufferView());
 				mCommandList->IASetIndexBuffer(&renderable.geometry->GetIndexBufferView());
 				mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

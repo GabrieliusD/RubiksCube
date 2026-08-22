@@ -17,8 +17,9 @@
 #include <cstdint>
 #include <DirectXMath.h>
 #include <vector>
+#include "CherryAPI.h"
 
-class GeometryGenerator
+class CHERRY_API GeometryGenerator
 {
 public:
 

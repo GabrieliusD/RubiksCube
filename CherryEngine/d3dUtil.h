@@ -29,6 +29,7 @@
 #include "DDSTextureLoader.h"
 #include "MathHelper.h"
 #include "Graphics/DescriptorHeap.h"
+#include "CherryAPI.h"
 
 extern const int gNumFrameResources;
 
@@ -89,7 +90,7 @@ inline std::wstring AnsiToWString(const std::string& str)
 #endif 		
     */
 
-class d3dUtil
+class CHERRY_API d3dUtil
 {
 public:
 

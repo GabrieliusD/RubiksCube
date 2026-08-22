@@ -17,7 +17,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
 	if (ImGui_ImplWin32_WndProcHandler(hwnd, message, wparam, lparam))
 		return true;
-	return D3DApp::GetApp()->MsgProc(hwnd, message, wparam, lparam);
+
+	auto* app = D3DApp::GetApp();
+	if (app)
+	{
+		return app->MsgProc(hwnd, message, wparam, lparam);
+	}
+
+	return DefWindowProc(hwnd, message, wparam, lparam);
 }
 
 
@@ -34,7 +41,18 @@ D3DApp* D3DApp::GetApp()
 D3DApp* D3DApp::mApp = nullptr;
 D3DApp::~D3DApp()
 {
-	mRenderSystem->FlushCommandQueue();
+	if (mRenderSystem)
+	{
+		try
+		{
+			mRenderSystem->FlushCommandQueue();
+		}
+		catch (...)
+		{
+		}
+	}
+
+	mApp = nullptr;
 }
 
 void D3DApp::InitDirectX()
@@ -94,30 +112,29 @@ void D3DApp::InitVrHeadset()
 
 }
 
-Coordinator gCoordinator;
-
 void D3DApp::InitECS()
 {
-	gCoordinator.Init();
+	auto& coordinator = mScene.GetCoordinator();
+	coordinator.Init();
 
-	gCoordinator.RegisterComponent<Transform>();
-	gCoordinator.RegisterComponent<Renderable>();
-	gCoordinator.RegisterComponent<Camera>();
+	coordinator.RegisterComponent<Transform>();
+	coordinator.RegisterComponent<Renderable>();
+	coordinator.RegisterComponent<Camera>();
 
-	mCameraSystem = gCoordinator.RegisterSystem<CameraSystem>();
-	mRenderSystem = gCoordinator.RegisterSystem<RenderSystem>();
+	mCameraSystem = coordinator.RegisterSystem<CameraSystem>();
+	mRenderSystem = coordinator.RegisterSystem<RenderSystem>();
 
 	Signature renderSignature;
-	renderSignature.set(gCoordinator.GetComponentType<Transform>());
-	renderSignature.set(gCoordinator.GetComponentType<Renderable>());
+	renderSignature.set(coordinator.GetComponentType<Transform>());
+	renderSignature.set(coordinator.GetComponentType<Renderable>());
 
-	gCoordinator.SetSystemSignature<RenderSystem>(renderSignature);
+	coordinator.SetSystemSignature<RenderSystem>(renderSignature);
 
 	Signature cameraSignature;
-	cameraSignature.set(gCoordinator.GetComponentType<Transform>());
-	cameraSignature.set(gCoordinator.GetComponentType<Camera>());
+	cameraSignature.set(coordinator.GetComponentType<Transform>());
+	cameraSignature.set(coordinator.GetComponentType<Camera>());
 
-	gCoordinator.SetSystemSignature<CameraSystem>(cameraSignature);
+	coordinator.SetSystemSignature<CameraSystem>(cameraSignature);
 
 	mCameraSystem->Init();
 
@@ -231,7 +248,14 @@ int D3DApp::Run()
 			mTimer.Tick();
 			if (!mAppPaused)
 			{
-				mRenderSystem->Update(mTimer.DeltaTime());	
+				try
+				{
+					mRenderSystem->Update(mTimer.DeltaTime());
+				}
+				catch (...)
+				{
+					PostQuitMessage(0);
+				}
 			}
 			else
 			{
@@ -239,6 +263,21 @@ int D3DApp::Run()
 			}
 		}
 	}
+
+	if (mRenderSystem)
+	{
+		try
+		{
+			mRenderSystem->FlushCommandQueue();
+		}
+		catch (...)
+		{
+		}
+	}
+
+	mRenderSystem.reset();
+	mCameraSystem.reset();
+	D3DCore::Shutdown();
 
 	return (int)msg.wParam;
 }

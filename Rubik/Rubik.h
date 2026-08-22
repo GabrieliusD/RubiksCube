@@ -1,9 +1,7 @@
 #pragma once
-#include <EntryPoint.h>
+#include <D3DApp.h>
 #include <Entity.h>
 #include <RenderSystem.h>
-
-extern Coordinator gCoordinator;
 
 class RubikApp : public D3DApp
 {
@@ -18,8 +16,3 @@ private:
 	void CreateEntities();
 
 };
-
-D3DApp* CreateApplication()
-{
-	return new RubikApp();
-}

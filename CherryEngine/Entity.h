@@ -7,6 +7,8 @@
 #include <queue>
 #include <DirectXMath.h>
 #include <bitset>
+#include <string>
+#include <CherryAPI.h>
 #include <Transform.h>
 
 using Entity = std::uint32_t;
@@ -127,7 +129,7 @@ public:
 	template<typename T>
 	void RegisterComponent()
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName = typeid(T).name();
 
 		mComponentTypes.insert({ typeName, mNextComponentType });
 		mComponentArrays.insert({ typeName, std::make_shared<ComponentArray<T>>() });
@@ -138,7 +140,7 @@ public:
 	template<typename T>
 	ComponentType GetComponentType()
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName = typeid(T).name();
 
 		return mComponentTypes[typeName];
 	}
@@ -171,15 +173,15 @@ public:
 	}
 
 private:
-	std::unordered_map<const char*, ComponentType> mComponentTypes{};
-	std::unordered_map<const char*, std::shared_ptr<IComponentArray>> mComponentArrays{};
+	std::unordered_map<std::string, ComponentType> mComponentTypes{};
+	std::unordered_map<std::string, std::shared_ptr<IComponentArray>> mComponentArrays{};
 
 	ComponentType mNextComponentType{};
 
 	template<typename T>
 	std::shared_ptr<ComponentArray<T>> GetComponentArray()
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName = typeid(T).name();
 
 		return std::static_pointer_cast<ComponentArray<T>>(mComponentArrays[typeName]);
 	}
@@ -199,7 +201,7 @@ public:
 	template<typename T>
 	std::shared_ptr<T> RegisterSystem()
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName = typeid(T).name();
 		auto system = std::make_shared<T>();
 		mSystems.insert({ typeName, system });
 		return system;
@@ -208,7 +210,7 @@ public:
 	template<typename T>
 	void SetSignature(Signature signature)
 	{
-		const char* typeName = typeid(T).name();
+		std::string typeName = typeid(T).name();
 		mSignatures.insert({ typeName, signature });
 	}
 
@@ -243,8 +245,8 @@ public:
 	}
 
 private:
-	std::unordered_map<const char*, Signature> mSignatures{};
-	std::unordered_map<const char*, std::shared_ptr<System>> mSystems{};
+	std::unordered_map<std::string, Signature> mSignatures{};
+	std::unordered_map<std::string, std::shared_ptr<System>> mSystems{};
 };
 
 class Coordinator
@@ -324,4 +326,26 @@ private:
 	std::unique_ptr<ComponentManager> mComponentManager;
 	std::unique_ptr<EntityManager> mEntityManager;
 	std::unique_ptr<SystemManager> mSystemManager;
+};
+
+class CHERRY_API Scene
+{
+public:
+	void Init()
+	{
+		mCoordinator.Init();
+	}
+
+	Coordinator& GetCoordinator()
+	{
+		return mCoordinator;
+	}
+
+	const Coordinator& GetCoordinator() const
+	{
+		return mCoordinator;
+	}
+
+private:
+	Coordinator mCoordinator;
 };

@@ -9,7 +9,7 @@
 #include <Graphics/RenderTexture.h>
 #include <UserInterface\ViewportWindow.h>
 #include <queue>
-
+#include <ShaderSystem/ShaderCompiler.h>
 
 template <typename T>
 struct ConstantBufferWrapper

@@ -1,3 +1,4 @@
+#pragma once
 #include <d3d12.h>
 #include <wrl.h>
 #include <d3dUtil.h>
@@ -12,6 +13,7 @@ class D3DCore
 
 public:
 	bool Initialize();
+	static void Shutdown();
 	static ComPtr<ID3D12Device5> Device()
 	{
 		return mMainDevice;

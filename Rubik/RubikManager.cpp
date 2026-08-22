@@ -2,8 +2,6 @@
 #include <RenderSystem.h>
 #include <D3DApp.h>
 
-extern Coordinator gCoordinator;
-
 RubikManager::RubikManager() :
     m_Front{
         {
@@ -98,6 +96,7 @@ void RubikManager::Initialize()
 {
     D3DApp* app = D3DApp::GetApp();
     auto renderSystem = app->GetRenderSystem();
+    auto& coordinator = app->GetScene().GetCoordinator();
     float offsetY = 0;
     float offsetZ = 10;
     for (int x = 0; x < 3; x++)
@@ -106,15 +105,15 @@ void RubikManager::Initialize()
         {
             for (int j = 0; j < 3; j++)
             {
-                auto test = gCoordinator.CreateEntity();
+                auto test = coordinator.CreateEntity();
                 Transform transform;
                 transform.scale = XMFLOAT3(1, 1, 1);
                 transform.position = XMFLOAT3(i * 2 - 2, j * 2 - 2 + offsetY,x * -2 + offsetZ);
-                gCoordinator.AddComponent<Transform>(test, transform);
+                coordinator.AddComponent<Transform>(test, transform);
                 Renderable renderable;
                 renderable.geometry = app->geometries["Cube"].get();
                 renderable.material = renderSystem->GetMaterial("grass");
-                gCoordinator.AddComponent<Renderable>(test, renderable);
+                coordinator.AddComponent<Renderable>(test, renderable);
             }
         }
     }

@@ -1,11 +1,13 @@
 #pragma once
 #include <d3d12.h>
+#include "CherryAPI.h"
 #include "d3dUtil.h"
 #include "GameTimer.h"
 #include "Geometry.h"
 #include "RenderObject.h"
 #include "PassConstant.h"
 #include "Common.h"
+#include "Entity.h"
 
 #include "Graphics/Buffer.h"
 #include <utility>
@@ -32,8 +34,7 @@ struct AccelerationStructureBuffers
 	ComPtr<ID3D12Resource> pInstanceDesc;
 };
 
-extern class D3DApp* CreateApplication();
-class D3DApp
+class CHERRY_API D3DApp
 {
 
 public: 
@@ -41,6 +42,7 @@ public:
 	std::unordered_map<std::string, std::unique_ptr<Geometry>> geometries;
 	std::unordered_map<std::string, std::unique_ptr<Material>> materials;
 	auto GetRenderSystem() { return mRenderSystem; }
+	Scene& GetScene() { return mScene; }
 
 public:
 	D3DApp();
@@ -183,6 +185,7 @@ private:
 
 protected:
 	static D3DApp* mApp;
+	Scene mScene;
 	std::shared_ptr<class RenderSystem> mRenderSystem;
 	std::shared_ptr<class CameraSystem> mCameraSystem;
 
