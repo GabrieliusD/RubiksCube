@@ -19,9 +19,9 @@ void RenderSystem::Init(RenderSystemParams renderSystemParams)
 	CreateCommandList();
 	CreateSwapChain();
 	CreateRtvAndDsvDescriptorHeaps();
+	CreateViewport();
 	CreateRenderTargetResource();
 	CreateDepthStencilResource();
-	CreateViewport();
 	CreateVertexInputLayout();
 	CreateRootSignature();
 	CreatePSO();
@@ -171,17 +171,30 @@ void RenderSystem::CreateRtvAndDsvDescriptorHeaps()
 
 void RenderSystem::CreateRenderTargetResource()
 {
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(
-		mRtvDescHeap.cpu_start()
-	);
 	for (UINT i = 0; i < kSwapChainBufferCount; i++)
 	{
+		descriptor_handle handle = mRtvDescHeap.allocate();
 		ThrowIfFailed(mSwapChain->GetBuffer(i, IID_PPV_ARGS(mSwapChainBuffer[i].GetAddressOf())));
 		mDevice->CreateRenderTargetView(
-			mSwapChainBuffer[i].Get(), nullptr, rtvHeapHandle
+			mSwapChainBuffer[i].Get(), nullptr, handle.cpu
 		);
-		rtvHeapHandle.Offset(1, mRtvDescriptorSize);
+
+		mBackBufferIdToDescriptorHandle[i] = handle;
 	}
+
+	mRenderTexture = std::make_unique<RenderTexture>(
+		mBackBufferFormat
+	);
+
+	mRenderTexture->SetClearColor(Colors::CornflowerBlue);
+	descriptor_handle srvHandle = mSrvDescHeap.allocate();
+	descriptor_handle rtvHandle = mRtvDescHeap.allocate();
+	mRenderTexture->SetDevice(mDevice.Get(), srvHandle, rtvHandle);
+	mRenderTextureNameToDescriptorHandle["renderTexture"] = srvHandle;
+
+	mRenderTexture->SetWindow(mScissorRect);
+	mRenderTextureDescHandle = rtvHandle.cpu;
+	mViewportWindow = std::make_unique<ViewportWindow>(mRenderTexture.get());
 }
 
 void RenderSystem::CreateDepthStencilResource()
@@ -428,10 +441,9 @@ void RenderSystem::InitializeImgui() {
 
 D3D12_CPU_DESCRIPTOR_HANDLE RenderSystem::CurrentBackBufferView() const
 {
+	
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
-		mRtvDescHeap.cpu_start(),
-		mCurrBackBuffer,
-		mRtvDescriptorSize
+		mBackBufferIdToDescriptorHandle.at(mCurrBackBuffer).cpu
 	);
 }
 
@@ -527,9 +539,8 @@ void RenderSystem::Update(float dt)
 	// Start the Dear ImGui frame
 	ImGui_ImplDX12_NewFrame();
 	ImGui_ImplWin32_NewFrame();
-	ImGui::NewFrame();
-	ImGui::Begin("Viewport"); // Show demo window! :)
-	ImGui::End();
+
+	mViewportWindow->HandleWindowResize();
 
 	ThrowIfFailed(mDirectCmdListAlloc->Reset());
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSO.Get()));
@@ -542,10 +553,12 @@ void RenderSystem::Update(float dt)
 	{
 		mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Green, 0, nullptr);
 		mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-		mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+		mCommandList->OMSetRenderTargets(1, &mRenderTextureDescHandle, true, &DepthStencilView());
 		ID3D12DescriptorHeap* DescriptorHeaps[] = { mSrvDescHeap.heap()};
 		mCommandList->SetDescriptorHeaps(_countof(DescriptorHeaps), DescriptorHeaps);
 		mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+		mRenderTexture->BeginScene(mCommandList.Get());
+		mRenderTexture->Clear(mCommandList.Get());
 		if (mSrvDescHeap.size() > 0)
 		{
 			mCommandList->SetGraphicsRootDescriptorTable(1, mMainPassCbWrapper->descriptorHandle.gpu);
@@ -575,7 +588,17 @@ void RenderSystem::Update(float dt)
 			}
 		}
 	}
+	mRenderTexture->EndScene(mCommandList.Get());
+	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
+	ImGui::NewFrame();
+	ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+	mViewportWindow->Draw();
+	//ImGui::Begin("Viewport"); 
+	//ImVec2 windowSize = ImGui::GetContentRegionAvail();
+	//descriptor_handle handle = mRenderTextureNameToDescriptorHandle.at("renderTexture");
+	//ImGui::Image((ImTextureID)handle.gpu.ptr, windowSize);
+	//ImGui::End();
 	// Rendering
 // (Your code clears your framebuffer, renders your other stuff etc.)
 	ImGui::Render();

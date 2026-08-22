@@ -6,8 +6,10 @@
 #include <Geometry.h>
 #include "Graphics/Buffer.h"
 #include "Graphics/DescriptorHeap.h"
-#include "ShaderSystem/ShaderCompiler.h"
+#include <Graphics/RenderTexture.h>
+#include <UserInterface\ViewportWindow.h>
 #include <queue>
+
 
 template <typename T>
 struct ConstantBufferWrapper
@@ -79,6 +81,7 @@ private:
 
 
 	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const;
+	//D3D12_CPU_DESCRIPTOR_HANDLE RenderTargetView() const;
 	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const;
 
 	bool mRaster = true;
@@ -134,6 +137,12 @@ private:
 	std::unique_ptr<ConstantBuffer<class ObjectConstants>> mObjectConstantsBuffer;
 	std::unordered_map<Entity, descriptor_handle> mEntityToDescriptorHandleMap;
 	std::unordered_map<Entity, UINT16> mEntityToCbIndexMap;
+
+	std::unique_ptr<RenderTexture> mRenderTexture;
+	std::unique_ptr<ViewportWindow> mViewportWindow;
+	std::unordered_map<UINT, descriptor_handle> mBackBufferIdToDescriptorHandle;
+	std::unordered_map<std::string, descriptor_handle> mRenderTextureNameToDescriptorHandle;
+	D3D12_CPU_DESCRIPTOR_HANDLE mRenderTextureDescHandle;
 	// Free list for constant buffer indices. When an entity is removed its
 	// CB index is returned to this queue and reused for future entities.
 	std::queue<UINT16> mFreeCbIndices;

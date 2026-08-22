@@ -26,6 +26,8 @@ set(HEADERS
     Transform.h
     Graphics/DescriptorHeap.h
     Graphics/D3DCore.h
+    Graphics/RenderTexture.h
+    UserInterface/ViewportWindow.h
     Camera.h
     CameraSystem.h
  "ShaderSystem/ShaderDesc.h" "ShaderSystem/ShaderCompiler.h" "CommonMacros.h")
@@ -45,6 +47,8 @@ set(SOURCES
     RenderSystem.cpp
     Graphics/DescriptorHeap.cpp
     Graphics/D3DCore.cpp
+    Graphics/RenderTexture.cpp
+    UserInterface/ViewportWindow.cpp
     CameraSystem.cpp
  "ShaderSystem/ShaderCompiler.cpp")
 
