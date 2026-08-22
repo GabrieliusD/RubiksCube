@@ -28,7 +28,7 @@ set(HEADERS
     Graphics/D3DCore.h
     Camera.h
     CameraSystem.h
-)
+ "ShaderSystem/ShaderDesc.h" "ShaderSystem/ShaderCompiler.h" "CommonMacros.h")
 
 set(SOURCES
     EntryPoint.h
@@ -46,10 +46,11 @@ set(SOURCES
     Graphics/DescriptorHeap.cpp
     Graphics/D3DCore.cpp
     CameraSystem.cpp
-)
+ "ShaderSystem/ShaderCompiler.cpp")
 
 add_subdirectory(thirdparty/dxr/nv_helpers_dx12)
 add_subdirectory(thirdparty/imgui)
+add_subdirectory(thirdparty/dxc)
 
 if(CHERRYENGINE_BUILD_SHARED)
   add_library(CherryEngine SHARED ${SOURCES} ${HEADERS})
@@ -58,14 +59,9 @@ else()
   add_library(CherryEngine STATIC ${SOURCES} ${HEADERS})
 endif()
 
-# Imported dxcompiler helper
-add_library(dxcompiler SHARED IMPORTED GLOBAL)
-set_property(TARGET dxcompiler PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/lib/dxcompiler.dll")
-set_property(TARGET dxcompiler PROPERTY IMPORTED_IMPLIB "${PROJECT_SOURCE_DIR}/lib/openxr_loaderd.lib")
-
 # Link directories and libraries
 target_link_directories(CherryEngine PUBLIC "${PROJECT_SOURCE_DIR}/lib")
-target_link_libraries(CherryEngine PUBLIC imgui dxr openxr_loaderd dxcompiler)
+target_link_libraries(CherryEngine PUBLIC imgui dxr openxr_loaderd DXC::dxcompiler)
 
 target_compile_definitions(CherryEngine PUBLIC -D_UNICODE -DUNICODE)
 
@@ -79,10 +75,10 @@ target_include_directories(CherryEngine PUBLIC
 # Install or copy runtime assets after build
 add_custom_command(TARGET CherryEngine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${PROJECT_SOURCE_DIR}/lib/dxcompiler.dll"
+        "${PROJECT_SOURCE_DIR}/thirdparty/dxc/bin/x64/dxcompiler.dll"
         $<TARGET_FILE_DIR:CherryEngine>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${PROJECT_SOURCE_DIR}/lib/dxil.dll"
+        "${PROJECT_SOURCE_DIR}/thirdparty/dxc/bin/x64/dxil.dll"
         $<TARGET_FILE_DIR:CherryEngine>
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${PROJECT_SOURCE_DIR}/Shaders"

@@ -11,6 +11,7 @@ void RenderSystem::Init(RenderSystemParams renderSystemParams)
 {
 	mRenderSystemParams = renderSystemParams;
 	mHwnd = renderSystemParams.hwnd;
+	shaderCompiler.Initialize();
 	CreateD3D12Device();
 	CreateFence();
 	InitDescriptorSize();
@@ -292,10 +293,19 @@ void RenderSystem::CreateRootSignature()
 
 void RenderSystem::CreatePSO()
 {
-	mvsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
-		"VS", "vs_5_0");
-	mpsByteCode = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr,
-		"PS", "ps_5_0");
+	ShaderDesc shaderDescVS;
+	shaderDescVS.type = ShaderType::Vertex;
+	shaderDescVS.profile = "vs_6_0";
+	shaderDescVS.filePath = "Shaders\\Default.hlsl";
+	shaderDescVS.entryPoint = "VS";
+	auto compiledShaderVS = shaderCompiler.Compile(shaderDescVS);
+
+	ShaderDesc shaderDescPS;
+	shaderDescPS.type = ShaderType::Fragment;
+	shaderDescPS.profile = "ps_6_0";
+	shaderDescPS.filePath = "Shaders\\Default.hlsl";
+	shaderDescPS.entryPoint = "PS";
+	auto compiledShaderPS = shaderCompiler.Compile(shaderDescPS);
 
 	CD3DX12_RASTERIZER_DESC rsDesc(D3D12_DEFAULT);
 	rsDesc.FillMode = D3D12_FILL_MODE_SOLID;
@@ -305,8 +315,8 @@ void RenderSystem::CreatePSO()
 	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
 	psoDesc.InputLayout = { mVertexDesc.data(), (UINT)mVertexDesc.size() };
 	psoDesc.pRootSignature = mRootSignature.Get();
-	psoDesc.VS = { reinterpret_cast<BYTE*>(mvsByteCode->GetBufferPointer()), mvsByteCode->GetBufferSize() };
-	psoDesc.PS = { reinterpret_cast<BYTE*>(mpsByteCode->GetBufferPointer()), mpsByteCode->GetBufferSize() };
+	psoDesc.VS = { compiledShaderVS.bytecode.data(), compiledShaderVS.bytecode.size() };
+	psoDesc.PS = { compiledShaderPS.bytecode.data(), compiledShaderPS.bytecode.size() };
 
 	psoDesc.RasterizerState = rsDesc;
 	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
@@ -555,8 +565,8 @@ void RenderSystem::Update(float dt)
 
 				//material
 				D3D12_GPU_VIRTUAL_ADDRESS matCbAddress = mMaterialConstantsBuffer->GetBuffer()->GetGPUVirtualAddress()
-					+ renderable.material->MatCBIndex;
-				mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress + renderable.material->MatCBIndex * matCBByteSize);
+					+ renderable.material->MatCBIndex * matCBByteSize;
+				mCommandList->SetGraphicsRootConstantBufferView(2, matCbAddress);
 
 				//texture
 				Texture* texture = mIdToTexture[renderable.material->TextureId];

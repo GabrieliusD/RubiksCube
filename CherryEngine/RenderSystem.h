@@ -6,6 +6,7 @@
 #include <Geometry.h>
 #include "Graphics/Buffer.h"
 #include "Graphics/DescriptorHeap.h"
+#include "ShaderSystem/ShaderCompiler.h"
 #include <queue>
 
 template <typename T>
@@ -71,7 +72,8 @@ private:
 	void CreatePSO();
 	void CreateConstantBuffers();
 	void InitializeImgui();
-	
+	ShaderCompiler shaderCompiler;
+
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
 

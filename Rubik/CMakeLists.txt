@@ -19,10 +19,10 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:CherryEngine> $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/CherryEngine/lib/dxcompiler.dll"
+        "${CMAKE_SOURCE_DIR}/CherryEngine/thirdparty/dxc/bin/x64/dxcompiler.dll"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/CherryEngine/lib/dxil.dll"
+        "${CMAKE_SOURCE_DIR}/CherryEngine/thirdparty/dxc/bin/x64/dxil.dll"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/CherryEngine/Shaders"
