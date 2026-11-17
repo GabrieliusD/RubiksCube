@@ -1,0 +1,33 @@
+// HDR -> LDR tonemap as a compute pass (exercises the compute + UAV path).
+// Writes gamma-encoded values into a UNORM UAV; the LDR texture is then shown
+// by ImGui or blitted to the back buffer without further conversion.
+#include "Common.hlsli"
+
+ConstantBuffer<TonemapConstants> gDraw : register(b0);
+
+// Krzysztof Narkowicz's ACES filmic fit.
+float3 ACESFilm(float3 x)
+{
+	const float a = 2.51;
+	const float b = 0.03;
+	const float c = 2.43;
+	const float d = 0.59;
+	const float e = 0.14;
+	return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= gDraw.width || id.y >= gDraw.height)
+	{
+		return;
+	}
+
+	Texture2D<float4> hdr = ResourceDescriptorHeap[gDraw.hdrTextureIndex];
+	RWTexture2D<float4> output = ResourceDescriptorHeap[gDraw.outputTextureIndex];
+
+	float3 color = hdr[id.xy].rgb * gView.exposure;
+	color = ACESFilm(color);
+	output[id.xy] = float4(LinearToSrgb(color), 1.0);
+}

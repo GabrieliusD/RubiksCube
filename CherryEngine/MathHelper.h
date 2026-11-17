@@ -9,8 +9,9 @@
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <cstdint>
+#include "CherryAPI.h"
 
-class MathHelper
+class CHERRY_API MathHelper
 {
 public:
 	// Returns random float in [0, 1).

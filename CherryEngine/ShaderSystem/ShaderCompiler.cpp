@@ -1,10 +1,7 @@
 #include "ShaderCompiler.h"
-#include "CommonMacros.h"
+#include "RHI/D3DCommon.h"
 
-#include <dxcapi.h>
 #include <string>
-#include <vector>
-#include <stdexcept>
 #include <cstring>
 
 using Microsoft::WRL::ComPtr;
@@ -13,29 +10,31 @@ namespace
 {
 	std::wstring ToWString(const std::string& value)
 	{
-		return std::wstring(value.begin(), value.end());
+		if (value.empty()) return {};
+		const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
+		std::wstring result(static_cast<size_t>(size), L'\0');
+		MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, result.data(), size);
+		result.pop_back();
+		return result;
 	}
 
-	std::wstring GetDefaultProfile(ShaderType type)
+	const wchar_t* DefaultProfile(ShaderType type)
 	{
 		switch (type)
 		{
-		case ShaderType::Vertex: return L"vs_6_6";
-		case ShaderType::Fragment: return L"ps_6_6";
-		case ShaderType::Geometry: return L"gs_6_6";
+		case ShaderType::Vertex:  return L"vs_6_6";
+		case ShaderType::Pixel:   return L"ps_6_6";
 		case ShaderType::Compute: return L"cs_6_6";
-		case ShaderType::TessellationControl: return L"hs_6_6";
-		case ShaderType::TessellationEvaluation: return L"ds_6_6";
-		default: return L"ps_6_6";
 		}
+		return L"ps_6_6";
 	}
 }
 
 void ShaderCompiler::Initialize()
 {
-	ThrowIfFailed(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&m_utils)));
-	ThrowIfFailed(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&m_compiler)));
-	ThrowIfFailed(m_utils->CreateDefaultIncludeHandler(&m_includeHandler));
+	DX_CHECK(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&m_utils)));
+	DX_CHECK(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&m_compiler)));
+	DX_CHECK(m_utils->CreateDefaultIncludeHandler(&m_includeHandler));
 }
 
 CompiledShader ShaderCompiler::Compile(const ShaderDesc& desc)
@@ -45,72 +44,90 @@ CompiledShader ShaderCompiler::Compile(const ShaderDesc& desc)
 		Initialize();
 	}
 
+	CompiledShader output;
 	const std::wstring filePath = desc.filePath.wstring();
-	ComPtr<IDxcBlobEncoding> sourceBlob;
-	ThrowIfFailed(m_utils->LoadFile(filePath.c_str(), nullptr, &sourceBlob));
 
-	DxcBuffer sourceBuffer = {};
+	ComPtr<IDxcBlobEncoding> sourceBlob;
+	if (FAILED(m_utils->LoadFile(filePath.c_str(), nullptr, &sourceBlob)))
+	{
+		output.errors = "Could not open shader file: " + desc.filePath.string();
+		return output;
+	}
+
+	DxcBuffer sourceBuffer{};
 	sourceBuffer.Ptr = sourceBlob->GetBufferPointer();
 	sourceBuffer.Size = sourceBlob->GetBufferSize();
 	sourceBuffer.Encoding = DXC_CP_UTF8;
 
-	const std::wstring entryPoint = ToWString(desc.entryPoint);
-	const std::wstring profile = desc.profile.empty() ? GetDefaultProfile(desc.type) : ToWString(desc.profile);
-	const std::wstring shaderDir = desc.filePath.parent_path().wstring();
+	std::vector<std::wstring> args;
+	args.push_back(filePath);   // file name for diagnostics
+	args.push_back(L"-E");
+	args.push_back(ToWString(desc.entryPoint));
+	args.push_back(L"-T");
+	args.push_back(desc.profile.empty() ? DefaultProfile(desc.type) : ToWString(desc.profile));
+	args.push_back(L"-Zpr");    // row-major matrices: matches DirectXMath without transposes
+	args.push_back(L"-HV");
+	args.push_back(L"2021");
 
-	std::vector<std::wstring> argStorage;
-	argStorage.push_back(filePath);      // important for include/diagnostics context
-	argStorage.push_back(L"-E");
-	argStorage.push_back(entryPoint);
-	argStorage.push_back(L"-T");
-	argStorage.push_back(profile);
-	argStorage.push_back(L"-Zpc");
-
-	if (!shaderDir.empty())
+	args.push_back(L"-I");
+	args.push_back(desc.filePath.parent_path().wstring());
+	for (const auto& dir : desc.includeDirs)
 	{
-		argStorage.push_back(L"-I");
-		argStorage.push_back(shaderDir); // resolves #include "LightingUtil.hlsl"
+		args.push_back(L"-I");
+		args.push_back(dir.wstring());
+	}
+	for (const auto& define : desc.defines)
+	{
+		args.push_back(L"-D");
+		args.push_back(ToWString(define));
 	}
 
-#if defined(DEBUG) || defined(_DEBUG)
-	argStorage.push_back(L"-Zi");
-	argStorage.push_back(L"-Od");
-	argStorage.push_back(L"-Qembed_debug");
+#if defined(_DEBUG)
+	args.push_back(L"-Zi");
+	args.push_back(L"-Od");
+	args.push_back(L"-Qembed_debug");
 #else
-	argStorage.push_back(L"-O3");
+	args.push_back(L"-O3");
 #endif
 
-	std::vector<LPCWSTR> arguments;
-	arguments.reserve(argStorage.size());
-	for (const auto& arg : argStorage)
+	std::vector<LPCWSTR> argPtrs;
+	argPtrs.reserve(args.size());
+	for (const auto& arg : args)
 	{
-		arguments.push_back(arg.c_str());
+		argPtrs.push_back(arg.c_str());
 	}
 
 	ComPtr<IDxcResult> result;
-	ThrowIfFailed(m_compiler->Compile(
-		&sourceBuffer,
-		arguments.data(),
-		static_cast<UINT32>(arguments.size()),
-		m_includeHandler.Get(),
-		IID_PPV_ARGS(&result)));
+	if (FAILED(m_compiler->Compile(&sourceBuffer, argPtrs.data(), static_cast<UINT32>(argPtrs.size()),
+		m_includeHandler.Get(), IID_PPV_ARGS(&result))))
+	{
+		output.errors = "DXC failed to run for " + desc.filePath.string();
+		return output;
+	}
 
 	ComPtr<IDxcBlobUtf8> errors;
 	result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
 	if (errors && errors->GetStringLength() > 0)
 	{
-		OutputDebugStringA(errors->GetStringPointer());
+		output.errors = errors->GetStringPointer();
 	}
 
-	HRESULT hrStatus = S_OK;
-	ThrowIfFailed(result->GetStatus(&hrStatus));
-	ThrowIfFailed(hrStatus);
+	HRESULT status = S_OK;
+	result->GetStatus(&status);
+	if (FAILED(status))
+	{
+		return output;
+	}
 
 	ComPtr<IDxcBlob> shaderBlob;
-	ThrowIfFailed(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr));
+	if (FAILED(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr)) || !shaderBlob)
+	{
+		output.errors += "DXC produced no bytecode for " + desc.filePath.string();
+		return output;
+	}
 
-	CompiledShader compiledShader;
-	compiledShader.bytecode.resize(shaderBlob->GetBufferSize());
-	std::memcpy(compiledShader.bytecode.data(), shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize());
-	return compiledShader;
+	output.bytecode.resize(shaderBlob->GetBufferSize());
+	std::memcpy(output.bytecode.data(), shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize());
+	output.success = true;
+	return output;
 }

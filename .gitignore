@@ -361,3 +361,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# vcpkg manifest-mode output and ImGui window layout (both generated)
+vcpkg_installed/
+imgui.ini
+

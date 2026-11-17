@@ -1,13 +1,17 @@
-#include <iostream>
+// CherryLaunch: starts the engine with a game module.
+//
+// Modular build:    loads the game DLL (default CHERRY_ACTIVE_GAME_MODULE, or the
+//                   first command-line argument) and calls its CreateGameModule().
+// Monolithic build: the game is statically linked; CreateGameModule() is called directly.
+#include <Core/Engine.h>
+#include <Game/GameModule.h>
+#include <Core/Log.h>
 #include <memory>
 
-#include <D3DApp.h>
-
 #if CHERRY_MONOLITHIC
-extern "C" D3DApp* CreateApplication();
+extern "C" IGameModule* CreateGameModule();
 #else
-#include <Windows.h>
-#include <GameModuleAPI.h>
+#include <windows.h>
 #ifndef CHERRY_ACTIVE_GAME_MODULE
 #define CHERRY_ACTIVE_GAME_MODULE "RubikGame.dll"
 #endif
@@ -16,35 +20,39 @@ extern "C" D3DApp* CreateApplication();
 int main(int argc, char** argv)
 {
 #if CHERRY_MONOLITHIC
-	std::unique_ptr<D3DApp> app(CreateApplication());
-	return app ? app->Run() : -1;
+	(void)argc;
+	(void)argv;
+	std::unique_ptr<IGameModule> game(CreateGameModule());
+	Engine engine;
+	return engine.Run(*game);
 #else
 	const char* moduleName = (argc > 1) ? argv[1] : CHERRY_ACTIVE_GAME_MODULE;
 
 	HMODULE gameModule = LoadLibraryA(moduleName);
 	if (!gameModule)
 	{
-		std::cerr << "Failed to load module: " << moduleName << '\n';
+		CHERRY_ERROR("Failed to load game module: %s (error %lu)", moduleName, GetLastError());
 		return -1;
 	}
 
-	auto createApplication = reinterpret_cast<CreateApplicationFn>(GetProcAddress(gameModule, "CreateApplication"));
-	if (!createApplication)
+	auto createGameModule = reinterpret_cast<CreateGameModuleFn>(GetProcAddress(gameModule, "CreateGameModule"));
+	if (!createGameModule)
 	{
-		std::cerr << "CreateApplication not found in module." << '\n';
+		CHERRY_ERROR("CreateGameModule not exported by %s", moduleName);
 		FreeLibrary(gameModule);
 		return -2;
 	}
 
-	std::unique_ptr<D3DApp> app(createApplication());
-	if (!app)
+	int result = -3;
 	{
-		FreeLibrary(gameModule);
-		return -3;
+		std::unique_ptr<IGameModule> game(createGameModule());
+		if (game)
+		{
+			Engine engine;
+			result = engine.Run(*game);
+		}
+		// Engine and game are destroyed here, before the module is unloaded.
 	}
-
-	const int result = app->Run();
-	app.reset();
 
 	FreeLibrary(gameModule);
 	return result;

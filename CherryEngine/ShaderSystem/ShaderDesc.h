@@ -2,21 +2,21 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 enum class ShaderType
 {
 	Vertex,
-	Fragment,
-	Geometry,
+	Pixel,
 	Compute,
-	TessellationControl,
-	TessellationEvaluation
 };
 
 struct ShaderDesc
 {
-	ShaderType type;
+	ShaderType type = ShaderType::Vertex;
 	std::string entryPoint;
 	std::filesystem::path filePath;
-	std::string profile;
+	std::string profile;                       // empty = default 6.6 profile for `type`
+	std::vector<std::string> defines;          // "NAME" or "NAME=VALUE"
+	std::vector<std::filesystem::path> includeDirs;
 };

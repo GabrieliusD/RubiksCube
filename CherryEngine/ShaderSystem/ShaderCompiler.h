@@ -9,9 +9,13 @@
 
 struct CompiledShader
 {
+	bool success = false;
 	std::vector<uint8_t> bytecode;
+	std::string errors;   // compiler diagnostics (file:line: message), also set on success for warnings
 };
 
+// Thin wrapper over DXC. Compile errors are returned, not thrown, so callers can
+// keep the previous pipeline alive when a hot-reloaded shader fails to compile.
 class ShaderCompiler
 {
 public:
