@@ -209,6 +209,7 @@ namespace
 		}
 
 		int entranceOk = 0, zonesConnected = 0, sealsHold = 0, walkable = 0, pocketsSealed = 0, solidOk = 0;
+		int oreInBand = 0, oreAllTypes = 0;
 		int zoneTotal = 0, pocketTotal = 0, walkTotal = 0;
 		for (int i = 0; i < kSeeds; ++i)
 		{
@@ -262,6 +263,41 @@ namespace
 				pocketsSealed += (hollow && !Seen(anyZone, inside) && !Seen(fromEntrance, inside)) ? 1 : 0;
 			}
 			solidOk += FloatingRock(world) == 0 ? 1 : 0;
+
+			// Ore only within its depth band; every ore type and some relics present.
+			bool inBand = true;
+			int found[static_cast<int>(Block::Count)] = {};
+			const auto& voxels = world.Voxels();
+			for (size_t v = 0; v < voxels.size(); ++v)
+			{
+				const Block b = voxels[v];
+				if (b == Block::Air || b == Block::Stone || b == Block::Bedrock) continue;
+				++found[static_cast<int>(b)];
+				const float depth = static_cast<float>(v / (cfg::kVoxX * cfg::kVoxY)) / cfg::kVoxZ;
+				if (b == Block::StrangeWatch)
+				{
+					if (depth < cfg::kWatchMinDepth - 0.01f) inBand = false;
+					continue;
+				}
+				for (const cfg::OreRule& rule : cfg::kOreRules)
+					if (rule.block == static_cast<int>(b) && (depth < rule.minDepth - 0.001f || depth > rule.maxDepth + 0.001f)) inBand = false;
+			}
+			bool allTypes = found[static_cast<int>(Block::StrangeWatch)] > 0;
+			for (const cfg::OreRule& rule : cfg::kOreRules) allTypes = allTypes && found[rule.block] > 0;
+			oreInBand += inBand ? 1 : 0;
+			oreAllTypes += allTypes ? 1 : 0;
+			if (i == 0)
+			{
+				std::printf("        (seed %d: %d veins, %zu watches; copper %d, silver %d, gold %d, crystal %d voxels)\n", 1000, layout.veins, layout.watches.size(),
+					found[static_cast<int>(Block::Copper)], found[static_cast<int>(Block::Silver)], found[static_cast<int>(Block::Gold)], found[static_cast<int>(Block::TimeCrystal)]);
+			}
+		}
+		{
+			char oreText[128];
+			std::snprintf(oreText, sizeof(oreText), "caves: ore stays inside its depth band (%d/%d seeds)", oreInBand, kSeeds);
+			Check(oreInBand == kSeeds, oreText);
+			std::snprintf(oreText, sizeof(oreText), "caves: every ore type and some relics appear (%d/%d seeds)", oreAllTypes, kSeeds);
+			Check(oreAllTypes == kSeeds, oreText);
 		}
 		char text[160];
 		std::snprintf(text, sizeof(text), "caves: the entrance reaches zone 1 (%d/%d seeds)", entranceOk, kSeeds);

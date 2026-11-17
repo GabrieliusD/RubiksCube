@@ -429,6 +429,135 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 		}
 	}
 
+	// ---- Ore veins and relics -----------------------------------------------------------
+	auto nearAir = [&](const XMFLOAT3& c, float radius)
+	{
+		// Coarse check on a 0.5 m lattice: enough to know a cave is close.
+		for (float dz = -radius; dz <= radius; dz += 0.5f)
+		for (float dy = -radius; dy <= radius; dy += 0.5f)
+		for (float dx = -radius; dx <= radius; dx += 0.5f)
+		{
+			if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+			const int x = static_cast<int>(std::floor((c.x + dx) * V));
+			const int y = static_cast<int>(std::floor((c.y + dy) * V));
+			const int z = static_cast<int>(std::floor((c.z + dz) * V));
+			if (VoxelWorld::InGrid(x, y, z) && g.voxels[VoxelWorld::Index(x, y, z)] == Block::Air) return true;
+		}
+		return false;
+	};
+	auto pickOre = [&](float depth01) -> Block
+	{
+		float total = 0.0f;
+		for (const cfg::OreRule& rule : cfg::kOreRules)
+			if (depth01 >= rule.minDepth && depth01 <= rule.maxDepth) total += rule.weight;
+		if (total <= 0.0f) return Block::Stone;
+		float pick = g.Rand(0.0f, total);
+		for (const cfg::OreRule& rule : cfg::kOreRules)
+		{
+			if (depth01 < rule.minDepth || depth01 > rule.maxDepth) continue;
+			pick -= rule.weight;
+			if (pick <= 0.0f) return static_cast<Block>(rule.block);
+		}
+		return static_cast<Block>(cfg::kOreRules[0].block);
+	};
+	// A blob of ore in stone. The fill is decided per 2x2x2 voxel cluster so veins read as
+	// chunks rather than speckle, and the vein never spills outside its depth range.
+	auto placeVein = [&](const XMFLOAT3& c, float radius, Block ore, uint32_t salt)
+	{
+		float minDepth = 0.0f, maxDepth = 1.0f;
+		for (const cfg::OreRule& rule : cfg::kOreRules)
+			if (rule.block == static_cast<int>(ore)) { minDepth = rule.minDepth; maxDepth = rule.maxDepth; }
+		const int zLo = std::max(static_cast<int>(std::floor((c.z - radius) * V)), static_cast<int>(std::ceil(minDepth * cfg::kVoxZ)));
+		const int zHi = std::min(static_cast<int>(std::floor((c.z + radius) * V)), static_cast<int>(std::floor(maxDepth * cfg::kVoxZ)) - 1);
+		for (int z = zLo; z <= zHi; ++z)
+		for (int y = static_cast<int>(std::floor((c.y - radius) * V)); y <= static_cast<int>(std::floor((c.y + radius) * V)); ++y)
+		for (int x = static_cast<int>(std::floor((c.x - radius) * V)); x <= static_cast<int>(std::floor((c.x + radius) * V)); ++x)
+		{
+			if (!VoxelWorld::InGrid(x, y, z)) continue;
+			Block& b = g.voxels[VoxelWorld::Index(x, y, z)];
+			if (b != Block::Stone) continue;
+			const float dx = (x + 0.5f) * S - c.x, dy = (y + 0.5f) * S - c.y, dz = (z + 0.5f) * S - c.z;
+			const float edge = radius * (0.8f + 0.4f * (0.5f + 0.5f * g.wallNoise.Sample((x + 0.5f) * S + 37.0f, (y + 0.5f) * S, (z + 0.5f) * S)));
+			if (dx * dx + dy * dy + dz * dz > edge * edge) continue;
+			uint32_t h = static_cast<uint32_t>(x / 2) * 73856093u ^ static_cast<uint32_t>(y / 2) * 19349663u ^ static_cast<uint32_t>(z / 2) * 83492791u ^ salt * 2654435761u;
+			h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+			if ((h & 0xFFFF) / 65536.0f < cfg::kVeinFill)
+			{
+				b = ore;
+				++layout.oreVoxels[static_cast<int>(ore)];
+			}
+		}
+		++layout.veins;
+	};
+
+	for (int i = 0, attempts = 0; i < cfg::kVeinCount && attempts < cfg::kVeinCount * 6; ++attempts)
+	{
+		const float radius = g.Rand(cfg::kVeinRadiusMin, cfg::kVeinRadiusMax);
+		const XMFLOAT3 c{ g.Rand(kShell + radius, kWidth - kShell - radius), g.Rand(kShell + 0.5f, kHeight - kShell - radius), g.Rand(kShell + radius, zEnd - radius) };
+		if (!nearAir(c, cfg::kVeinNearAir)) continue;
+		const Block ore = pickOre(c.z / cfg::kGridZ);
+		if (ore == Block::Stone) continue;
+		placeVein(c, radius, ore, static_cast<uint32_t>(i));
+		++i;
+	}
+	// Pockets reward digging: extra veins in their walls, biased to the rarer ores.
+	for (size_t p = 0; p < layout.pockets.size(); ++p)
+	{
+		const CaveRoom& shape = layout.pockets[p].shape;
+		for (int k = 0; k < cfg::kPocketVeins; ++k)
+		{
+			const float angle = g.Rand(0.0f, 6.2831853f);
+			const float lift = g.Rand(0.0f, shape.height);
+			const XMFLOAT3 c{ shape.center.x + std::sin(angle) * (shape.radius + 0.4f), shape.center.y + lift, shape.center.z + std::cos(angle) * (shape.radius + 0.4f) };
+			Block ore = pickOre(c.z / cfg::kGridZ);
+			if (ore == Block::Copper && g.Rand(0.0f, 1.0f) < 0.6f) ore = pickOre(std::min(c.z / cfg::kGridZ + 0.25f, 1.0f));
+			if (ore != Block::Stone) placeVein(c, g.Rand(0.8f, 1.4f), ore, 9000u + static_cast<uint32_t>(p * 31 + k));
+		}
+	}
+
+	// Strange watches: a 0.5 m relic (2x2x2 voxels), half sunk into a floor.
+	auto placeWatch = [&](int x, int y, int z)
+	{
+		for (int dz = 0; dz < 2; ++dz)
+			for (int dy = 0; dy < 2; ++dy)
+				for (int dx = 0; dx < 2; ++dx)
+				{
+					if (!VoxelWorld::InGrid(x + dx, y + dy, z + dz)) continue;
+					Block& b = g.voxels[VoxelWorld::Index(x + dx, y + dy, z + dz)];
+					if (b == Block::Bedrock) continue;
+					b = Block::StrangeWatch;
+					++layout.oreVoxels[static_cast<int>(Block::StrangeWatch)];
+				}
+		layout.watches.push_back({ (x + 1) * S, (y + 1) * S, (z + 1) * S });
+	};
+	for (int i = 0, attempts = 0; i < cfg::kWatchCount && attempts < cfg::kWatchCount * 40; ++attempts)
+	{
+		const bool inPocket = !layout.pockets.empty() && g.Rand(0.0f, 1.0f) < cfg::kWatchInPocketChance;
+		int x, y, z;
+		if (inPocket)
+		{
+			const CaveRoom& shape = layout.pockets[g.RandInt(0, static_cast<int>(layout.pockets.size()) - 1)].shape;
+			x = static_cast<int>(std::floor((shape.center.x + g.Rand(-0.5f, 0.5f) * shape.radius) * V));
+			z = static_cast<int>(std::floor((shape.center.z + g.Rand(-0.5f, 0.5f) * shape.radius) * V));
+			y = static_cast<int>(std::floor(shape.center.y * V)) - 1;
+		}
+		else
+		{
+			// On a cave floor: find a column with air standing on rock.
+			x = g.RandInt(V + 1, cfg::kVoxX - V - 3);
+			z = g.RandInt(static_cast<int>(cfg::kWatchMinDepth * cfg::kVoxZ), cfg::kVoxZ - V - 3);
+			y = -1;
+			for (int yy = V; yy < cfg::kVoxY - V - 2; ++yy)
+			{
+				if (g.voxels[VoxelWorld::Index(x, yy, z)] != Block::Air && g.voxels[VoxelWorld::Index(x, yy + 1, z)] == Block::Air) { y = yy; break; }
+			}
+			if (y < 0) continue;
+		}
+		if (z < static_cast<int>(cfg::kWatchMinDepth * cfg::kVoxZ) || !VoxelWorld::InGrid(x, y, z)) continue;
+		placeWatch(x, y, z);
+		++i;
+	}
+
 	// ---- Remove rock that isn't attached to the bedrock shell -------------------------
 	// (Same rule as the in-game support check, so nothing collapses at the start.)
 	g.visited.assign(g.voxels.size(), 0);

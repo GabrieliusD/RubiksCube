@@ -55,6 +55,33 @@ namespace cfg
 	constexpr float kPocketRadiusMax = 3.0f;
 	constexpr float kPocketWallMin = 2.0f;        // rock between a pocket and any cave
 
+	// Ore veins: blobs placed in rock close to cave air so they show in the walls. Depth
+	// ranges are fractions of the mountain's depth (the original 110 m table, rescaled).
+	constexpr int kVeinCount = 700;
+	constexpr float kVeinRadiusMin = 0.8f;
+	constexpr float kVeinRadiusMax = 1.9f;
+	constexpr float kVeinFill = 0.75f;            // fraction of the blob that is ore
+	constexpr float kVeinNearAir = 2.5f;          // a vein's centre is at most this far from a cave
+	constexpr int kPocketVeins = 4;               // extra veins in the walls of each sealed pocket
+	constexpr int kWatchCount = 16;               // Strange watch relics
+	constexpr float kWatchMinDepth = 0.27f;
+	constexpr float kWatchInPocketChance = 0.6f;  // relics prefer sealed pockets
+
+	struct OreRule
+	{
+		int block;          // Block value
+		float minDepth;     // fraction of depth
+		float maxDepth;
+		float weight;
+	};
+	constexpr OreRule kOreRules[] =
+	{
+		{ 3, 0.00f, 0.59f, 3.0f },   // Copper
+		{ 4, 0.16f, 0.82f, 2.0f },   // Silver
+		{ 5, 0.38f, 1.00f, 1.6f },   // Gold
+		{ 6, 0.64f, 1.00f, 1.2f },   // Time crystal
+	};
+
 	// ---- Physics ----------------------------------------------------------------
 	constexpr int kCollisionChunk = 8;            // metres per side of a static collision chunk
 	constexpr float kCharacterPushStrength = 600.0f;   // newtons the player pushes loose rock with

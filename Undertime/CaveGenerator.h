@@ -41,6 +41,9 @@ struct CaveLayout
 	std::vector<CavePocket> pockets;
 	int floatingVoxelsRemoved = 0;
 	int airVoxels = 0;
+	int veins = 0;
+	std::vector<DirectX::XMFLOAT3> watches;            // relic positions (m)
+	int oreVoxels[static_cast<int>(cfg::Block::Count)] = {};
 };
 
 // Fills `world` with a new mountain for `seed`. Same seed, same mountain.
