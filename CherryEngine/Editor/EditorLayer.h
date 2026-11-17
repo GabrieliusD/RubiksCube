@@ -29,6 +29,7 @@ private:
 
 	bool mLayoutBuilt = false;
 	bool mVoxelTest = false;
+	bool mPhysicsDebug = false;
 	Entity mVoxelEntity = INVALID_ENTITY;
 	float mFrameMsSmoothed = 16.0f;
 };

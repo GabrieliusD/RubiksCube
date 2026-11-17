@@ -23,6 +23,7 @@ set(ENGINE_HEADERS
   Renderer/ResourcePool.h
   Renderer/DebugDraw.h
   Editor/EditorLayer.h
+  Physics/PhysicsWorld.h
   RHI/D3DCommon.h
   RHI/DescriptorHeap.h
   RHI/Device.h
@@ -48,6 +49,7 @@ set(ENGINE_SOURCES
   Renderer/Renderer.cpp
   Renderer/DebugDraw.cpp
   Editor/EditorLayer.cpp
+  Physics/PhysicsWorld.cpp
   RHI/D3DCommon.cpp
   RHI/DescriptorHeap.cpp
   RHI/Device.cpp
@@ -157,7 +159,8 @@ endif()
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${ENGINE_SOURCES} ${ENGINE_HEADERS} ${ENGINE_SHADERS})
 source_group("ThirdParty\\imgui" FILES ${IMGUI_SOURCES})
 
-target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid)
+# Jolt Physics stays private to the engine: games use PhysicsWorld's handle-based API.
+target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid Jolt::Jolt)
 
 target_compile_definitions(CherryEngine
   PUBLIC _UNICODE UNICODE NOMINMAX

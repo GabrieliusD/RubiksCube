@@ -44,6 +44,12 @@ function(cherry_add_runtime_assets target_name)
   set(out_dir "$<TARGET_FILE_DIR:${target_name}>")
   set(commands
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/CherryEngine/Shaders" "${out_dir}/Shaders")
+  if(TARGET Jolt::Jolt)
+    get_target_property(_jolt_type Jolt::Jolt TYPE)
+    if(_jolt_type STREQUAL "SHARED_LIBRARY")
+      list(APPEND commands COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Jolt::Jolt>" "${out_dir}")
+    endif()
+  endif()
   foreach(dll IN ITEMS "${CHERRY_DXC_DLL_PATH}" "${CHERRY_DXIL_DLL_PATH}")
     if(dll AND EXISTS "${dll}")
       list(APPEND commands COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "${out_dir}")
@@ -63,6 +69,10 @@ function(cherry_add_runtime_assets target_name)
 endfunction()
 
 enable_testing()
+
+# Jolt Physics (vcpkg: joltphysics), used privately by the engine. Found here so the
+# launcher can copy its DLL next to the executable.
+find_package(Jolt CONFIG REQUIRED)
 
 add_subdirectory(CherryEngine)
 add_subdirectory(Rubik)

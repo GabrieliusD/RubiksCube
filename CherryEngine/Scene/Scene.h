@@ -8,6 +8,7 @@
 class MeshRendererSet : public System {};
 class VoxelVolumeSet : public System {};
 class CameraSet : public System {};
+class RigidBodySet : public System {};
 
 // Owns the ECS world and the built-in component registrations.
 class CHERRY_API Scene
@@ -38,11 +39,13 @@ public:
 	const std::set<Entity>& MeshEntities() const { return mMeshes->mEntities; }
 	const std::set<Entity>& VoxelEntities() const { return mVoxels->mEntities; }
 	const std::set<Entity>& CameraEntities() const { return mCameras->mEntities; }
+	const std::set<Entity>& RigidBodyEntities() const { return mRigidBodies->mEntities; }
 
 private:
 	Coordinator mCoordinator;
 	std::shared_ptr<MeshRendererSet> mMeshes;
 	std::shared_ptr<VoxelVolumeSet> mVoxels;
 	std::shared_ptr<CameraSet> mCameras;
+	std::shared_ptr<RigidBodySet> mRigidBodies;
 	std::vector<Entity> mAllEntities;
 };

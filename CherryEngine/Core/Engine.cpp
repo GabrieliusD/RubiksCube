@@ -15,6 +15,7 @@ struct Engine::Impl
 	Window window;
 	Input input;
 	Renderer renderer;
+	PhysicsWorld physics;
 	std::unique_ptr<Scene> scene;
 	EditorLayer editor;
 
@@ -40,6 +41,7 @@ Scene& Engine::GetScene() { return *mImpl->scene; }
 Renderer& Engine::GetRenderer() { return mImpl->renderer; }
 Input& Engine::GetInput() { return mImpl->input; }
 Window& Engine::GetWindow() { return mImpl->window; }
+PhysicsWorld& Engine::GetPhysics() { return mImpl->physics; }
 float Engine::DeltaTime() const { return mImpl->deltaTime; }
 float Engine::TotalTime() const { return mImpl->totalTime; }
 Entity Engine::MainCamera() const { return mImpl->mainCamera; }
@@ -110,6 +112,7 @@ int Engine::Run(IGameModule& game)
 			return -2;
 		}
 
+		e.physics.Initialize();
 		e.scene = std::make_unique<Scene>();
 		e.CreateDefaultCamera();
 		game.OnStartup(*this);
@@ -125,6 +128,7 @@ int Engine::Run(IGameModule& game)
 
 	e.editor.Shutdown(*this);
 	if (e.scene) e.scene->Clear();
+	e.physics.Shutdown();
 	e.renderer.Shutdown();
 	e.scene.reset();
 	e.window.Destroy();
@@ -192,6 +196,15 @@ int Engine::Impl::Loop(Engine& engine, IGameModule& game)
 		renderer.SetViewSize(static_cast<uint32_t>(gameView.width), static_cast<uint32_t>(gameView.height));
 
 		game.OnUpdate(engine, deltaTime);
+
+		// Fixed-step physics, then move rigid-body entities to their (interpolated) poses.
+		physics.Update(deltaTime);
+		for (Entity entity : scene->RigidBodyEntities())
+		{
+			const RigidBody& body = scene->Get<RigidBody>(entity);
+			Transform& transform = scene->Get<Transform>(entity);
+			physics.GetTransform(body.body, transform.position, transform.rotation, true);
+		}
 
 		if (UpdateMainView())
 		{

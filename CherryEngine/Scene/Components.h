@@ -1,5 +1,6 @@
 #pragma once
 #include "Renderer/RenderTypes.h"
+#include "Physics/PhysicsWorld.h"
 #include <DirectXMath.h>
 
 // Built-in components, registered by Scene. Games may register their own.
@@ -63,6 +64,13 @@ struct Camera
 	float fovY = DirectX::XM_PIDIV4;
 	float nearZ = 0.1f;
 	float farZ = 1000.0f;
+};
+
+// Drives the entity's Transform from a physics body every frame (interpolated between
+// fixed physics steps). Create the body with Engine::GetPhysics().
+struct RigidBody
+{
+	BodyId body = kInvalidBody;
 };
 
 // A ray-marched voxel volume. Transform positions the volume's (0,0,0) corner;

@@ -4,6 +4,7 @@
 #include "Renderer/Renderer.h"
 #include "Core/Input.h"
 #include "Core/Window.h"
+#include "Physics/PhysicsWorld.h"
 #include <memory>
 #include <optional>
 
@@ -44,6 +45,7 @@ public:
 	Renderer& GetRenderer();
 	Input& GetInput();
 	Window& GetWindow();
+	PhysicsWorld& GetPhysics();
 
 	float DeltaTime() const;
 	float TotalTime() const;

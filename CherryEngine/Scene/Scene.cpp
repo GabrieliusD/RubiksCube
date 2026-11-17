@@ -8,10 +8,12 @@ Scene::Scene()
 	mCoordinator.RegisterComponent<MeshRenderer>();
 	mCoordinator.RegisterComponent<Camera>();
 	mCoordinator.RegisterComponent<VoxelVolumeRenderer>();
+	mCoordinator.RegisterComponent<RigidBody>();
 
 	mMeshes = mCoordinator.RegisterSystem<MeshRendererSet>();
 	mVoxels = mCoordinator.RegisterSystem<VoxelVolumeSet>();
 	mCameras = mCoordinator.RegisterSystem<CameraSet>();
+	mRigidBodies = mCoordinator.RegisterSystem<RigidBodySet>();
 
 	Signature meshSignature;
 	meshSignature.set(mCoordinator.GetComponentType<Transform>());
@@ -27,6 +29,11 @@ Scene::Scene()
 	cameraSignature.set(mCoordinator.GetComponentType<Transform>());
 	cameraSignature.set(mCoordinator.GetComponentType<Camera>());
 	mCoordinator.SetSystemSignature<CameraSet>(cameraSignature);
+
+	Signature rigidBodySignature;
+	rigidBodySignature.set(mCoordinator.GetComponentType<Transform>());
+	rigidBodySignature.set(mCoordinator.GetComponentType<RigidBody>());
+	mCoordinator.SetSystemSignature<RigidBodySet>(rigidBodySignature);
 }
 
 Scene::~Scene() = default;

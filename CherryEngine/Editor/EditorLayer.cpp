@@ -67,6 +67,14 @@ void EditorLayer::Draw(Engine& engine, IGameModule& game, bool editorMode, bool 
 	{
 		engine.GetRenderer().Settings().drawBounds ^= true;
 	}
+	if (ImGui::IsKeyPressed(ImGuiKey_F4, false))
+	{
+		mPhysicsDebug = !mPhysicsDebug;
+	}
+	if (mPhysicsDebug)
+	{
+		engine.GetPhysics().DrawBounds(engine.GetRenderer().Debug());
+	}
 
 	if (!editorMode)
 	{
@@ -175,6 +183,8 @@ void EditorLayer::DrawStats(Engine& engine, float frameMs)
 	ImGui::Text("Debug lines:      %u", stats.debugLines);
 	ImGui::Text("Descriptors used: %u", stats.descriptorsInUse);
 	ImGui::Text("Entities:         %u", engine.GetScene().GetCoordinator().LivingCount());
+	const PhysicsStats& physics = engine.GetPhysics().Stats();
+	ImGui::Text("Physics:          %u bodies (%u active)  %.2f ms  %u steps", physics.bodies, physics.activeBodies, physics.stepMs, physics.stepsLastFrame);
 	if (stats.d3dErrors > 0)
 		ImGui::TextColored(ImVec4(1, 0.35f, 0.3f, 1), "D3D12 errors: %u  warnings: %u", stats.d3dErrors, stats.d3dWarnings);
 	else
@@ -208,6 +218,7 @@ void EditorLayer::DrawStats(Engine& engine, float frameMs)
 
 	ImGui::SeparatorText("Debug");
 	bool voxelTest = mVoxelTest;
+	ImGui::Checkbox("Physics bounds (F4)", &mPhysicsDebug);
 	if (ImGui::Checkbox("Voxel test volume (F2)", &voxelTest))
 	{
 		SetVoxelTest(engine, voxelTest);
