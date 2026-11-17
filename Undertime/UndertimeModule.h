@@ -5,6 +5,8 @@
 #include "VoxelWorld.h"
 #include "Player.h"
 #include "Hud.h"
+#include "WorldCollision.h"
+#include "Fragments.h"
 #include <vector>
 
 // UNDERTIME: first-person mining in a mountain where time runs slower the deeper you go.
@@ -31,6 +33,8 @@ private:
 		int x = 0, y = 0, z = 0;              // voxel
 		cfg::Block block = cfg::Block::Air;
 		DirectX::XMFLOAT3 point{ 0, 0, 0 };   // where the ray hit (m)
+		int normal[3] = { 0, 0, 0 };          // face of the voxel that was hit
+		BodyId fragment = kInvalidBody;       // set when aiming at a loose chunk instead of the wall
 	};
 
 	// Setup
@@ -44,6 +48,12 @@ private:
 	void UpdateState(Engine& engine);
 	void UpdateMining(Engine& engine, float deltaTime);
 	void Swing(Engine& engine);
+	void SpawnDebris(Engine& engine, const VoxelWorld::CarveResult& carve);
+	// Pushes a world edit to the GPU volume, the collision slabs and (in mesh mode) the chunk
+	// meshes; with `checkSupport`, rock left hanging free breaks off and falls.
+	void ApplyWorldChange(Engine& engine, const VoxelWorld::Box& box, bool checkSupport);
+	void DebugDropRock(Engine& engine);
+	void DebugCaveIn(Engine& engine);
 	void UpdateCamera(Engine& engine);
 	void UpdateViewModels(Engine& engine, float deltaTime);
 	void UpdateLighting(Engine& engine);
@@ -53,6 +63,11 @@ private:
 
 	VoxelWorld world;
 	PlayerController player;
+	WorldCollision collision;
+	FragmentSystem fragments;
+	std::vector<VoxelWorld::Box> changedScratch;
+	int detachedCount = 0;
+	int lastSupportVisited = 0;
 	State state = State::Title;
 	MessageLog messages;
 

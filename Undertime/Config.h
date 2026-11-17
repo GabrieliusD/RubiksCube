@@ -27,6 +27,22 @@ namespace cfg
 	constexpr float kVoxelAoStrength = 0.6f;      // corner ambient occlusion (ray-marched)
 	constexpr int kStoneBands = 48;               // palette entries for the stone depth gradient
 
+	// ---- Physics ----------------------------------------------------------------
+	constexpr int kPhysicsSlabDepth = 4;          // metres along Z per static collision slab
+	constexpr float kCharacterPushStrength = 600.0f;   // newtons the player pushes loose rock with
+	constexpr float kCharacterMaxSlope = 50.0f;   // degrees
+	constexpr float kRockDensity = 2600.0f;       // kg/m^3
+	constexpr int kDebrisPerSwing = 4;            // chunks thrown per pick swing
+	constexpr int kDebrisMaxSize = 3;             // voxels per side of a thrown chunk
+	constexpr float kDebrisSpeed = 2.5f;          // m/s out of the rock face
+	constexpr int kMaxActiveFragments = 150;      // more than this: the oldest bake immediately
+	constexpr int kMaxFragmentBoxes = 48;         // collision boxes per fragment before coarsening
+	constexpr int kMinBakeVoxels = 8;             // smaller fragments vanish instead of baking
+	constexpr float kFragmentMaxLifetime = 8.0f;  // seconds before a fragment bakes regardless
+	constexpr float kFragmentMinLifetime = 0.6f;  // don't bake before this, even if asleep
+	constexpr int kSupportSearchBudget = 20000;   // voxels; regions larger than this count as anchored
+	constexpr float kPickImpulse = 60.0f;         // N*s applied to a loose chunk hit by the pick
+
 	// Pre-carved openings (inclusive ranges).
 	constexpr int kEntranceZ0 = 0, kEntranceZ1 = 5;    // 1 wide x 2 tall
 	constexpr int kEntranceHeight = 2;

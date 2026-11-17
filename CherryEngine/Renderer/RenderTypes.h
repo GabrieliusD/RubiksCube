@@ -59,6 +59,8 @@ struct VoxelVolumeDesc
 	DirectX::XMUINT3 size{ 0, 0, 0 };
 	std::vector<uint8_t> voxels;
 	std::vector<DirectX::XMFLOAT4> palette;         // sRGB colours (as picked in a colour picker), up to 256
+	// Reuse another volume's palette instead of `palette` (e.g. many fragments of one world).
+	VoxelVolumeHandle sharePaletteFrom;
 };
 
 struct Ray

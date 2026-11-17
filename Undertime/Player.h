@@ -1,10 +1,13 @@
 #pragma once
-#include "VoxelWorld.h"
+#include "Config.h"
 #include <Core/Input.h>
+#include <Physics/PhysicsWorld.h>
 #include <DirectXMath.h>
+#include <memory>
 
-// First-person controller: mouse look, WASD + jump, gravity, and per-axis AABB
-// collision against the voxel world.
+// First-person controller: mouse look plus WASD + jump, moving an engine PhysicsCharacter
+// (Jolt), so the player walks on the voxel world, climbs low ledges, stands on and pushes
+// loose rock, and gets hit by falling rock.
 class PlayerController
 {
 public:
@@ -14,15 +17,16 @@ public:
 	float pitch = 0.0f;    // radians, positive = looking down
 	bool grounded = false;
 
+	void CreateBody(PhysicsWorld& physics);
+	void DestroyBody();
+
 	// `speedScale` slows walking (e.g. a heavy bag). `look` enables mouse look.
-	void Update(const Input& input, const VoxelWorld& world, float deltaTime, float speedScale, bool look);
+	void Update(const Input& input, float deltaTime, float speedScale, bool look);
 
 	DirectX::XMFLOAT3 EyePosition() const { return { position.x, position.y + cfg::kEyeHeight, position.z }; }
 	DirectX::XMFLOAT3 LookDirection() const;
 	DirectX::XMVECTOR Rotation() const;   // camera orientation quaternion
 
 private:
-	void MoveAxis(const VoxelWorld& world, int axis, float delta, bool canStep);
-	bool TryStepUp(const VoxelWorld& world);
-	void BodyBox(DirectX::XMFLOAT3& min, DirectX::XMFLOAT3& max) const;
+	std::unique_ptr<PhysicsCharacter> mBody;
 };

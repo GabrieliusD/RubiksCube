@@ -34,9 +34,16 @@ public:
 		bool Empty() const { return max[0] < min[0]; }
 	};
 
+	struct RemovedVoxel
+	{
+		int x, y, z;
+		Block block;
+	};
+
 	struct CarveResult
 	{
 		int removed = 0;
+		std::vector<RemovedVoxel> voxels;
 		std::array<int, static_cast<int>(Block::Count)> removedByType{};
 		Box dirty;
 	};
@@ -67,6 +74,11 @@ public:
 	static uint8_t PaletteIndex(Block block, int voxelZ);
 	std::vector<uint8_t> PaletteVoxels() const;                  // whole grid
 	std::vector<uint8_t> PaletteVoxels(const Box& box) const;    // a box, x fastest
+
+	// ---- Physics ----
+	// Exposed faces of solid voxels with voxel z in [zBegin, zEnd), merged into large
+	// rectangles (greedy meshing), as triangles in metres wound so (b-a)x(c-a) points into air.
+	void BuildCollisionTriangles(int zBegin, int zEnd, std::vector<DirectX::XMFLOAT3>& out) const;
 
 	// ---- Mesh renderer ----
 	static int ChunkCount() { return (cfg::kGridZ + cfg::kChunkDepth - 1) / cfg::kChunkDepth; }

@@ -169,7 +169,7 @@ PixelOut PSMain(VertexOut pin)
 	float4 albedo = palette[hitValue];
 	if (volume.colorJitter > 0.0)
 	{
-		albedo.rgb *= 1.0 + (Hash01(cell) * 2.0 - 1.0) * volume.colorJitter;
+		albedo.rgb *= 1.0 + (Hash01(cell + volume.jitterOffset) * 2.0 - 1.0) * volume.colorJitter;
 	}
 	float ao = 1.0;
 	if (volume.aoStrength > 0.0)

@@ -9,6 +9,12 @@ set(UndertimeSrc
     ColorUtil.h
     VoxelWorld.h
     VoxelWorld.cpp
+    WorldCollision.h
+    WorldCollision.cpp
+    Fragments.h
+    Fragments.cpp
+    Structure.h
+    Structure.cpp
     Player.h
     Player.cpp
     Meshes.h
@@ -31,3 +37,8 @@ cherry_register_game_module(UndertimeGame)
 if(MSVC)
     target_compile_options(UndertimeGame PRIVATE /W3 /utf-8)
 endif()
+
+# Pure voxel/physics helper tests: ctest -C Debug
+add_executable(UndertimeTests Tests/UndertimeTests.cpp VoxelWorld.cpp Fragments.cpp Structure.cpp)
+target_link_libraries(UndertimeTests PRIVATE CherryEngine)
+add_test(NAME UndertimeTests COMMAND UndertimeTests)

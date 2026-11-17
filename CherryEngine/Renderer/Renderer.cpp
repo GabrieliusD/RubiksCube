@@ -80,7 +80,7 @@ namespace
 	struct VoxelResource
 	{
 		std::unique_ptr<rhi::Texture> volume;
-		std::unique_ptr<rhi::Buffer> palette;
+		std::shared_ptr<rhi::Buffer> palette;   // may be shared between volumes
 		XMUINT3 size{};
 	};
 
@@ -621,6 +621,12 @@ VoxelVolumeHandle Renderer::CreateVoxelVolume(const VoxelVolumeDesc& desc)
 	data.SlicePitch = static_cast<LONG_PTR>(desc.size.x) * desc.size.y;
 	volume.volume->Upload(&data, 1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
+	if (const VoxelResource* source = r.voxelVolumes.Get(desc.sharePaletteFrom))
+	{
+		volume.palette = source->palette;
+		return r.voxelVolumes.Add(std::move(volume));
+	}
+
 	// Palette is authored in sRGB; shading happens in linear space.
 	auto toLinear = [](float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); };
 	std::vector<XMFLOAT4> palette(256, XMFLOAT4(1, 0, 1, 1));
@@ -635,7 +641,7 @@ VoxelVolumeHandle Renderer::CreateVoxelVolume(const VoxelVolumeDesc& desc)
 	paletteDesc.stride = sizeof(XMFLOAT4);
 	paletteDesc.createSrv = true;
 	paletteDesc.name = "VoxelPalette";
-	volume.palette = rhi::Buffer::Create(r.device, paletteDesc);
+	volume.palette = std::shared_ptr<rhi::Buffer>(rhi::Buffer::Create(r.device, paletteDesc));
 	volume.palette->Upload(palette.data(), paletteDesc.size);
 
 	return r.voxelVolumes.Add(std::move(volume));
@@ -900,6 +906,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		data.paletteBufferIndex = volume->palette->SrvIndex();
 		data.colorJitter = renderer.colorJitter;
 		data.aoStrength = renderer.aoStrength;
+		data.jitterOffset = renderer.jitterOffset;
 		r.voxelScratch.push_back(data);
 	}
 

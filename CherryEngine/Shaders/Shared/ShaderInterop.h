@@ -15,6 +15,7 @@
 		using float3 = DirectX::XMFLOAT3;
 		using float4 = DirectX::XMFLOAT4;
 		using uint3 = DirectX::XMUINT3;
+		using int3 = DirectX::XMINT3;
 		using float4x4 = DirectX::XMFLOAT4X4;
 	#define CHERRY_MATRIX float4x4
 #else
@@ -118,6 +119,8 @@ struct VoxelVolumeData
 	float colorJitter;             // +- relative brightness per voxel (0 = off)
 	float aoStrength;              // corner ambient occlusion, 0..1 (0 = off)
 	uint  pad0;
+	int3  jitterOffset;            // added to voxel coords for the jitter hash
+	uint  pad1;
 };
 
 struct DebugVertex

@@ -82,4 +82,6 @@ struct VoxelVolumeRenderer
 	bool visible = true;
 	float colorJitter = 0.0f;   // +- brightness variation per voxel (e.g. 0.15 = 15%)
 	float aoStrength = 0.0f;    // corner ambient occlusion, 0..1
+	DirectX::XMINT3 jitterOffset{ 0, 0, 0 };   // added to voxel coords for the jitter pattern (keeps a
+	                                           // fragment's look when it breaks off a larger volume)
 };

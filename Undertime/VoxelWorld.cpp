@@ -166,6 +166,7 @@ VoxelWorld::CarveResult VoxelWorld::Carve(const XMFLOAT3& center, float pickSpee
 	{
 		mVoxels[Index(x, y, z)] = Block::Air;
 		++result.removed;
+		result.voxels.push_back({ x, y, z, block });
 		++result.removedByType[static_cast<int>(block)];
 		if (result.dirty.Empty())
 		{
@@ -208,6 +209,89 @@ VoxelWorld::CarveResult VoxelWorld::Carve(const XMFLOAT3& center, float pickSpee
 		if (block != Block::Air && block != Block::Bedrock) remove(mbx, mby, mbz, block);
 	}
 	return result;
+}
+
+// ---- Physics ------------------------------------------------------------------
+
+void VoxelWorld::BuildCollisionTriangles(int zBegin, int zEnd, std::vector<XMFLOAT3>& out) const
+{
+	zBegin = std::max(zBegin, 0);
+	zEnd = std::min(zEnd, cfg::kVoxZ);
+	if (zBegin >= zEnd) return;
+
+	const int lo[3] = { 0, 0, zBegin };
+	const int hi[3] = { cfg::kVoxX, cfg::kVoxY, zEnd };
+	std::vector<uint8_t> mask;
+
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		const int u = (axis + 1) % 3;
+		const int v = (axis + 2) % 3;
+		const int du = hi[u] - lo[u];
+		const int dv = hi[v] - lo[v];
+		mask.assign(static_cast<size_t>(du) * dv, 0);
+
+		for (int sign = -1; sign <= 1; sign += 2)
+		{
+			for (int slice = lo[axis]; slice < hi[axis]; ++slice)
+			{
+				// Mask of voxels in this slice whose face towards `sign` is exposed.
+				bool any = false;
+				for (int j = 0; j < dv; ++j)
+				{
+					for (int i = 0; i < du; ++i)
+					{
+						int c[3];
+						c[axis] = slice; c[u] = lo[u] + i; c[v] = lo[v] + j;
+						int n[3] = { c[0], c[1], c[2] };
+						n[axis] += sign;
+						const bool exposed = mVoxels[Index(c[0], c[1], c[2])] != Block::Air && !IsSolid(n[0], n[1], n[2]);
+						mask[static_cast<size_t>(j) * du + i] = exposed ? 1 : 0;
+						any |= exposed;
+					}
+				}
+				if (!any) continue;
+
+				// Greedy: grow each rectangle along u, then along v.
+				const float plane = (slice + (sign > 0 ? 1 : 0)) * S;
+				for (int j = 0; j < dv; ++j)
+				{
+					for (int i = 0; i < du; )
+					{
+						if (!mask[static_cast<size_t>(j) * du + i]) { ++i; continue; }
+						int w = 1;
+						while (i + w < du && mask[static_cast<size_t>(j) * du + i + w]) ++w;
+						int h = 1;
+						for (bool grow = true; grow && j + h < dv; )
+						{
+							for (int k = 0; k < w; ++k)
+							{
+								if (!mask[static_cast<size_t>(j + h) * du + i + k]) { grow = false; break; }
+							}
+							if (grow) ++h;
+						}
+						for (int jj = 0; jj < h; ++jj)
+							for (int ii = 0; ii < w; ++ii)
+								mask[static_cast<size_t>(j + jj) * du + i + ii] = 0;
+
+						auto corner = [&](int cu, int cv)
+						{
+							float p[3];
+							p[axis] = plane;
+							p[u] = (lo[u] + cu) * S;
+							p[v] = (lo[v] + cv) * S;
+							return XMFLOAT3(p[0], p[1], p[2]);
+						};
+						XMFLOAT3 q[4] = { corner(i, j), corner(i + w, j), corner(i + w, j + h), corner(i, j + h) };
+						// (u x v) points along +axis; flip the winding for faces looking down -axis.
+						if (sign < 0) std::swap(q[1], q[3]);
+						out.insert(out.end(), { q[0], q[1], q[2], q[0], q[2], q[3] });
+						i += w;
+					}
+				}
+			}
+		}
+	}
 }
 
 // ---- Ray-marched renderer ---------------------------------------------------
