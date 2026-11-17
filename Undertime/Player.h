@@ -18,6 +18,8 @@ public:
 	bool grounded = false;
 
 	void CreateBody(PhysicsWorld& physics);
+	// Moves the player (feet position) and sets the facing; clears velocity.
+	void Teleport(const DirectX::XMFLOAT3& feet, float facingYaw);
 	void DestroyBody();
 
 	// `speedScale` slows walking (e.g. a heavy bag). `look` enables mouse look.

@@ -39,6 +39,9 @@ private:
 
 	// Setup
 	void CreateWorldRendering(Engine& engine);
+	// Generates a new mountain for `seed` and rebuilds everything that depends on it.
+	void NewWorld(Engine& engine, uint32_t seed);
+	static uint32_t RandomSeed();
 	void SetWorldRenderer(Engine& engine, WorldRenderer mode);
 	void CreateScenery(Engine& engine);
 	void CreateViewModels(Engine& engine);
@@ -62,6 +65,11 @@ private:
 	bool IsInside() const { return player.position.z > 0.0f; }
 
 	VoxelWorld world;
+	uint32_t seed = 0;
+	char seedInput[16] = "";
+	float generationMs = 0.0f;
+	uint32_t pendingSeed = 0;
+	bool regenerateRequested = false;
 	PlayerController player;
 	WorldCollision collision;
 	FragmentSystem fragments;

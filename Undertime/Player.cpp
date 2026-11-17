@@ -15,6 +15,15 @@ void PlayerController::CreateBody(PhysicsWorld& physics)
 	mBody = std::make_unique<PhysicsCharacter>(physics, settings, position);
 }
 
+void PlayerController::Teleport(const XMFLOAT3& feet, float facingYaw)
+{
+	position = feet;
+	velocity = { 0, 0, 0 };
+	yaw = facingYaw;
+	pitch = 0.0f;
+	if (mBody) mBody->SetPosition(feet);
+}
+
 void PlayerController::DestroyBody()
 {
 	mBody.reset();

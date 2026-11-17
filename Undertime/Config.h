@@ -7,12 +7,12 @@ namespace cfg
 	// ---- World grid ---------------------------------------------------------
 	// Cell (x, y, z) occupies [x, x+1] x [y, y+1] x [z, z+1] in world space.
 	// +Z goes into the mountain; the entrance face is the plane z = 0.
-	constexpr int kGridX = 21;
-	constexpr int kGridY = 12;
-	constexpr int kGridZ = 110;
-	constexpr int kCenterX = 10;                  // entrance column
+	constexpr int kGridX = 48;
+	constexpr int kGridY = 24;
+	constexpr int kGridZ = 160;
+	constexpr int kCenterX = 24;                  // entrance column
 	constexpr int kChunkDepth = 16;               // metres along Z per mesh chunk (mesh renderer)
-	constexpr uint32_t kWorldSeed = 0x0DE7B00Bu;  // same layout every run
+	constexpr uint32_t kWorldSeed = 0x0DE7B00Bu;  // fixed seed for tests and scenery; games roll their own
 
 	// The layout above is in metres; the world itself is stored as finer voxels.
 	constexpr int kVoxelsPerMeter = 4;
@@ -28,7 +28,7 @@ namespace cfg
 	constexpr int kStoneBands = 48;               // palette entries for the stone depth gradient
 
 	// ---- Physics ----------------------------------------------------------------
-	constexpr int kPhysicsSlabDepth = 4;          // metres along Z per static collision slab
+	constexpr int kCollisionChunk = 8;            // metres per side of a static collision chunk
 	constexpr float kCharacterPushStrength = 600.0f;   // newtons the player pushes loose rock with
 	constexpr float kCharacterMaxSlope = 50.0f;   // degrees
 	constexpr float kRockDensity = 2600.0f;       // kg/m^3
@@ -43,7 +43,7 @@ namespace cfg
 	constexpr int kSupportSearchBudget = 20000;   // voxels; regions larger than this count as anchored
 	constexpr float kPickImpulse = 60.0f;         // N*s applied to a loose chunk hit by the pick
 
-	// Pre-carved openings (inclusive ranges).
+	// Pre-carved openings for the basic (test) layout; generated worlds keep the entrance.
 	constexpr int kEntranceZ0 = 0, kEntranceZ1 = 5;    // 1 wide x 2 tall
 	constexpr int kEntranceHeight = 2;
 	constexpr int kChamberZ0 = 6, kChamberZ1 = 10;     // 5 wide x 3 tall
@@ -80,7 +80,7 @@ namespace cfg
 	constexpr float kFovDegrees = 75.0f;          // horizontal
 	constexpr float kNearPlane = 0.05f;
 	constexpr float kFarPlane = 600.0f;
-	constexpr float kSpawnX = 10.5f, kSpawnZ = -8.0f;
+	constexpr float kSpawnX = kCenterX + 0.5f, kSpawnZ = -8.0f;
 
 	// ---- Mining ---------------------------------------------------------------
 	constexpr float kReach = 4.5f;                // m

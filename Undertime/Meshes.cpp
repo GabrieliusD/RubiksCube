@@ -52,10 +52,11 @@ namespace
 		// A broad hump centred over the grid, roughened with a few sines; never lower than
 		// the grid ceiling above the grid itself.
 		const float dx = x - (cfg::kCenterX + 0.5f);
-		const float dz = z - 55.0f;
-		const float hump = std::exp(-(dx * dx) / (2.0f * 32.0f * 32.0f)) * std::exp(-(dz * dz) / (2.0f * 58.0f * 58.0f));
+		const float dz = z - cfg::kGridZ * 0.5f;
+		const float sx = cfg::kGridX * 0.75f, sz = cfg::kGridZ * 0.45f;
+		const float hump = std::exp(-(dx * dx) / (2.0f * sx * sx)) * std::exp(-(dz * dz) / (2.0f * sz * sz));
 		const float rough = 2.5f * std::sin(x * 0.21f + z * 0.13f) + 1.8f * std::sin(x * 0.07f - z * 0.19f + 1.3f);
-		float h = cfg::kGroundY + 48.0f * hump + rough * hump;
+		float h = cfg::kGroundY + 2.6f * cfg::kGridY * hump + rough * hump;
 		const bool overGrid = x >= -1.0f && x <= cfg::kGridX + 1.0f && z <= cfg::kGridZ + 1.0f;
 		if (overGrid) h = std::max(h, static_cast<float>(cfg::kGridY) + 1.5f);
 		return std::max(h, cfg::kGroundY);
@@ -100,7 +101,8 @@ namespace meshes
 	{
 		MeshData mesh;
 		const float step = 3.0f;
-		const float minX = -48.0f, maxX = 69.0f, maxZ = 150.0f;
+		// Multiples of `step`, so the grid edges (x = 0 and x = kGridX) fall on cell boundaries.
+		const float minX = -60.0f, maxX = cfg::kGridX + 60.0f, maxZ = cfg::kGridZ + 45.0f;
 		const XMFLOAT3 low = color::Linear(cfg::kMountainRock);
 		const XMFLOAT3 high = color::Linear(cfg::kMountainHigh);
 		auto shade = [&](float h, float jitter)

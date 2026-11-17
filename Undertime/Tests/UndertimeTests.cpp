@@ -113,7 +113,7 @@ int main()
 	}
 	{
 		VoxelWorld world;
-		world.Generate(cfg::kWorldSeed);
+		world.GenerateBasic();
 		int blockVoxels = 0;
 		const VoxelWorld::Box room = MakeHangingBlock(world, false, blockVoxels);
 		DetachResult result = DetachUnsupported(world, room, cfg::kSupportSearchBudget);
@@ -122,21 +122,21 @@ int main()
 	}
 	{
 		VoxelWorld world;
-		world.Generate(cfg::kWorldSeed);
+		world.GenerateBasic();
 		int blockVoxels = 0;
 		const VoxelWorld::Box room = MakeHangingBlock(world, true, blockVoxels);
 		Check(DetachUnsupported(world, room, cfg::kSupportSearchBudget).fragments.empty(), "support: a one-voxel bridge to the ceiling holds");
 	}
 	{
 		VoxelWorld world;
-		world.Generate(cfg::kWorldSeed);
+		world.GenerateBasic();
 		int blockVoxels = 0;
 		const VoxelWorld::Box room = MakeHangingBlock(world, false, blockVoxels);
 		Check(DetachUnsupported(world, room, blockVoxels / 2).fragments.empty(), "support: regions larger than the budget count as anchored");
 	}
 	{
 		VoxelWorld world;
-		world.Generate(cfg::kWorldSeed);
+		world.GenerateBasic();
 		// Greedy collision faces must cover the same area as the exposed voxel faces.
 		const int z0 = 0, z1 = 16;
 		std::vector<XMFLOAT3> tris;

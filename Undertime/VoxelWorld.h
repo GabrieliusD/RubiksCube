@@ -48,7 +48,15 @@ public:
 		Box dirty;
 	};
 
-	void Generate(uint32_t seed);
+	// Procedural cave world for `seed` (see CaveGenerator).
+	void Generate(uint64_t seed);
+	// Fixed layout used by tests: bedrock shell, solid stone, entrance passage and one chamber.
+	void GenerateBasic();
+	// Raw access for the generator.
+	std::vector<Block>& Voxels() { return mVoxels; }
+	const std::vector<Block>& Voxels() const { return mVoxels; }
+	static int Index(int x, int y, int z) { return x + cfg::kVoxX * (y + cfg::kVoxY * z); }
+	uint64_t Hash() const;   // content hash (determinism tests)
 
 	static bool InGrid(int x, int y, int z);
 	Block Get(int x, int y, int z) const;   // Air outside the grid
@@ -79,6 +87,10 @@ public:
 	// Exposed faces of solid voxels with voxel z in [zBegin, zEnd), merged into large
 	// rectangles (greedy meshing), as triangles in metres wound so (b-a)x(c-a) points into air.
 	void BuildCollisionTriangles(int zBegin, int zEnd, std::vector<DirectX::XMFLOAT3>& out) const;
+	// Same for the voxel box [lo, hi) on every axis.
+	void BuildCollisionTriangles(const int lo[3], const int hi[3], std::vector<DirectX::XMFLOAT3>& out) const;
+	// True if the box [lo, hi) contains or touches any air (i.e. it can have exposed faces).
+	bool TouchesAir(const int lo[3], const int hi[3]) const;
 
 	// ---- Mesh renderer ----
 	static int ChunkCount() { return (cfg::kGridZ + cfg::kChunkDepth - 1) / cfg::kChunkDepth; }
@@ -86,7 +98,6 @@ public:
 	MeshData BuildChunkMesh(int chunk) const;
 
 private:
-	static int Index(int x, int y, int z) { return x + cfg::kVoxX * (y + cfg::kVoxY * z); }
 	DirectX::XMFLOAT4 VoxelColor(Block block, int x, int y, int z) const;
 
 	std::vector<Block> mVoxels;

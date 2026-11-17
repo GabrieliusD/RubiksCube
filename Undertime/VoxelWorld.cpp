@@ -28,7 +28,12 @@ namespace
 	}
 }
 
-void VoxelWorld::Generate(uint32_t /*seed*/)
+void VoxelWorld::Generate(uint64_t /*seed*/)
+{
+	GenerateBasic();   // replaced by CaveGenerator
+}
+
+void VoxelWorld::GenerateBasic()
 {
 	mVoxels.assign(static_cast<size_t>(cfg::kVoxX) * cfg::kVoxY * cfg::kVoxZ, Block::Stone);
 
@@ -213,14 +218,38 @@ VoxelWorld::CarveResult VoxelWorld::Carve(const XMFLOAT3& center, float pickSpee
 
 // ---- Physics ------------------------------------------------------------------
 
+uint64_t VoxelWorld::Hash() const
+{
+	uint64_t h = 1469598103934665603ull;
+	for (Block b : mVoxels)
+	{
+		h ^= static_cast<uint64_t>(b);
+		h *= 1099511628211ull;
+	}
+	return h;
+}
+
+bool VoxelWorld::TouchesAir(const int lo[3], const int hi[3]) const
+{
+	for (int z = lo[2] - 1; z <= hi[2]; ++z)
+		for (int y = lo[1] - 1; y <= hi[1]; ++y)
+			for (int x = lo[0] - 1; x <= hi[0]; ++x)
+				if (!IsSolid(x, y, z)) return true;
+	return false;
+}
+
 void VoxelWorld::BuildCollisionTriangles(int zBegin, int zEnd, std::vector<XMFLOAT3>& out) const
 {
-	zBegin = std::max(zBegin, 0);
-	zEnd = std::min(zEnd, cfg::kVoxZ);
-	if (zBegin >= zEnd) return;
+	const int lo[3] = { 0, 0, std::max(zBegin, 0) };
+	const int hi[3] = { cfg::kVoxX, cfg::kVoxY, std::min(zEnd, cfg::kVoxZ) };
+	BuildCollisionTriangles(lo, hi, out);
+}
 
-	const int lo[3] = { 0, 0, zBegin };
-	const int hi[3] = { cfg::kVoxX, cfg::kVoxY, zEnd };
+void VoxelWorld::BuildCollisionTriangles(const int loIn[3], const int hiIn[3], std::vector<XMFLOAT3>& out) const
+{
+	const int lo[3] = { std::max(loIn[0], 0), std::max(loIn[1], 0), std::max(loIn[2], 0) };
+	const int hi[3] = { std::min(hiIn[0], cfg::kVoxX), std::min(hiIn[1], cfg::kVoxY), std::min(hiIn[2], cfg::kVoxZ) };
+	if (lo[0] >= hi[0] || lo[1] >= hi[1] || lo[2] >= hi[2]) return;
 	std::vector<uint8_t> mask;
 
 	for (int axis = 0; axis < 3; ++axis)

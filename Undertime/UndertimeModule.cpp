@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <random>
 #include <algorithm>
+#include <chrono>
+#include <Core/Log.h>
 
 using namespace DirectX;
 using cfg::Block;
@@ -37,8 +39,6 @@ EngineConfig UndertimeModule::GetConfig() const
 
 void UndertimeModule::OnStartup(Engine& engine)
 {
-	world.Generate(cfg::kWorldSeed);
-
 	MaterialDesc material;
 	material.baseColor = { 1, 1, 1, 1 };     // colour comes from the vertices
 	material.roughness = 0.85f;
@@ -49,12 +49,12 @@ void UndertimeModule::OnStartup(Engine& engine)
 	CreateScenery(engine);
 	CreateViewModels(engine);
 
-	// Physics: static world, the player's body, and loose rock sharing the world palette.
 	PhysicsWorld& physics = engine.GetPhysics();
 	physics.SetGravity(cfg::kGravity);
-	collision.Build(physics, world);
 	player.CreateBody(physics);
-	fragments.Initialize(voxelVolume);
+
+	// A fresh mountain every game.
+	NewWorld(engine, RandomSeed());
 
 	Camera& camera = engine.GetScene().Get<Camera>(engine.MainCamera());
 	camera.nearZ = cfg::kNearPlane;
@@ -69,15 +69,8 @@ void UndertimeModule::CreateWorldRendering(Engine& engine)
 	Scene& scene = engine.GetScene();
 	Renderer& renderer = engine.GetRenderer();
 
-	// Ray-marched: the whole grid as one engine voxel volume (palette indices).
-	VoxelVolumeDesc desc;
-	desc.size = { static_cast<uint32_t>(cfg::kVoxX), static_cast<uint32_t>(cfg::kVoxY), static_cast<uint32_t>(cfg::kVoxZ) };
-	desc.voxels = world.PaletteVoxels();
-	desc.palette = VoxelWorld::BuildPalette();
-	voxelVolume = renderer.CreateVoxelVolume(desc);
-
+	// Ray-marched: the whole grid as one engine voxel volume (created by NewWorld).
 	VoxelVolumeRenderer volume;
-	volume.volume = voxelVolume;
 	volume.voxelSize = cfg::kVoxelSize;
 	volume.colorJitter = cfg::kStoneJitter;
 	volume.aoStrength = cfg::kVoxelAoStrength;
@@ -97,7 +90,49 @@ void UndertimeModule::CreateWorldRendering(Engine& engine)
 		meshRenderer.visible = false;
 		scene.Add(chunkEntities[i], meshRenderer);
 	}
+	(void)renderer;
+}
+
+uint32_t UndertimeModule::RandomSeed()
+{
+	std::random_device device;
+	return device() % 1000000000u;   // short enough to read out and type back in
+}
+
+void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
+{
+	Renderer& renderer = engine.GetRenderer();
+	Scene& scene = engine.GetScene();
+	PhysicsWorld& physics = engine.GetPhysics();
+
+	seed = newSeed;
+	std::snprintf(seedInput, sizeof(seedInput), "%u", seed);
+	const auto start = std::chrono::steady_clock::now();
+	world.Generate(seed);
+	generationMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+
+	// Loose rock belongs to the old world.
+	fragments.Clear(engine);
+
+	// GPU volume.
+	renderer.DestroyVoxelVolume(voxelVolume);
+	VoxelVolumeDesc desc;
+	desc.size = { static_cast<uint32_t>(cfg::kVoxX), static_cast<uint32_t>(cfg::kVoxY), static_cast<uint32_t>(cfg::kVoxZ) };
+	desc.voxels = world.PaletteVoxels();
+	desc.palette = VoxelWorld::BuildPalette();
+	voxelVolume = renderer.CreateVoxelVolume(desc);
+	scene.Get<VoxelVolumeRenderer>(voxelEntity).volume = voxelVolume;
+	fragments.Initialize(voxelVolume);
+
+	// Physics and meshes.
+	collision.Build(physics, world);
 	SetWorldRenderer(engine, worldRenderer);
+
+	// Back outside, facing the mountain.
+	player.Teleport({ cfg::kSpawnX, cfg::kGroundY, cfg::kSpawnZ }, 0.0f);
+	target = {};
+	swingTimer = 0.0f;
+	CHERRY_LOG("UNDERTIME: generated seed %u in %.0f ms (collision %.0f ms)", seed, generationMs, collision.BuildMs());
 }
 
 void UndertimeModule::SetWorldRenderer(Engine& engine, WorldRenderer mode)
@@ -164,13 +199,13 @@ void UndertimeModule::CreateScenery(Engine& engine)
 		sceneryMeshes.push_back(trees[i]);
 	}
 	std::mt19937 rng(cfg::kWorldSeed ^ 0x7EE5u);
-	std::uniform_real_distribution<float> xDist(-45.0f, 66.0f), zDist(-55.0f, -4.0f), yawDist(0.0f, XM_2PI);
+	std::uniform_real_distribution<float> xDist(cfg::kCenterX - 55.0f, cfg::kCenterX + 55.0f), zDist(-55.0f, -4.0f), yawDist(0.0f, XM_2PI);
 	int placed = 0;
 	for (int attempt = 0; attempt < 200 && placed < 24; ++attempt)
 	{
 		const float x = xDist(rng), z = zDist(rng);
 		const bool onPath = std::fabs(x - (cfg::kCenterX + 0.5f)) < 5.0f && z > -30.0f;
-		const bool hutArea = x > 14.0f && x < 27.0f && z > -18.0f && z < -5.0f;   // reserved for the trader (milestone 2)
+		const bool hutArea = x > cfg::kCenterX + 4.0f && x < cfg::kCenterX + 17.0f && z > -18.0f && z < -5.0f;   // reserved for the trader (milestone 2)
 		const bool nearSpawn = std::fabs(x - cfg::kSpawnX) < 4.0f && std::fabs(z - cfg::kSpawnZ) < 4.0f;
 		if (onPath || hutArea || nearSpawn) continue;
 		spawn(trees[placed % 3], { x, cfg::kGroundY, z }, yawDist(rng));
@@ -236,6 +271,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 			SetWorldRenderer(engine, worldRenderer == WorldRenderer::RayMarched ? WorldRenderer::Meshes : WorldRenderer::RayMarched);
 			messages.Show(worldRenderer == WorldRenderer::RayMarched ? "Renderer: ray-marched voxels" : "Renderer: voxel meshes", 1.5f);
 		}
+		if (input.WasKeyPressed(VK_F8)) NewWorld(engine, RandomSeed());
 		if (input.WasKeyPressed(VK_F6)) DebugDropRock(engine);
 		if (input.WasKeyPressed(VK_F7)) DebugCaveIn(engine);
 		player.Update(input, dt, 1.0f, input.IsMouseCaptured());
@@ -265,6 +301,8 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 	{
 		ApplyWorldChange(engine, box, true);   // rubble that landed unsupported falls again
 	}
+	// All of this frame's edits: rebuild each touched collision chunk once.
+	collision.Flush(engine.GetPhysics(), world);
 
 	messages.Update(dt);
 	UpdateCamera(engine);
@@ -278,6 +316,16 @@ void UndertimeModule::UpdateState(Engine& engine)
 	switch (state)
 	{
 	case State::Title:
+		if (regenerateRequested)
+		{
+			regenerateRequested = false;
+			NewWorld(engine, pendingSeed);
+		}
+		if (input.WasKeyPressed('R'))
+		{
+			NewWorld(engine, RandomSeed());
+		}
+		[[fallthrough]];
 	case State::Paused:
 		if (input.WasMousePressed(MouseButton::Left))
 		{
@@ -442,8 +490,8 @@ void UndertimeModule::ApplyWorldChange(Engine& engine, const VoxelWorld::Box& bo
 		{ static_cast<uint32_t>(box.max[0] - box.min[0] + 1), static_cast<uint32_t>(box.max[1] - box.min[1] + 1), static_cast<uint32_t>(box.max[2] - box.min[2] + 1) },
 		voxels.data());
 
-	// Static collision.
-	collision.Rebuild(engine.GetPhysics(), world, box.min[2], box.max[2]);
+	// Static collision: rebuilt once per frame for every chunk touched (see OnUpdate).
+	collision.MarkDirty(box);
 
 	// Meshes: rebuild every chunk the change (and its neighbours' faces) touches.
 	if (worldRenderer == WorldRenderer::Meshes)
@@ -634,15 +682,36 @@ void UndertimeModule::OnImGui(Engine& engine)
 
 	if (state == State::Title)
 	{
+		char seedLine[64];
+		std::snprintf(seedLine, sizeof(seedLine), "Mountain seed %u   (R for a new one)", seed);
 		hud::Overlay(frame, "UNDERTIME",
 			{
 				"A crack in the mountain above town. Inside, time runs slower.",
 				"",
 				"WASD  move        Space  jump        Mouse  look",
 				"Hold left mouse  mine        Esc  pause",
+				"",
+				seedLine,
 			},
 			"Click to begin");
 		hud::End(frame);
+
+		// Type a seed to replay a mountain.
+		const ViewRect view = engine.GameViewRect();
+		ImGui::SetNextWindowPos(ImVec2(view.x + view.width * 0.5f, view.y + view.height * 0.86f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowBgAlpha(0.6f);
+		ImGui::Begin("##seed", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+		ImGui::TextUnformatted("Seed");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+		const bool entered = ImGui::InputText("##seedvalue", seedInput, sizeof(seedInput), ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::SameLine();
+		if (ImGui::Button("Generate") || entered)
+		{
+			pendingSeed = static_cast<uint32_t>(std::strtoul(seedInput, nullptr, 10));
+			regenerateRequested = true;
+		}
+		ImGui::End();
 		return;
 	}
 
@@ -684,8 +753,9 @@ void UndertimeModule::OnImGui(Engine& engine)
 		ImGui::Text("Voxels mined  %d", voxelsMined);
 		ImGui::Separator();
 		ImGui::Text("Loose rock    %d  (baked %d, dust %d, broke off %d)", fragments.Count(), fragments.Baked(), fragments.Vanished(), detachedCount);
-		ImGui::Text("Slab rebuild  %.2f ms   bake %.2f ms   support check %d voxels", collision.LastRebuildMs(), fragments.LastBakeMs(), lastSupportVisited);
-		ImGui::TextDisabled("F6 drop a test rock   F7 cave-in test   F4 physics bounds");
+		ImGui::Text("Collision     %.2f ms for %d chunk(s)   bake %.2f ms   support check %d voxels", collision.LastFlushMs(), collision.LastFlushChunks(), fragments.LastBakeMs(), lastSupportVisited);
+		ImGui::Text("Seed %u   generated in %.0f ms   collision built in %.0f ms", seed, generationMs, collision.BuildMs());
+		ImGui::TextDisabled("F6 drop a test rock   F7 cave-in test   F8 new world   F4 physics bounds");
 		ImGui::SliderInt("Pick level", &pickLevel, 0, 3);
 		ImGui::SliderInt("Lantern level", &lanternLevel, 0, 3);
 	}
