@@ -54,7 +54,7 @@ namespace
 	}
 }
 
-void EditorLayer::Draw(Engine& engine, IGameModule& game, bool editorMode, float frameMs)
+void EditorLayer::Draw(Engine& engine, IGameModule& game, bool editorMode, bool gameOverlayWindow, float frameMs)
 {
 	mFrameMsSmoothed = mFrameMsSmoothed * 0.95f + frameMs * 0.05f;
 
@@ -71,6 +71,11 @@ void EditorLayer::Draw(Engine& engine, IGameModule& game, bool editorMode, float
 	if (!editorMode)
 	{
 		viewportHovered = viewportFocused = false;
+		if (!gameOverlayWindow)
+		{
+			game.OnImGui(engine);   // the game draws its own HUD
+			return;
+		}
 		ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowBgAlpha(0.85f);
 		// A separate window from the editor's docked "Game" panel, so switching modes

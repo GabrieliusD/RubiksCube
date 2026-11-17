@@ -1,5 +1,17 @@
 #include "Core/Input.h"
+#include "imgui.h"
 #include <windowsx.h>
+
+void Input::AttachWindow(HWND hwnd)
+{
+	mHwnd = hwnd;
+	// Raw mouse input gives unaccelerated relative motion for mouse look.
+	RAWINPUTDEVICE device{};
+	device.usUsagePage = 0x01;   // generic desktop
+	device.usUsage = 0x02;       // mouse
+	device.hwndTarget = hwnd;
+	RegisterRawInputDevices(&device, 1, sizeof(device));
+}
 
 void Input::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -25,6 +37,18 @@ void Input::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 	case WM_MOUSEWHEEL:
 		mWheel += static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA;
 		break;
+	case WM_INPUT:
+	{
+		RAWINPUT raw{};
+		UINT size = sizeof(raw);
+		if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) != static_cast<UINT>(-1)
+			&& raw.header.dwType == RIM_TYPEMOUSE && (raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == 0)
+		{
+			mRawDelta.x += static_cast<float>(raw.data.mouse.lLastX);
+			mRawDelta.y += static_cast<float>(raw.data.mouse.lLastY);
+		}
+		break;
+	}
 	case WM_KILLFOCUS:
 		Reset();
 		break;
@@ -39,10 +63,29 @@ void Input::BeginFrame()
 	mPrevButtons = mButtons;
 	mPrevMouseClient = mMouseClient;
 	mWheel = 0.0f;
+	mRawDelta = { 0, 0 };
 }
 
-void Input::SetRouting(bool mouse, bool keyboard, float viewX, float viewY)
+void Input::SetRouting(bool mouse, bool keyboard, float viewX, float viewY, float viewWidth, float viewHeight, bool textInputActive)
 {
+	mViewX = viewX;
+	mViewY = viewY;
+	mViewWidth = viewWidth;
+	mViewHeight = viewHeight;
+
+	// Lose capture if the window lost focus (alt-tab, another window clicked, ...).
+	if (mMouseCaptured && GetForegroundWindow() != mHwnd)
+	{
+		ApplyCapture(false);
+	}
+	if (mMouseCaptured)
+	{
+		ClipToView();   // the view can move or resize (window resize, editor panel)
+		mMouseEnabled = true;
+		mKeyboardEnabled = !textInputActive;
+		return;
+	}
+
 	const bool anyDown = mButtons[0] || mButtons[1] || mButtons[2];
 	if (mouse && anyDown && !mCaptured)
 	{
@@ -53,9 +96,45 @@ void Input::SetRouting(bool mouse, bool keyboard, float viewX, float viewY)
 		mCaptured = false;
 	}
 	mMouseEnabled = mouse || mCaptured;
-	mKeyboardEnabled = keyboard;
-	mViewX = viewX;
-	mViewY = viewY;
+	mKeyboardEnabled = keyboard && !textInputActive;
+}
+
+void Input::SetMouseCaptured(bool captured)
+{
+	if (captured == mMouseCaptured) return;
+	// Only take the cursor while our window is the one the user is using.
+	if (captured && (!mHwnd || GetForegroundWindow() != mHwnd)) return;
+	ApplyCapture(captured);
+}
+
+void Input::ApplyCapture(bool captured)
+{
+	mMouseCaptured = captured;
+	ImGuiIO* io = ImGui::GetCurrentContext() ? &ImGui::GetIO() : nullptr;
+	if (captured)
+	{
+		while (ShowCursor(FALSE) >= 0) {}
+		ClipToView();
+		// ImGui must not react to the hidden cursor or change its shape.
+		if (io) io->ConfigFlags |= ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange;
+	}
+	else
+	{
+		while (ShowCursor(TRUE) < 0) {}
+		ClipCursor(nullptr);
+		if (io) io->ConfigFlags &= ~(ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange);
+	}
+}
+
+void Input::ClipToView()
+{
+	if (!mHwnd) return;
+	POINT topLeft{ static_cast<LONG>(mViewX), static_cast<LONG>(mViewY) };
+	POINT bottomRight{ static_cast<LONG>(mViewX + mViewWidth), static_cast<LONG>(mViewY + mViewHeight) };
+	ClientToScreen(mHwnd, &topLeft);
+	ClientToScreen(mHwnd, &bottomRight);
+	RECT clip{ topLeft.x, topLeft.y, bottomRight.x, bottomRight.y };
+	ClipCursor(&clip);
 }
 
 void Input::Reset()
@@ -63,6 +142,10 @@ void Input::Reset()
 	mKeys.fill(false);
 	mButtons.fill(false);
 	mCaptured = false;
+	if (mMouseCaptured)
+	{
+		ApplyCapture(false);
+	}
 }
 
 bool Input::IsKeyDown(int vk) const { return mKeyboardEnabled && vk >= 0 && vk < 256 && mKeys[vk]; }
@@ -81,6 +164,7 @@ DirectX::XMFLOAT2 Input::MousePosition() const
 DirectX::XMFLOAT2 Input::MouseDelta() const
 {
 	if (!mMouseEnabled) return { 0, 0 };
+	if (mMouseCaptured) return mRawDelta;
 	return { mMouseClient.x - mPrevMouseClient.x, mMouseClient.y - mPrevMouseClient.y };
 }
 

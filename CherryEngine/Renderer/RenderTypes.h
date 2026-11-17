@@ -90,13 +90,34 @@ struct RenderStats
 	float gpuUiMs = 0.0f;       // composite + ImGui
 };
 
-// Scene-wide lighting and presentation settings.
+// A point light (linear colour). Light falls off smoothly to zero at `range`.
+struct PointLight
+{
+	DirectX::XMFLOAT3 position{ 0, 0, 0 };
+	DirectX::XMFLOAT3 color{ 1, 1, 1 };
+	float intensity = 1.0f;
+	float range = 10.0f;
+};
+
+constexpr uint32_t kMaxPointLights = 8;   // matches CHERRY_MAX_POINT_LIGHTS
+
+// Scene-wide lighting and presentation settings. Games may change any of these every frame.
 struct RenderSettings
 {
-	DirectX::XMFLOAT4 clearColor{ 0.35f, 0.48f, 0.75f, 1.0f };   // linear HDR
+	DirectX::XMFLOAT4 clearColor{ 0.35f, 0.48f, 0.75f, 1.0f };   // linear HDR; this is also the sky colour
 	DirectX::XMFLOAT3 ambient{ 0.25f, 0.25f, 0.32f };
 	DirectX::XMFLOAT3 sunDirection{ 0.57735f, -0.57735f, 0.57735f };
-	DirectX::XMFLOAT3 sunColor{ 1.0f, 0.97f, 0.9f };
+	DirectX::XMFLOAT3 sunColor{ 1.0f, 0.97f, 0.9f };              // set to 0 to switch the sun off
+	float fillLightScale = 1.0f;                                  // the two fixed fill lights (0 = off)
+
+	std::vector<PointLight> pointLights;                         // the first kMaxPointLights are used
+
+	// Linear distance fog applied to meshes and voxels (not to the sky/clear colour).
+	bool fogEnabled = false;
+	DirectX::XMFLOAT3 fogColor{ 0.35f, 0.48f, 0.75f };            // linear
+	float fogStart = 50.0f;
+	float fogEnd = 200.0f;
+
 	float exposure = 1.0f;
 	bool vsync = true;
 	bool cullingEnabled = true;

@@ -22,6 +22,7 @@
 #endif
 
 #define CHERRY_MAX_LIGHTS 4
+#define CHERRY_MAX_POINT_LIGHTS 8
 #define CHERRY_INVALID_INDEX 0xFFFFFFFF
 
 struct Light
@@ -49,6 +50,16 @@ struct FrameConstants
 
 	float4 ambientLight;
 	Light lights[CHERRY_MAX_LIGHTS];
+
+	// Distance fog (linear, view distance). Disabled when fogEnd <= fogStart.
+	float3 fogColor;
+	float  fogStart;
+	float  fogEnd;
+	uint   numPointLights;
+	float  pad0;
+	float  pad1;
+	// Point lights: Position, Strength (colour x intensity), FalloffEnd (range).
+	Light pointLights[CHERRY_MAX_POINT_LIGHTS];
 };
 
 // Root CBV b1: one camera / view.

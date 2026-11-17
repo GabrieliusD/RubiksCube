@@ -9,6 +9,15 @@
 
 class IGameModule;
 
+// A rectangle in window client pixels (same space as ImGui screen coordinates).
+struct ViewRect
+{
+	float x = 0.0f;
+	float y = 0.0f;
+	float width = 0.0f;
+	float height = 0.0f;
+};
+
 struct RaycastHit
 {
 	Entity entity = INVALID_ENTITY;
@@ -51,6 +60,10 @@ public:
 
 	bool IsEditorMode() const;
 	void SetEditorMode(bool editor);
+
+	// Where the game view is drawn this frame: the editor viewport panel, or the whole
+	// window in game mode. Use it to position HUD elements drawn with ImGui.
+	ViewRect GameViewRect() const;
 
 private:
 	struct Impl;

@@ -31,10 +31,16 @@ endif()
 # folder per configuration, so the launcher always sees the freshly built DLLs.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# Game modules call this so the launcher builds them and ships their Content/.
+function(cherry_register_game_module target_name)
+  set_property(GLOBAL APPEND PROPERTY CHERRY_GAME_MODULES ${target_name})
+endfunction()
+
 # Copies what `target_name` needs at runtime into its folder: engine shaders, the
-# DirectX Shader Compiler DLLs and the game's Content/. This runs on every build
-# (not as a post-link step), so asset edits are picked up even when nothing relinks.
-function(cherry_add_runtime_assets target_name game_source_dir)
+# DirectX Shader Compiler DLLs and every registered game's Content/. This runs on
+# every build (not as a post-link step), so asset edits are picked up even when
+# nothing relinks.
+function(cherry_add_runtime_assets target_name)
   set(out_dir "$<TARGET_FILE_DIR:${target_name}>")
   set(commands
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/CherryEngine/Shaders" "${out_dir}/Shaders")
@@ -43,9 +49,13 @@ function(cherry_add_runtime_assets target_name game_source_dir)
       list(APPEND commands COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "${out_dir}")
     endif()
   endforeach()
-  if(EXISTS "${game_source_dir}/Content")
-    list(APPEND commands COMMAND ${CMAKE_COMMAND} -E copy_directory "${game_source_dir}/Content" "${out_dir}/Content")
-  endif()
+  get_property(game_modules GLOBAL PROPERTY CHERRY_GAME_MODULES)
+  foreach(game IN LISTS game_modules)
+    get_target_property(game_source_dir ${game} SOURCE_DIR)
+    if(EXISTS "${game_source_dir}/Content")
+      list(APPEND commands COMMAND ${CMAKE_COMMAND} -E copy_directory "${game_source_dir}/Content" "${out_dir}/Content")
+    endif()
+  endforeach()
 
   add_custom_target(${target_name}RuntimeAssets ALL ${commands}
     COMMENT "Copying runtime assets for ${target_name}" VERBATIM)
@@ -56,4 +66,5 @@ enable_testing()
 
 add_subdirectory(CherryEngine)
 add_subdirectory(Rubik)
+add_subdirectory(Undertime)
 add_subdirectory(CherryLaunch)

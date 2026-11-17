@@ -20,11 +20,13 @@ struct Engine::Impl
 
 	Entity mainCamera = INVALID_ENTITY;
 	RenderView mainView{};
+	ViewRect gameView{};
 	bool editorMode = true;
 	bool quitRequested = false;
 	float deltaTime = 0.0f;
 	float totalTime = 0.0f;
 	std::wstring baseTitle;
+	bool gameUiOverlayWindow = true;
 
 	void CreateDefaultCamera();
 	bool UpdateMainView();
@@ -43,6 +45,7 @@ float Engine::TotalTime() const { return mImpl->totalTime; }
 Entity Engine::MainCamera() const { return mImpl->mainCamera; }
 void Engine::SetMainCamera(Entity camera) { mImpl->mainCamera = camera; }
 bool Engine::IsEditorMode() const { return mImpl->editorMode; }
+ViewRect Engine::GameViewRect() const { return mImpl->gameView; }
 void Engine::SetEditorMode(bool editor) { mImpl->editorMode = editor; }
 void Engine::RequestQuit() { mImpl->quitRequested = true; }
 
@@ -84,12 +87,14 @@ int Engine::Run(IGameModule& game)
 	const EngineConfig config = game.GetConfig();
 	e.editorMode = config.startInEditor;
 	e.baseTitle = config.windowTitle;
+	e.gameUiOverlayWindow = config.gameUiOverlayWindow;
 
 	if (!e.window.Create(config.windowTitle, config.windowWidth, config.windowHeight))
 	{
 		CHERRY_ERROR("Failed to create the window");
 		return -1;
 	}
+	e.input.AttachWindow(e.window.Handle());
 	e.window.SetMessageHandler([&e](UINT msg, WPARAM wParam, LPARAM lParam) { e.input.HandleMessage(msg, wParam, lParam); });
 	e.window.SetResizeHandler([&e](uint32_t width, uint32_t height) { e.renderer.OnWindowResized(width, height); });
 
@@ -134,6 +139,7 @@ int Engine::Impl::Loop(Engine& engine, IGameModule& game)
 	float titleTimer = 0.0f;
 	uint32_t titleFrames = 0;
 
+	bool previousEditorMode = editorMode;
 	while (!quitRequested)
 	{
 		input.BeginFrame();
@@ -159,24 +165,31 @@ int Engine::Impl::Loop(Engine& engine, IGameModule& game)
 		{
 			editorMode = !editorMode;
 		}
+		if (editorMode != previousEditorMode)
+		{
+			// The view moves and the editor needs the cursor; the game can capture again.
+			input.SetMouseCaptured(false);
+			previousEditorMode = editorMode;
+		}
 
 		// UI first: it decides where the game view is and who owns input this frame.
-		editor.Draw(engine, game, editorMode, deltaTime * 1000.0f);
+		editor.Draw(engine, game, editorMode, gameUiOverlayWindow, deltaTime * 1000.0f);
 		// Keyboard goes to the game unless the user is typing into an ImGui text field.
 		// (WantCaptureKeyboard is too broad: with keyboard navigation enabled it is set
 		// whenever any ImGui window has focus.)
 		const ImGuiIO& io = ImGui::GetIO();
 		if (editorMode)
 		{
-			input.SetRouting(editor.viewportHovered, (editor.viewportFocused || editor.viewportHovered) && !io.WantTextInput,
-				editor.viewportPosition.x, editor.viewportPosition.y);
-			renderer.SetViewSize(static_cast<uint32_t>(editor.viewportSize.x), static_cast<uint32_t>(editor.viewportSize.y));
+			gameView = { editor.viewportPosition.x, editor.viewportPosition.y, editor.viewportSize.x, editor.viewportSize.y };
+			input.SetRouting(editor.viewportHovered, editor.viewportFocused || editor.viewportHovered,
+				gameView.x, gameView.y, gameView.width, gameView.height, io.WantTextInput);
 		}
 		else
 		{
-			input.SetRouting(!io.WantCaptureMouse, !io.WantTextInput, 0.0f, 0.0f);
-			renderer.SetViewSize(window.Width(), window.Height());
+			gameView = { 0.0f, 0.0f, static_cast<float>(window.Width()), static_cast<float>(window.Height()) };
+			input.SetRouting(!io.WantCaptureMouse, true, gameView.x, gameView.y, gameView.width, gameView.height, io.WantTextInput);
 		}
+		renderer.SetViewSize(static_cast<uint32_t>(gameView.width), static_cast<uint32_t>(gameView.height));
 
 		game.OnUpdate(engine, deltaTime);
 

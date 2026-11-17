@@ -62,4 +62,39 @@ float3 ComputeLighting(Light lights[CHERRY_MAX_LIGHTS], uint numDirLights, Mater
     return result;
 }
 
+// Point light with a smooth falloff that reaches exactly zero at L.FalloffEnd (the range).
+float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
+{
+    float3 lightVec = L.Position - pos;
+    float d = length(lightVec);
+    if (d >= L.FalloffEnd)
+        return 0.0f;
+
+    lightVec /= max(d, 1e-4);
+    float ndotl = max(dot(lightVec, normal), 0.0f);
+    float falloff = saturate(1.0f - d / L.FalloffEnd);
+    float3 lightStrength = L.Strength * ndotl * falloff * falloff;
+
+    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+}
+
+float3 ComputePointLights(Light lights[CHERRY_MAX_POINT_LIGHTS], uint count, Material mat, float3 pos, float3 normal, float3 toEye)
+{
+    float3 result = 0.0f;
+    for (uint i = 0; i < min(count, (uint)CHERRY_MAX_POINT_LIGHTS); ++i)
+    {
+        result += ComputePointLight(lights[i], mat, pos, normal, toEye);
+    }
+    return result;
+}
+
+// Linear distance fog; returns the colour blended towards the fog colour.
+float3 ApplyFog(float3 color, float distance, float3 fogColor, float fogStart, float fogEnd)
+{
+    if (fogEnd <= fogStart)
+        return color;
+    float f = saturate((distance - fogStart) / (fogEnd - fogStart));
+    return lerp(color, fogColor, f);
+}
+
 #endif

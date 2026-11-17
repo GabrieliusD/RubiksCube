@@ -11,6 +11,9 @@ struct EngineConfig
 	uint32_t windowWidth = 1600;
 	uint32_t windowHeight = 900;
 	bool startInEditor = true;      // false = full-window game view (F1 toggles at runtime)
+	// In game mode, wrap OnImGui in a small overlay window. Turn off for games that
+	// draw their own HUD (e.g. with ImGui::GetForegroundDrawList()).
+	bool gameUiOverlayWindow = true;
 };
 
 // The contract between the engine and a game, Unreal-style: the engine owns

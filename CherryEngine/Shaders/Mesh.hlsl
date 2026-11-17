@@ -44,7 +44,8 @@ float4 PSMain(VertexOut pin) : SV_Target
 	StructuredBuffer<MaterialData> materials = ResourceDescriptorHeap[gFrame.materialBufferIndex];
 	MaterialData material = materials[pin.materialIndex];
 
-	float4 albedo = material.baseColor;
+	// Vertex colour tints the material (white by default), so chunked meshes can carry per-cell colour.
+	float4 albedo = material.baseColor * pin.color;
 	if (material.albedoTextureIndex != CHERRY_INVALID_INDEX)
 	{
 		Texture2D<float4> albedoMap = ResourceDescriptorHeap[NonUniformResourceIndex(material.albedoTextureIndex)];
@@ -60,6 +61,8 @@ float4 PSMain(VertexOut pin) : SV_Target
 	mat.Shininess = 1.0 - material.roughness;
 
 	float3 color = gFrame.ambientLight.rgb * albedo.rgb
-		+ ComputeLighting(gFrame.lights, gFrame.numDirLights, mat, normal, toEye);
+		+ ComputeLighting(gFrame.lights, gFrame.numDirLights, mat, normal, toEye)
+		+ ComputePointLights(gFrame.pointLights, gFrame.numPointLights, mat, pin.positionW, normal, toEye);
+	color = ApplyFog(color, distance(gView.eyePosW, pin.positionW), gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
 	return float4(color, albedo.a);
 }

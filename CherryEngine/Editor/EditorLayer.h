@@ -11,7 +11,8 @@ class IGameModule;
 class EditorLayer
 {
 public:
-	void Draw(Engine& engine, IGameModule& game, bool editorMode, float frameMs);
+	// `gameOverlayWindow`: wrap the game's UI in a small window in game mode (EngineConfig).
+	void Draw(Engine& engine, IGameModule& game, bool editorMode, bool gameOverlayWindow, float frameMs);
 	void Shutdown(Engine& engine);
 
 	// Results of the last Draw(), used for input routing and view sizing.

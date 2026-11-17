@@ -23,10 +23,11 @@ struct RenderView
 // driven by Engine.
 //
 // Frame structure:
-//   MeshPass   (forward, HDR + depth)
+//   MeshPass   (forward, HDR + depth; point lights + fog; RenderLayer::World)
 //   VoxelPass  (ray-marched volumes, writes SV_Depth into the same depth buffer)
+//   DebugDraw  (lines into HDR, depth tested against the world)
+//   ViewModels (depth cleared, then RenderLayer::ViewModel meshes)
 //   Tonemap    (compute: HDR -> gamma-encoded LDR view texture)
-//   DebugDraw  (lines into the LDR view, depth tested)
 //   Present    (LDR blitted full-window in game mode, or shown in the editor
 //               viewport via ImGui; ImGui drawn on top)
 class CHERRY_API Renderer

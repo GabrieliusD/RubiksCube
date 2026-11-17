@@ -136,7 +136,9 @@ PixelOut PSMain(VertexOut pin)
 	mat.Shininess = 0.1;
 	float3 toEye = -rayDirW;
 	float3 color = gFrame.ambientLight.rgb * albedo.rgb
-		+ ComputeLighting(gFrame.lights, gFrame.numDirLights, mat, normalW, toEye);
+		+ ComputeLighting(gFrame.lights, gFrame.numDirLights, mat, normalW, toEye)
+		+ ComputePointLights(gFrame.pointLights, gFrame.numPointLights, mat, hitW, normalW, toEye);
+	color = ApplyFog(color, t, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
 
 	float4 clip = mul(float4(hitW, 1.0), gView.viewProj);
 

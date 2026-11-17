@@ -125,18 +125,20 @@ namespace
 
 	struct DrawItem
 	{
+		uint32_t layer;          // RenderLayer
 		uint32_t meshSlot;
 		uint32_t instanceIndex;
 	};
 
 	// GPU timestamp markers written each frame (see GpuTimer).
+	// Order matches the frame: world meshes, voxels, debug lines + view models, tonemap, UI.
 	enum GpuMark : uint32_t
 	{
 		Mark_FrameBegin,
 		Mark_MeshEnd,
 		Mark_VoxelEnd,
-		Mark_TonemapEnd,
 		Mark_DebugEnd,
+		Mark_TonemapEnd,
 		Mark_FrameEnd,
 		Mark_Count
 	};
@@ -204,13 +206,12 @@ namespace
 				if ((mask & (1u << from)) == 0 || (mask & (1u << to)) == 0 || t[to] < t[from]) return 0.0f;
 				return static_cast<float>((t[to] - t[from]) * ticksToMs);
 			};
-			const bool sceneRendered = (mask & (1u << Mark_DebugEnd)) != 0;
 			stats.gpuFrameMs = span(Mark_FrameBegin, Mark_FrameEnd);
-			stats.gpuMeshMs = sceneRendered ? span(Mark_FrameBegin, Mark_MeshEnd) : 0.0f;
-			stats.gpuVoxelMs = sceneRendered ? span(Mark_MeshEnd, Mark_VoxelEnd) : 0.0f;
-			stats.gpuTonemapMs = sceneRendered ? span(Mark_VoxelEnd, Mark_TonemapEnd) : 0.0f;
-			stats.gpuDebugMs = sceneRendered ? span(Mark_TonemapEnd, Mark_DebugEnd) : 0.0f;
-			stats.gpuUiMs = sceneRendered ? span(Mark_DebugEnd, Mark_FrameEnd) : stats.gpuFrameMs;
+			stats.gpuMeshMs = span(Mark_FrameBegin, Mark_MeshEnd);
+			stats.gpuVoxelMs = span(Mark_MeshEnd, Mark_VoxelEnd);
+			stats.gpuDebugMs = span(Mark_VoxelEnd, Mark_DebugEnd);        // debug lines + view models
+			stats.gpuTonemapMs = span(Mark_DebugEnd, Mark_TonemapEnd);
+			stats.gpuUiMs = span(Mark_TonemapEnd, Mark_FrameEnd);
 		}
 	};
 }
@@ -353,7 +354,7 @@ void Renderer::Impl::CreatePipelines()
 	debug.shaderFile = "DebugDraw.hlsl";
 	debug.vertexLayout = rhi::VertexLayout::None;
 	debug.topology = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-	debug.rtvFormats = { kLdrFormat };
+	debug.rtvFormats = { kHdrFormat };
 	debug.dsvFormat = kDepthFormat;
 	debug.depthWrite = false;
 	debug.cullMode = D3D12_CULL_MODE_NONE;
@@ -747,12 +748,36 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants()
 	XMVECTOR sun = XMVector3Normalize(XMLoadFloat3(&settings.sunDirection));
 	XMStoreFloat3(&frame.lights[0].Direction, sun);
 	frame.lights[0].Strength = settings.sunColor;
-	// Two fixed fill lights keep unlit sides readable.
+	// Two fixed fill lights keep unlit sides readable (scaled by fillLightScale).
+	const float fill = std::max(settings.fillLightScale, 0.0f);
 	XMStoreFloat3(&frame.lights[1].Direction, XMVector3Normalize(XMVectorSet(-0.57735f, -0.57735f, 0.57735f, 0)));
-	frame.lights[1].Strength = { 0.35f, 0.35f, 0.4f };
+	frame.lights[1].Strength = { 0.35f * fill, 0.35f * fill, 0.4f * fill };
 	XMStoreFloat3(&frame.lights[2].Direction, XMVector3Normalize(XMVectorSet(0.0f, 0.707f, -0.707f, 0)));
-	frame.lights[2].Strength = { 0.2f, 0.2f, 0.22f };
+	frame.lights[2].Strength = { 0.2f * fill, 0.2f * fill, 0.22f * fill };
 	frame.numDirLights = 3;
+
+	const uint32_t pointCount = std::min<uint32_t>(static_cast<uint32_t>(settings.pointLights.size()), CHERRY_MAX_POINT_LIGHTS);
+	for (uint32_t i = 0; i < pointCount; ++i)
+	{
+		const PointLight& light = settings.pointLights[i];
+		gpu::Light& out = frame.pointLights[i];
+		out.Position = light.position;
+		out.Strength = { light.color.x * light.intensity, light.color.y * light.intensity, light.color.z * light.intensity };
+		out.FalloffStart = 0.0f;
+		out.FalloffEnd = std::max(light.range, 0.01f);
+	}
+	frame.numPointLights = pointCount;
+
+	if (settings.fogEnabled)
+	{
+		frame.fogColor = settings.fogColor;
+		frame.fogStart = settings.fogStart;
+		frame.fogEnd = settings.fogEnd;
+	}
+	else
+	{
+		frame.fogStart = frame.fogEnd = 0.0f;   // disabled
+	}
 	return frame;
 }
 
@@ -803,14 +828,15 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		if (!mesh) continue;
 
 		const XMMATRIX world = scene.Get<Transform>(entity).Matrix();
+		const bool viewModel = renderer.layer == RenderLayer::ViewModel;
 		BoundingBox worldBounds;
 		mesh->bounds.Transform(worldBounds, world);
-		if (r.settings.cullingEnabled && !frustum.Intersects(worldBounds))
+		if (!viewModel && r.settings.cullingEnabled && !frustum.Intersects(worldBounds))
 		{
 			++stats.instancesCulled;
 			continue;
 		}
-		if (r.settings.drawBounds)
+		if (!viewModel && r.settings.drawBounds)
 		{
 			r.debugDraw.Box(worldBounds, boundsColor);
 		}
@@ -820,11 +846,16 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		XMStoreFloat4x4(&instance.normalMatrix, XMMatrixTranspose(XMMatrixInverse(nullptr, world)));
 		instance.materialIndex = r.materials.IsValid(renderer.material) ? renderer.material.index : r.defaultMaterial.index;
 
-		r.drawScratch.push_back({ renderer.mesh.index, static_cast<uint32_t>(r.instanceScratch.size()) });
+		r.drawScratch.push_back({ static_cast<uint32_t>(renderer.layer), renderer.mesh.index, static_cast<uint32_t>(r.instanceScratch.size()) });
 		r.instanceScratch.push_back(instance);
 	}
-	// Group by mesh so vertex/index buffers change as rarely as possible.
-	std::sort(r.drawScratch.begin(), r.drawScratch.end(), [](const DrawItem& a, const DrawItem& b) { return a.meshSlot < b.meshSlot; });
+	// Layer first (world before view models), then by mesh so vertex/index buffers change rarely.
+	std::sort(r.drawScratch.begin(), r.drawScratch.end(), [](const DrawItem& a, const DrawItem& b)
+	{
+		return a.layer != b.layer ? a.layer < b.layer : a.meshSlot < b.meshSlot;
+	});
+	const auto firstViewModel = std::find_if(r.drawScratch.begin(), r.drawScratch.end(),
+		[](const DrawItem& item) { return item.layer == static_cast<uint32_t>(RenderLayer::ViewModel); });
 
 	// ---- Voxel volumes ------------------------------------------------------
 	r.voxelScratch.clear();
@@ -896,26 +927,32 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	cmd->OMSetRenderTargets(1, &hdrRtv, FALSE, &dsv);
 	r.SetViewport(cmd, r.viewWidth, r.viewHeight);
 
-	cmd->SetPipelineState(r.pipelines.Get("mesh"));
-	cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	uint32_t boundMesh = UINT32_MAX;
-	const MeshResource* currentMesh = nullptr;
-	for (const DrawItem& item : r.drawScratch)
+	auto drawMeshes = [&](std::vector<DrawItem>::const_iterator begin, std::vector<DrawItem>::const_iterator end)
 	{
-		if (item.meshSlot != boundMesh)
+		cmd->SetPipelineState(r.pipelines.Get("mesh"));
+		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		uint32_t boundMesh = UINT32_MAX;
+		const MeshResource* currentMesh = nullptr;
+		for (auto it = begin; it != end; ++it)
 		{
-			currentMesh = r.meshes.AtSlot(item.meshSlot);
-			const D3D12_VERTEX_BUFFER_VIEW vbv = currentMesh->vertexBuffer->VertexView(sizeof(Vertex));
-			const D3D12_INDEX_BUFFER_VIEW ibv = currentMesh->indexBuffer->IndexView(DXGI_FORMAT_R32_UINT);
-			cmd->IASetVertexBuffers(0, 1, &vbv);
-			cmd->IASetIndexBuffer(&ibv);
-			boundMesh = item.meshSlot;
+			if (it->meshSlot != boundMesh)
+			{
+				currentMesh = r.meshes.AtSlot(it->meshSlot);
+				const D3D12_VERTEX_BUFFER_VIEW vbv = currentMesh->vertexBuffer->VertexView(sizeof(Vertex));
+				const D3D12_INDEX_BUFFER_VIEW ibv = currentMesh->indexBuffer->IndexView(DXGI_FORMAT_R32_UINT);
+				cmd->IASetVertexBuffers(0, 1, &vbv);
+				cmd->IASetIndexBuffer(&ibv);
+				boundMesh = it->meshSlot;
+			}
+			gpu::MeshDrawConstants constants{ it->instanceIndex };
+			cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
+			cmd->DrawIndexedInstanced(currentMesh->indexCount, 1, 0, 0, 0);
+			++stats.drawCalls;
 		}
-		gpu::MeshDrawConstants constants{ item.instanceIndex };
-		cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
-		cmd->DrawIndexedInstanced(currentMesh->indexCount, 1, 0, 0, 0);
-		++stats.drawCalls;
-	}
+	};
+
+	// World meshes.
+	drawMeshes(r.drawScratch.cbegin(), firstViewModel);
 	stats.instancesSubmitted = static_cast<uint32_t>(r.drawScratch.size());
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_MeshEnd);
 
@@ -934,6 +971,24 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	}
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_VoxelEnd);
 
+	// ---- Debug lines (HDR, depth-tested against the world) ------------------
+	if (!lines.empty())
+	{
+		cmd->SetPipelineState(r.pipelines.Get("debug"));
+		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+		cmd->DrawInstanced(static_cast<UINT>(lines.size()), 1, 0, 0);
+		++stats.drawCalls;
+	}
+	stats.debugLines = static_cast<uint32_t>(lines.size() / 2);
+
+	// ---- View models: depth cleared so they always draw on top of the world --
+	if (firstViewModel != r.drawScratch.cend())
+	{
+		cmd->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+		drawMeshes(firstViewModel, r.drawScratch.cend());
+	}
+	r.gpuTimer.Mark(cmd, frameIndex, Mark_DebugEnd);
+
 	// ---- Tonemap (compute) --------------------------------------------------
 	r.hdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -941,22 +996,8 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), r.ldr->UavIndex(), r.viewWidth, r.viewHeight };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, 4, &tonemap, 0);
 	cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
-	r.gpuTimer.Mark(cmd, frameIndex, Mark_TonemapEnd);
-
-	// ---- Debug lines ----------------------------------------------------------
-	r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	if (!lines.empty())
-	{
-		const D3D12_CPU_DESCRIPTOR_HANDLE ldrRtv = r.ldr->Rtv();
-		cmd->OMSetRenderTargets(1, &ldrRtv, FALSE, &dsv);
-		cmd->SetPipelineState(r.pipelines.Get("debug"));
-		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
-		cmd->DrawInstanced(static_cast<UINT>(lines.size()), 1, 0, 0);
-		++stats.drawCalls;
-	}
-	stats.debugLines = static_cast<uint32_t>(lines.size() / 2);
 	r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-	r.gpuTimer.Mark(cmd, frameIndex, Mark_DebugEnd);
+	r.gpuTimer.Mark(cmd, frameIndex, Mark_TonemapEnd);
 
 	r.viewRendered = true;
 }
@@ -979,7 +1020,7 @@ void Renderer::EndFrame(bool viewFullscreen)
 	{
 		r.ClearView(cmd);
 		// Keep every timestamp written so the resolve never reads unwritten queries.
-		for (GpuMark mark : { Mark_MeshEnd, Mark_VoxelEnd, Mark_TonemapEnd, Mark_DebugEnd })
+		for (GpuMark mark : { Mark_MeshEnd, Mark_VoxelEnd, Mark_DebugEnd, Mark_TonemapEnd })
 		{
 			r.gpuTimer.Mark(cmd, r.device.FrameIndex(), mark);
 		}

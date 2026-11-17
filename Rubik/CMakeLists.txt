@@ -18,6 +18,7 @@ else()
 endif()
 
 target_link_libraries(RubikGame PRIVATE CherryEngine)
+cherry_register_game_module(RubikGame)
 
 if(MSVC)
     target_compile_options(RubikGame PRIVATE /W3 /utf-8)

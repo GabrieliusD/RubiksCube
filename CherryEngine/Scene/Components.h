@@ -42,11 +42,18 @@ struct Transform
 	DirectX::XMVECTOR Up() const      { return DirectX::XMVector3Rotate(DirectX::XMVectorSet(0, 1, 0, 0), DirectX::XMLoadFloat4(&rotation)); }
 };
 
+enum class RenderLayer : uint8_t
+{
+	World,       // normal scene geometry
+	ViewModel,   // first-person items: drawn after the world with depth cleared, so they never clip into walls
+};
+
 struct MeshRenderer
 {
 	MeshHandle mesh;
 	MaterialHandle material;
 	bool visible = true;
+	RenderLayer layer = RenderLayer::World;
 };
 
 // Perspective camera. The view matrix comes from the entity's Transform
