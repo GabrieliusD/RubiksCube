@@ -48,8 +48,7 @@ public:
 		Box dirty;
 	};
 
-	// Procedural cave world for `seed` (see CaveGenerator).
-	void Generate(uint64_t seed);
+	// Generated worlds come from GenerateCaves() (CaveGenerator.h).
 	// Fixed layout used by tests: bedrock shell, solid stone, entrance passage and one chamber.
 	void GenerateBasic();
 	// Raw access for the generator.

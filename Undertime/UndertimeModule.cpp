@@ -108,7 +108,8 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	seed = newSeed;
 	std::snprintf(seedInput, sizeof(seedInput), "%u", seed);
 	const auto start = std::chrono::steady_clock::now();
-	world.Generate(seed);
+	layout = GenerateCaves(world, seed);
+	teleportZone = -1;
 	generationMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
 
 	// Loose rock belongs to the old world.
@@ -132,7 +133,8 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	player.Teleport({ cfg::kSpawnX, cfg::kGroundY, cfg::kSpawnZ }, 0.0f);
 	target = {};
 	swingTimer = 0.0f;
-	CHERRY_LOG("UNDERTIME: generated seed %u in %.0f ms (collision %.0f ms)", seed, generationMs, collision.BuildMs());
+	CHERRY_LOG("UNDERTIME: seed %u: %d zones, %d pockets, %d floating voxels removed, generated in %.0f ms (collision %.0f ms)",
+		seed, static_cast<int>(layout.zones.size()), static_cast<int>(layout.pockets.size()), layout.floatingVoxelsRemoved, generationMs, collision.BuildMs());
 }
 
 void UndertimeModule::SetWorldRenderer(Engine& engine, WorldRenderer mode)
@@ -272,6 +274,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 			messages.Show(worldRenderer == WorldRenderer::RayMarched ? "Renderer: ray-marched voxels" : "Renderer: voxel meshes", 1.5f);
 		}
 		if (input.WasKeyPressed(VK_F8)) NewWorld(engine, RandomSeed());
+		if (input.WasKeyPressed(VK_F9)) DebugTeleportToNextZone(engine);
 		if (input.WasKeyPressed(VK_F6)) DebugDropRock(engine);
 		if (input.WasKeyPressed(VK_F7)) DebugCaveIn(engine);
 		player.Update(input, dt, 1.0f, input.IsMouseCaptured());
@@ -521,6 +524,22 @@ void UndertimeModule::ApplyWorldChange(Engine& engine, const VoxelWorld::Box& bo
 	}
 }
 
+void UndertimeModule::DebugTeleportToNextZone(Engine& engine)
+{
+	if (layout.zones.empty()) return;
+	teleportZone = (teleportZone + 1) % static_cast<int>(layout.zones.size());
+	const CaveZone& zone = layout.zones[teleportZone];
+	const CaveRoom& entry = zone.rooms[0];
+	// Face the exit cavern.
+	const CaveRoom& exit = zone.rooms[1];
+	const float yaw = std::atan2(exit.center.x - entry.center.x, exit.center.z - entry.center.z);
+	player.Teleport(RoomStandPoint(entry), yaw);
+	char text[96];
+	std::snprintf(text, sizeof(text), "Debug: zone %d of %d (%.0f-%.0f m deep)", teleportZone + 1, static_cast<int>(layout.zones.size()), zone.z0 * 10.0f, zone.z1 * 10.0f);
+	messages.Show(text, 2.0f);
+	(void)engine;
+}
+
 void UndertimeModule::DebugDropRock(Engine& engine)
 {
 	// A 1.5 m block of stone dropped two metres in front of the player.
@@ -755,7 +774,14 @@ void UndertimeModule::OnImGui(Engine& engine)
 		ImGui::Text("Loose rock    %d  (baked %d, dust %d, broke off %d)", fragments.Count(), fragments.Baked(), fragments.Vanished(), detachedCount);
 		ImGui::Text("Collision     %.2f ms for %d chunk(s)   bake %.2f ms   support check %d voxels", collision.LastFlushMs(), collision.LastFlushChunks(), fragments.LastBakeMs(), lastSupportVisited);
 		ImGui::Text("Seed %u   generated in %.0f ms   collision built in %.0f ms", seed, generationMs, collision.BuildMs());
-		ImGui::TextDisabled("F6 drop a test rock   F7 cave-in test   F8 new world   F4 physics bounds");
+		for (size_t i = 0; i < layout.zones.size(); ++i)
+		{
+			const CaveZone& zone = layout.zones[i];
+			int pockets = 0;
+			for (const CavePocket& p : layout.pockets) pockets += p.zone == static_cast<int>(i) ? 1 : 0;
+			ImGui::Text("Zone %zu  %3.0f-%3.0f m  rooms %zu  tunnels %zu  pockets %d", i + 1, zone.z0, zone.z1, zone.rooms.size(), zone.tunnels.size(), pockets);
+		}
+		ImGui::TextDisabled("F6 drop a test rock   F7 cave-in test   F8 new world   F9 next zone   F4 physics bounds");
 		ImGui::SliderInt("Pick level", &pickLevel, 0, 3);
 		ImGui::SliderInt("Lantern level", &lanternLevel, 0, 3);
 	}

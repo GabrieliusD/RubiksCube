@@ -27,6 +27,34 @@ namespace cfg
 	constexpr float kVoxelAoStrength = 0.6f;      // corner ambient occlusion (ray-marched)
 	constexpr int kStoneBands = 48;               // palette entries for the stone depth gradient
 
+	// ---- Cave generation (metres unless noted) -----------------------------------
+	constexpr int kZoneCount = 5;                 // cave zones from the entrance to the far wall
+	constexpr float kSealMin = 3.0f;              // solid rock band between zones (must be dug through)
+	constexpr float kSealMax = 6.0f;
+	constexpr float kEntranceDepth = 6.0f;        // the crack passage runs from z = 0 to here
+	constexpr int kExtraRoomsMin = 2;             // rooms per zone besides entry and exit caverns
+	constexpr int kExtraRoomsMax = 5;
+	constexpr float kRoomRadiusMin = 3.0f;        // horizontal radius of a cavern
+	constexpr float kRoomRadiusMax = 6.5f;
+	constexpr float kRoomHeightMin = 2.2f;        // vertical radius of a cavern
+	constexpr float kRoomHeightMax = 4.5f;
+	constexpr float kHighRoomChance = 0.45f;      // how often a room sits on an upper level
+	constexpr float kTunnelRadiusMin = 1.1f;
+	constexpr float kTunnelRadiusMax = 1.8f;
+	constexpr float kTunnelMinHeight = 1.45f;     // vertical radius floor: tunnels stay >= ~2.1 m tall
+	constexpr float kTunnelMaxSlope = 0.65f;      // metres up per metre along (~33 degrees)
+	constexpr float kTunnelWander = 0.9f;         // radians of heading noise
+	constexpr int kExtraLoops = 2;                // tunnels beyond the spanning tree, per zone
+	constexpr float kCheeseScale = 0.075f;        // cycles per metre of the cavern noise
+	constexpr float kCheeseThreshold = 0.34f;     // higher = fewer noise caverns
+	constexpr float kWallNoiseScale = 0.45f;      // cycles per metre of wall roughness
+	constexpr float kWallNoiseAmount = 0.55f;     // metres of wall roughness
+	constexpr int kPocketsMin = 1;                // sealed side pockets per zone
+	constexpr int kPocketsMax = 3;
+	constexpr float kPocketRadiusMin = 1.6f;
+	constexpr float kPocketRadiusMax = 3.0f;
+	constexpr float kPocketWallMin = 2.0f;        // rock between a pocket and any cave
+
 	// ---- Physics ----------------------------------------------------------------
 	constexpr int kCollisionChunk = 8;            // metres per side of a static collision chunk
 	constexpr float kCharacterPushStrength = 600.0f;   // newtons the player pushes loose rock with

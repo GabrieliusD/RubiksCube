@@ -2,6 +2,9 @@
 #include "../VoxelWorld.h"
 #include "../Fragments.h"
 #include "../Structure.h"
+#include "../CaveGenerator.h"
+#include <queue>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <random>
@@ -70,6 +73,209 @@ namespace
 			if (inBlock) ++blockVoxels;
 		}
 		return room;
+	}
+}
+
+namespace
+{
+	constexpr int V = cfg::kVoxelsPerMeter;
+	int Vox(float metres) { return static_cast<int>(std::floor(metres * V)); }
+
+	// Air voxels reachable from (x, y, z), 6-connected.
+	std::vector<uint8_t> FloodAir(const VoxelWorld& world, int x, int y, int z)
+	{
+		std::vector<uint8_t> seen(world.Voxels().size(), 0);
+		if (world.Get(x, y, z) != Block::Air) return seen;
+		std::vector<int> stack = { VoxelWorld::Index(x, y, z) };
+		seen[stack.back()] = 1;
+		static const int d[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
+		while (!stack.empty())
+		{
+			const int i = stack.back(); stack.pop_back();
+			const int cx = i % cfg::kVoxX, cy = (i / cfg::kVoxX) % cfg::kVoxY, cz = i / (cfg::kVoxX * cfg::kVoxY);
+			for (const auto& s : d)
+			{
+				const int nx = cx + s[0], ny = cy + s[1], nz = cz + s[2];
+				if (!VoxelWorld::InGrid(nx, ny, nz) || world.Get(nx, ny, nz) != Block::Air) continue;
+				const int n = VoxelWorld::Index(nx, ny, nz);
+				if (!seen[n]) { seen[n] = 1; stack.push_back(n); }
+			}
+		}
+		return seen;
+	}
+
+	bool Seen(const std::vector<uint8_t>& seen, const XMFLOAT3& p)
+	{
+		const int x = Vox(p.x), y = Vox(p.y), z = Vox(p.z);
+		return VoxelWorld::InGrid(x, y, z) && seen[VoxelWorld::Index(x, y, z)];
+	}
+
+	// A place the 1.7 m player can stand: air with rock below and headroom above.
+	bool CanStand(const VoxelWorld& world, int x, int y, int z)
+	{
+		if (!world.IsSolid(x, y - 1, z)) return false;
+		for (int h = 0; h < 7; ++h) if (world.IsSolid(x, y + h, z)) return false;
+		return true;
+	}
+
+	// Coarse walk check: steps to neighbouring columns climbing at most one voxel (the
+	// character's step-up) or dropping up to three metres.
+	bool Walkable(const VoxelWorld& world, const XMFLOAT3& from, const XMFLOAT3& to)
+	{
+		auto findStand = [&](const XMFLOAT3& p, int& sx, int& sy, int& sz)
+		{
+			sx = Vox(p.x); sz = Vox(p.z);
+			for (int dy = 0; dy <= 6; ++dy)
+			{
+				for (int sign : { 1, -1 })
+				{
+					sy = Vox(p.y) + sign * dy;
+					if (CanStand(world, sx, sy, sz)) return true;
+				}
+			}
+			return false;
+		};
+		int x, y, z, gx, gy, gz;
+		if (!findStand(from, x, y, z) || !findStand(to, gx, gy, gz)) return false;
+
+		std::vector<uint8_t> seen(world.Voxels().size(), 0);
+		std::queue<int> open;
+		open.push(VoxelWorld::Index(x, y, z));
+		seen[open.front()] = 1;
+		static const int d[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+		int closest = INT_MAX, closestX = 0, closestY = 0, closestZ = 0;
+		while (!open.empty())
+		{
+			const int i = open.front(); open.pop();
+			const int cx = i % cfg::kVoxX, cy = (i / cfg::kVoxX) % cfg::kVoxY, cz = i / (cfg::kVoxX * cfg::kVoxY);
+			if (std::abs(cx - gx) <= V && std::abs(cz - gz) <= V && std::abs(cy - gy) <= V) return true;
+			const int distance = std::abs(cx - gx) + std::abs(cz - gz) + 2 * std::abs(cy - gy);
+			if (distance < closest) { closest = distance; closestX = cx; closestY = cy; closestZ = cz; }
+			for (const auto& s : d)
+			{
+				for (int dy = 1; dy >= -3 * V; --dy)
+				{
+					const int nx = cx + s[0], ny = cy + dy, nz = cz + s[1];
+					if (!VoxelWorld::InGrid(nx, ny, nz) || !CanStand(world, nx, ny, nz)) continue;
+					if (dy == 1 && world.IsSolid(cx, cy + 7, cz)) continue;   // no headroom to step up
+					const int n = VoxelWorld::Index(nx, ny, nz);
+					if (!seen[n]) { seen[n] = 1; open.push(n); }
+				}
+			}
+		}
+		std::printf("          walk stopped nearest the goal at (%.2f, %.2f, %.2f) m; goal (%.2f, %.2f, %.2f)\n",
+			closestX * 0.25f, closestY * 0.25f, closestZ * 0.25f, gx * 0.25f, gy * 0.25f, gz * 0.25f);
+		return false;
+	}
+
+	// Rock not connected to the bedrock shell (would collapse immediately).
+	int FloatingRock(const VoxelWorld& world)
+	{
+		const auto& v = world.Voxels();
+		std::vector<uint8_t> seen(v.size(), 0);
+		std::vector<int> stack = { 0 };
+		seen[0] = 1;
+		static const int d[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
+		while (!stack.empty())
+		{
+			const int i = stack.back(); stack.pop_back();
+			const int cx = i % cfg::kVoxX, cy = (i / cfg::kVoxX) % cfg::kVoxY, cz = i / (cfg::kVoxX * cfg::kVoxY);
+			for (const auto& s : d)
+			{
+				const int nx = cx + s[0], ny = cy + s[1], nz = cz + s[2];
+				if (!VoxelWorld::InGrid(nx, ny, nz)) continue;
+				const int n = VoxelWorld::Index(nx, ny, nz);
+				if (!seen[n] && v[n] != Block::Air) { seen[n] = 1; stack.push_back(n); }
+			}
+		}
+		int floating = 0;
+		for (size_t i = 0; i < v.size(); ++i) floating += (v[i] != Block::Air && !seen[i]) ? 1 : 0;
+		return floating;
+	}
+
+	void CaveGenerationTests()
+	{
+#if defined(NDEBUG)
+		const int kSeeds = 20;
+#else
+		const int kSeeds = 3;
+#endif
+		{
+			VoxelWorld a, b, c;
+			GenerateCaves(a, 42);
+			GenerateCaves(b, 42);
+			GenerateCaves(c, 43);
+			Check(a.Hash() == b.Hash() && a.Hash() != c.Hash(), "caves: same seed gives the same mountain, a different seed differs");
+		}
+
+		int entranceOk = 0, zonesConnected = 0, sealsHold = 0, walkable = 0, pocketsSealed = 0, solidOk = 0;
+		int zoneTotal = 0, pocketTotal = 0, walkTotal = 0;
+		for (int i = 0; i < kSeeds; ++i)
+		{
+			VoxelWorld world;
+			const CaveLayout layout = GenerateCaves(world, 1000 + i * 7919);
+
+			const std::vector<uint8_t> fromEntrance = FloodAir(world, Vox(cfg::kCenterX + 0.5f), Vox(1.5f), 0);
+			const CaveRoom& firstRoom = layout.zones[0].rooms[0];
+			entranceOk += Seen(fromEntrance, { firstRoom.center.x, firstRoom.center.y + 0.5f, firstRoom.center.z }) ? 1 : 0;
+
+			std::vector<uint8_t> anyZone(world.Voxels().size(), 0);
+			for (size_t zi = 0; zi < layout.zones.size(); ++zi)
+			{
+				const CaveZone& zone = layout.zones[zi];
+				++zoneTotal;
+				const CaveRoom& entry = zone.rooms[0];
+				const CaveRoom& exit = zone.rooms[1];
+				const auto seen = FloodAir(world, Vox(entry.center.x), Vox(entry.center.y + 0.5f), Vox(entry.center.z));
+				zonesConnected += Seen(seen, { exit.center.x, exit.center.y + 0.5f, exit.center.z }) ? 1 : 0;
+
+				// Nothing reachable beyond this zone's far end (the seal holds).
+				bool contained = true;
+				const int limit = static_cast<int>(std::ceil(zone.z1 * V));
+				for (size_t v = 0; v < seen.size(); ++v)
+				{
+					if (!seen[v]) continue;
+					anyZone[v] = 1;
+					if (static_cast<int>(v / (cfg::kVoxX * cfg::kVoxY)) >= limit) contained = false;
+				}
+				sealsHold += contained ? 1 : 0;
+
+				++walkTotal;
+				const bool ok = Walkable(world, RoomStandPoint(entry), RoomStandPoint(exit));
+				walkable += ok ? 1 : 0;
+				if (!ok)
+				{
+					std::printf("        (seed %d zone %zu: no walkable path; %.1f-%.1f m)\n", 1000 + i * 7919, zi + 1, zone.z0, zone.z1);
+					for (size_t r = 0; r < zone.rooms.size(); ++r)
+					{
+						const CaveRoom& room = zone.rooms[r];
+						std::printf("          room %zu  x %.1f  floor %.1f  z %.1f  radius %.1f  height %.1f\n", r, room.center.x, room.center.y, room.center.z, room.radius, room.height);
+					}
+					for (const auto& t : zone.tunnels) std::printf("          tunnel %d-%d\n", t.first, t.second);
+				}
+			}
+			for (const CavePocket& pocket : layout.pockets)
+			{
+				++pocketTotal;
+				const XMFLOAT3 inside{ pocket.shape.center.x, pocket.shape.center.y + 0.5f, pocket.shape.center.z };
+				const bool hollow = world.Get(Vox(inside.x), Vox(inside.y), Vox(inside.z)) == Block::Air;
+				pocketsSealed += (hollow && !Seen(anyZone, inside) && !Seen(fromEntrance, inside)) ? 1 : 0;
+			}
+			solidOk += FloatingRock(world) == 0 ? 1 : 0;
+		}
+		char text[160];
+		std::snprintf(text, sizeof(text), "caves: the entrance reaches zone 1 (%d/%d seeds)", entranceOk, kSeeds);
+		Check(entranceOk == kSeeds, text);
+		std::snprintf(text, sizeof(text), "caves: every zone's entry cavern connects to its exit cavern (%d/%d)", zonesConnected, zoneTotal);
+		Check(zonesConnected == zoneTotal, text);
+		std::snprintf(text, sizeof(text), "caves: no zone's air leaks past its seal (%d/%d)", sealsHold, zoneTotal);
+		Check(sealsHold == zoneTotal, text);
+		std::snprintf(text, sizeof(text), "caves: entry to exit is walkable in every zone (%d/%d)", walkable, walkTotal);
+		Check(walkable == walkTotal, text);
+		std::snprintf(text, sizeof(text), "caves: side pockets are hollow and sealed off (%d/%d)", pocketsSealed, pocketTotal);
+		Check(pocketTotal > 0 && pocketsSealed == pocketTotal, text);
+		std::snprintf(text, sizeof(text), "caves: no floating rock at the start (%d/%d seeds)", solidOk, kSeeds);
+		Check(solidOk == kSeeds, text);
 	}
 }
 
@@ -168,6 +374,8 @@ int main()
 		Check(outward, "collision: every triangle faces into air");
 		std::printf("        (%zu triangles for %d voxel faces)\n", tris.size() / 3, faces);
 	}
+
+	CaveGenerationTests();
 
 	std::printf("%s (%d failure%s)\n", gFailures == 0 ? "ALL PASSED" : "FAILED", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures == 0 ? 0 : 1;

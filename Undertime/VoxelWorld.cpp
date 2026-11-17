@@ -28,11 +28,6 @@ namespace
 	}
 }
 
-void VoxelWorld::Generate(uint64_t /*seed*/)
-{
-	GenerateBasic();   // replaced by CaveGenerator
-}
-
 void VoxelWorld::GenerateBasic()
 {
 	mVoxels.assign(static_cast<size_t>(cfg::kVoxX) * cfg::kVoxY * cfg::kVoxZ, Block::Stone);
