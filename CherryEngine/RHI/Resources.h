@@ -99,6 +99,10 @@ namespace rhi
 
 		// Synchronously uploads subresource data (all subresources, tightly described by `data`).
 		void Upload(const D3D12_SUBRESOURCE_DATA* data, uint32_t count, D3D12_RESOURCE_STATES finalState);
+		// Synchronously overwrites a box of mip 0 with tightly packed texels
+		// (bytesPerTexel each, x fastest, then y, then z).
+		void UploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height, uint32_t depth,
+			const void* data, uint32_t bytesPerTexel);
 
 		void Transition(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES newState);
 		// UAV barrier between two dispatches that touch this texture.

@@ -36,17 +36,18 @@ void PlayerController::Update(const Input& input, const VoxelWorld& world, float
 	}
 	velocity.y = std::max(velocity.y - cfg::kGravity * dt, -cfg::kMaxFallSpeed);
 
-	// Sub-step so no single move exceeds a quarter cell (no tunnelling through walls).
-	const float maxStep = 0.25f;
+	// Sub-step so no single move crosses a whole voxel (no tunnelling through walls).
+	const float maxStep = cfg::kVoxelSize * 0.8f;
 	const float travel = std::max({ std::fabs(velocity.x), std::fabs(velocity.y), std::fabs(velocity.z) }) * dt;
 	const int steps = std::max(1, static_cast<int>(std::ceil(travel / maxStep)));
 	const float stepDt = dt / steps;
+	const bool wasGrounded = grounded;
 	grounded = false;
 	for (int i = 0; i < steps; ++i)
 	{
-		MoveAxis(world, 1, velocity.y * stepDt);
-		MoveAxis(world, 0, velocity.x * stepDt);
-		MoveAxis(world, 2, velocity.z * stepDt);
+		MoveAxis(world, 1, velocity.y * stepDt, false);
+		MoveAxis(world, 0, velocity.x * stepDt, wasGrounded || grounded);
+		MoveAxis(world, 2, velocity.z * stepDt, wasGrounded || grounded);
 	}
 }
 
@@ -57,7 +58,7 @@ void PlayerController::BodyBox(XMFLOAT3& mn, XMFLOAT3& mx) const
 	mx = { position.x + half, position.y + cfg::kBodyHeight, position.z + half };
 }
 
-void PlayerController::MoveAxis(const VoxelWorld& world, int axis, float delta)
+void PlayerController::MoveAxis(const VoxelWorld& world, int axis, float delta, bool canStep)
 {
 	if (delta == 0.0f) return;
 	float* p = &position.x;
@@ -68,23 +69,48 @@ void PlayerController::MoveAxis(const VoxelWorld& world, int axis, float delta)
 	BodyBox(mn, mx);
 	if (!world.BoxOverlapsSolid(mn, mx)) return;
 
-	// Snap against the face of the cell we moved into. Moves are < 1 cell, so the
-	// blocking face is the cell boundary the leading edge crossed.
+	// Walking into a low ledge (carved floors are uneven): climb it instead of stopping.
+	if (axis != 1 && canStep && TryStepUp(world)) return;
+
+	// Snap against the face of the voxel we moved into. Moves are < 1 voxel, so the
+	// blocking face is the voxel boundary the leading edge crossed.
+	const float s = cfg::kVoxelSize;
 	const float eps = 1e-3f;
 	const float* boxMin = &mn.x;
 	const float* boxMax = &mx.x;
 	if (delta > 0.0f)
 	{
-		const float face = std::floor(boxMax[axis]);
+		const float face = std::floor(boxMax[axis] / s) * s;
 		p[axis] -= (boxMax[axis] - face) + eps;
 	}
 	else
 	{
-		const float face = std::floor(boxMin[axis]) + 1.0f;
+		const float face = (std::floor(boxMin[axis] / s) + 1.0f) * s;
 		p[axis] += (face - boxMin[axis]) + eps;
 		if (axis == 1) grounded = true;
 	}
 	v[axis] = 0.0f;
+}
+
+bool PlayerController::TryStepUp(const VoxelWorld& world)
+{
+	const float s = cfg::kVoxelSize;
+	const float startY = position.y;
+	const int maxSteps = static_cast<int>(std::floor(cfg::kStepHeight / s + 1e-3f));
+	const float baseLevel = std::floor(startY / s + 1e-3f) * s;
+	for (int k = 1; k <= maxSteps; ++k)
+	{
+		position.y = baseLevel + k * s + 1e-3f;
+		XMFLOAT3 mn, mx;
+		BodyBox(mn, mx);
+		if (!world.BoxOverlapsSolid(mn, mx))
+		{
+			grounded = true;
+			return true;
+		}
+	}
+	position.y = startY;
+	return false;
 }
 
 XMFLOAT3 PlayerController::LookDirection() const

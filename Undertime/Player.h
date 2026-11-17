@@ -22,6 +22,7 @@ public:
 	DirectX::XMVECTOR Rotation() const;   // camera orientation quaternion
 
 private:
-	void MoveAxis(const VoxelWorld& world, int axis, float delta);
+	void MoveAxis(const VoxelWorld& world, int axis, float delta, bool canStep);
+	bool TryStepUp(const VoxelWorld& world);
 	void BodyBox(DirectX::XMFLOAT3& min, DirectX::XMFLOAT3& max) const;
 };

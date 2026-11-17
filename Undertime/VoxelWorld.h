@@ -2,11 +2,15 @@
 #include "Config.h"
 #include <Renderer/RenderTypes.h>
 #include <DirectXMath.h>
+#include <array>
 #include <vector>
 
-// The mountain interior as a voxel grid, plus the solid/air rules for the
-// outside, ray casting and exposed-face chunk meshing. No engine state: the
-// game owns the meshes built from it.
+// The mountain interior as a fine voxel grid (cfg::kVoxelsPerMeter per metre), plus the
+// solid/air rules for the outside, ray casting, swing carving, and the data both
+// renderers need (palette indices for the ray-marched volume, exposed-face meshes).
+//
+// Voxel coordinates: voxel (x, y, z) spans [x, x+1] * kVoxelSize in metres on each axis.
+// Public functions taking DirectX::XMFLOAT3 positions use metres.
 class VoxelWorld
 {
 public:
@@ -16,9 +20,25 @@ public:
 	{
 		bool hit = false;
 		bool inGrid = false;       // false: the ray hit outside ground / mountain rock
-		int x = 0, y = 0, z = 0;   // hit cell
+		int x = 0, y = 0, z = 0;   // hit voxel
 		int normal[3] = { 0, 0, 0 };
-		float distance = 0.0f;
+		float distance = 0.0f;     // metres
+		DirectX::XMFLOAT3 point{ 0, 0, 0 };
+	};
+
+	// Voxel-space box, inclusive.
+	struct Box
+	{
+		int min[3] = { 0, 0, 0 };
+		int max[3] = { -1, -1, -1 };
+		bool Empty() const { return max[0] < min[0]; }
+	};
+
+	struct CarveResult
+	{
+		int removed = 0;
+		std::array<int, static_cast<int>(Block::Count)> removedByType{};
+		Box dirty;
 	};
 
 	void Generate(uint32_t seed);
@@ -27,25 +47,35 @@ public:
 	Block Get(int x, int y, int z) const;   // Air outside the grid
 	void Set(int x, int y, int z, Block block);
 
-	// Solidity of any world cell: the grid inside, the mountain around it, the ground
-	// and the boundary outside.
+	// Solidity of any voxel-sized cell of the world: the grid inside, the mountain around it,
+	// the ground and the play-area boundary outside.
 	bool IsSolid(int x, int y, int z) const;
-	// True if an axis-aligned box overlaps any solid cell.
+	// True if an axis-aligned box (metres) overlaps any solid voxel.
 	bool BoxOverlapsSolid(const DirectX::XMFLOAT3& min, const DirectX::XMFLOAT3& max) const;
 
-	// Amanatides-Woo DDA from `origin` along normalized `direction`.
+	// Amanatides-Woo DDA from `origin` (m) along normalized `direction`, up to maxDistance (m).
 	RayHit Raycast(const DirectX::XMFLOAT3& origin, const DirectX::XMFLOAT3& direction, float maxDistance) const;
 
+	// Removes voxels around `center` (m) for one pick swing. `mustBreak` (if in the grid and not
+	// bedrock) always breaks, so every swing makes progress.
+	CarveResult Carve(const DirectX::XMFLOAT3& center, float pickSpeed, int mustBreakX, int mustBreakY, int mustBreakZ, uint32_t salt);
+
+	float EffectiveHardness(Block block, int voxelZ) const;
+
+	// ---- Ray-marched renderer ----
+	static std::vector<DirectX::XMFLOAT4> BuildPalette();       // sRGB
+	static uint8_t PaletteIndex(Block block, int voxelZ);
+	std::vector<uint8_t> PaletteVoxels() const;                  // whole grid
+	std::vector<uint8_t> PaletteVoxels(const Box& box) const;    // a box, x fastest
+
+	// ---- Mesh renderer ----
 	static int ChunkCount() { return (cfg::kGridZ + cfg::kChunkDepth - 1) / cfg::kChunkDepth; }
-	static int ChunkOf(int z) { return z / cfg::kChunkDepth; }
-	// Faces of solid grid cells that touch a non-solid cell, in world space.
+	static int ChunkOfVoxelZ(int z) { return z / (cfg::kChunkDepth * cfg::kVoxelsPerMeter); }
 	MeshData BuildChunkMesh(int chunk) const;
 
-	float EffectiveHardness(int x, int y, int z) const;
-
 private:
-	static int Index(int x, int y, int z) { return x + cfg::kGridX * (y + cfg::kGridY * z); }
-	DirectX::XMFLOAT4 CellColor(Block block, int x, int y, int z) const;
+	static int Index(int x, int y, int z) { return x + cfg::kVoxX * (y + cfg::kVoxY * z); }
+	DirectX::XMFLOAT4 VoxelColor(Block block, int x, int y, int z) const;
 
-	std::vector<Block> mCells;
+	std::vector<Block> mVoxels;
 };

@@ -278,6 +278,50 @@ namespace rhi
 		});
 	}
 
+	void Texture::UploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height, uint32_t depth,
+		const void* data, uint32_t bytesPerTexel)
+	{
+		if (width == 0 || height == 0 || depth == 0) return;
+
+		// Copy rows into a staging buffer laid out with D3D12's row-pitch alignment.
+		const uint32_t rowBytes = width * bytesPerTexel;
+		const uint32_t rowPitch = (rowBytes + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+		const uint64_t stagingSize = static_cast<uint64_t>(rowPitch) * height * depth;
+
+		ComPtr<ID3D12Resource> staging;
+		CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
+		CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(stagingSize);
+		DX_CHECK(mDevice.D3D()->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc,
+			D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&staging)));
+
+		uint8_t* mapped = nullptr;
+		D3D12_RANGE noRead{ 0, 0 };
+		DX_CHECK(staging->Map(0, &noRead, reinterpret_cast<void**>(&mapped)));
+		const uint8_t* src = static_cast<const uint8_t*>(data);
+		for (uint32_t slice = 0; slice < depth; ++slice)
+			for (uint32_t row = 0; row < height; ++row)
+				std::memcpy(mapped + (static_cast<uint64_t>(slice) * height + row) * rowPitch,
+					src + (static_cast<uint64_t>(slice) * height + row) * rowBytes, rowBytes);
+		staging->Unmap(0, nullptr);
+
+		D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+		footprint.Footprint.Format = mDesc.format;
+		footprint.Footprint.Width = width;
+		footprint.Footprint.Height = height;
+		footprint.Footprint.Depth = depth;
+		footprint.Footprint.RowPitch = rowPitch;
+
+		const D3D12_RESOURCE_STATES restore = mState;
+		mDevice.ExecuteImmediate([&](ID3D12GraphicsCommandList4* cmd)
+		{
+			Transition(cmd, D3D12_RESOURCE_STATE_COPY_DEST);
+			CD3DX12_TEXTURE_COPY_LOCATION dst(mResource.Get(), 0);
+			CD3DX12_TEXTURE_COPY_LOCATION srcLocation(staging.Get(), footprint);
+			cmd->CopyTextureRegion(&dst, x, y, z, &srcLocation, nullptr);
+			Transition(cmd, restore);
+		});
+	}
+
 	void Texture::Transition(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES newState)
 	{
 		if (mState == newState) return;

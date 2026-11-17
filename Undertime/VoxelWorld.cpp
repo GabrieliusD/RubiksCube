@@ -6,68 +6,88 @@
 using namespace DirectX;
 using cfg::Block;
 
-void VoxelWorld::Generate(uint32_t /*seed*/)
+namespace
 {
-	mCells.assign(static_cast<size_t>(cfg::kGridX) * cfg::kGridY * cfg::kGridZ, Block::Stone);
+	constexpr int V = cfg::kVoxelsPerMeter;
+	constexpr float S = cfg::kVoxelSize;
 
-	for (int z = 0; z < cfg::kGridZ; ++z)
-	for (int y = 0; y < cfg::kGridY; ++y)
-	for (int x = 0; x < cfg::kGridX; ++x)
+	// Palette layout: 0 = air, then the stone depth bands, the bedrock bands, then one entry per ore.
+	constexpr int kStoneFirst = 1;
+	constexpr int kBedrockFirst = kStoneFirst + cfg::kStoneBands;
+	constexpr int kOreFirst = kBedrockFirst + cfg::kStoneBands;
+	static_assert(kOreFirst + static_cast<int>(Block::Count) <= 256, "palette overflow");
+
+	int DepthBand(int voxelZ)
 	{
-		const bool bedrock = y == 0 || y == cfg::kGridY - 1 || x == 0 || x == cfg::kGridX - 1 || z == cfg::kGridZ - 1;
-		if (bedrock) mCells[Index(x, y, z)] = Block::Bedrock;
+		return std::clamp(voxelZ * cfg::kStoneBands / cfg::kVoxZ, 0, cfg::kStoneBands - 1);
 	}
 
-	// Entrance passage: 1 wide x 2 tall in the centre column.
-	for (int z = cfg::kEntranceZ0; z <= cfg::kEntranceZ1; ++z)
-		for (int y = 1; y <= cfg::kEntranceHeight; ++y)
-			Set(cfg::kCenterX, y, z, Block::Air);
+	XMFLOAT3 StoneSrgb(float depth01)
+	{
+		return color::Lerp(color::Srgb(cfg::kStoneNear), color::Srgb(cfg::kStoneDeep), std::clamp(depth01, 0.0f, 1.0f));
+	}
+}
 
-	// First chamber: 5 wide x 3 tall.
-	for (int z = cfg::kChamberZ0; z <= cfg::kChamberZ1; ++z)
-		for (int y = 1; y <= cfg::kChamberHeight; ++y)
-			for (int x = cfg::kCenterX - cfg::kChamberHalfWidth; x <= cfg::kCenterX + cfg::kChamberHalfWidth; ++x)
-				Set(x, y, z, Block::Air);
+void VoxelWorld::Generate(uint32_t /*seed*/)
+{
+	mVoxels.assign(static_cast<size_t>(cfg::kVoxX) * cfg::kVoxY * cfg::kVoxZ, Block::Stone);
+
+	// The layout is defined in metres; every voxel takes the material of its metre cell.
+	for (int z = 0; z < cfg::kVoxZ; ++z)
+	for (int y = 0; y < cfg::kVoxY; ++y)
+	for (int x = 0; x < cfg::kVoxX; ++x)
+	{
+		const int mx = x / V, my = y / V, mz = z / V;
+		Block block = Block::Stone;
+
+		const bool bedrock = my == 0 || my == cfg::kGridY - 1 || mx == 0 || mx == cfg::kGridX - 1 || mz == cfg::kGridZ - 1;
+		const bool entrance = mx == cfg::kCenterX && my >= 1 && my <= cfg::kEntranceHeight && mz >= cfg::kEntranceZ0 && mz <= cfg::kEntranceZ1;
+		const bool chamber = std::abs(mx - cfg::kCenterX) <= cfg::kChamberHalfWidth && my >= 1 && my <= cfg::kChamberHeight
+			&& mz >= cfg::kChamberZ0 && mz <= cfg::kChamberZ1;
+
+		if (bedrock) block = Block::Bedrock;
+		else if (entrance || chamber) block = Block::Air;
+		mVoxels[Index(x, y, z)] = block;
+	}
 
 	// Ore veins and relics are placed with the seeded RNG in milestone 2.
 }
 
 bool VoxelWorld::InGrid(int x, int y, int z)
 {
-	return x >= 0 && x < cfg::kGridX && y >= 0 && y < cfg::kGridY && z >= 0 && z < cfg::kGridZ;
+	return x >= 0 && x < cfg::kVoxX && y >= 0 && y < cfg::kVoxY && z >= 0 && z < cfg::kVoxZ;
 }
 
 VoxelWorld::Block VoxelWorld::Get(int x, int y, int z) const
 {
-	return InGrid(x, y, z) ? mCells[Index(x, y, z)] : Block::Air;
+	return InGrid(x, y, z) ? mVoxels[Index(x, y, z)] : Block::Air;
 }
 
 void VoxelWorld::Set(int x, int y, int z, Block block)
 {
-	if (InGrid(x, y, z)) mCells[Index(x, y, z)] = block;
+	if (InGrid(x, y, z)) mVoxels[Index(x, y, z)] = block;
 }
 
 bool VoxelWorld::IsSolid(int x, int y, int z) const
 {
 	if (z >= 0)
 	{
-		// Inside the mountain: the grid, surrounded by solid rock.
-		if (InGrid(x, y, z)) return mCells[Index(x, y, z)] != Block::Air;
+		if (InGrid(x, y, z)) return mVoxels[Index(x, y, z)] != Block::Air;
 		return true;   // solid mountain rock all around the grid
 	}
-	// Outside: ground below y = 1, invisible walls beyond the play area.
-	if (y < static_cast<int>(cfg::kGroundY)) return true;
-	const float cx = x + 0.5f - (cfg::kCenterX + 0.5f);
-	const float cz = z + 0.5f;
+	// Outside: ground below y = 1 m, invisible walls beyond the play area.
+	if (y < static_cast<int>(cfg::kGroundY * V)) return true;
+	const float cx = (x + 0.5f) * S - (cfg::kCenterX + 0.5f);
+	const float cz = (z + 0.5f) * S;
 	return std::fabs(cx) > cfg::kOutsideExtent || cz < -cfg::kOutsideExtent;
 }
 
 bool VoxelWorld::BoxOverlapsSolid(const XMFLOAT3& mn, const XMFLOAT3& mx) const
 {
 	const float eps = 1e-4f;
-	const int x0 = static_cast<int>(std::floor(mn.x)), x1 = static_cast<int>(std::floor(mx.x - eps));
-	const int y0 = static_cast<int>(std::floor(mn.y)), y1 = static_cast<int>(std::floor(mx.y - eps));
-	const int z0 = static_cast<int>(std::floor(mn.z)), z1 = static_cast<int>(std::floor(mx.z - eps));
+	const int x0 = static_cast<int>(std::floor(mn.x * V)), x1 = static_cast<int>(std::floor(mx.x * V - eps));
+	const int y0 = static_cast<int>(std::floor(mn.y * V)), y1 = static_cast<int>(std::floor(mx.y * V - eps));
+	const int z0 = static_cast<int>(std::floor(mn.z * V)), z1 = static_cast<int>(std::floor(mx.z * V - eps));
 	for (int z = z0; z <= z1; ++z)
 		for (int y = y0; y <= y1; ++y)
 			for (int x = x0; x <= x1; ++x)
@@ -78,7 +98,8 @@ bool VoxelWorld::BoxOverlapsSolid(const XMFLOAT3& mn, const XMFLOAT3& mx) const
 VoxelWorld::RayHit VoxelWorld::Raycast(const XMFLOAT3& origin, const XMFLOAT3& dir, float maxDistance) const
 {
 	RayHit result;
-	const float o[3] = { origin.x, origin.y, origin.z };
+	// Work in voxel units; t stays proportional to metres (t_m = t_v * S).
+	const float o[3] = { origin.x * V, origin.y * V, origin.z * V };
 	const float d[3] = { dir.x, dir.y, dir.z };
 	int cell[3] = { static_cast<int>(std::floor(o[0])), static_cast<int>(std::floor(o[1])), static_cast<int>(std::floor(o[2])) };
 	int step[3];
@@ -97,9 +118,10 @@ VoxelWorld::RayHit VoxelWorld::Raycast(const XMFLOAT3& origin, const XMFLOAT3& d
 		tMax[a] = (boundary - o[a]) / d[a];
 	}
 
+	const float maxT = maxDistance * V;
 	float t = 0.0f;
 	int lastAxis = -1;
-	while (t <= maxDistance)
+	while (t <= maxT)
 	{
 		if (IsSolid(cell[0], cell[1], cell[2]))
 		{
@@ -108,7 +130,8 @@ VoxelWorld::RayHit VoxelWorld::Raycast(const XMFLOAT3& origin, const XMFLOAT3& d
 			result.x = cell[0];
 			result.y = cell[1];
 			result.z = cell[2];
-			result.distance = t;
+			result.distance = t * S;
+			result.point = { origin.x + dir.x * result.distance, origin.y + dir.y * result.distance, origin.z + dir.z * result.distance };
 			if (lastAxis >= 0) result.normal[lastAxis] = -step[lastAxis];
 			return result;
 		}
@@ -120,26 +143,141 @@ VoxelWorld::RayHit VoxelWorld::Raycast(const XMFLOAT3& origin, const XMFLOAT3& d
 	return result;
 }
 
-float VoxelWorld::EffectiveHardness(int x, int y, int z) const
+float VoxelWorld::EffectiveHardness(Block block, int voxelZ) const
 {
-	const float hardness = cfg::Info(Get(x, y, z)).hardness;
-	return hardness * (1.0f + static_cast<float>(z) / cfg::kHardnessDepthScale);
+	const float metresDeep = static_cast<float>(voxelZ) * S;
+	return cfg::Info(block).hardness * (1.0f + metresDeep / cfg::kHardnessDepthScale);
 }
 
-XMFLOAT4 VoxelWorld::CellColor(Block block, int x, int y, int z) const
+VoxelWorld::CarveResult VoxelWorld::Carve(const XMFLOAT3& center, float pickSpeed, int mbx, int mby, int mbz, uint32_t salt)
 {
-	const float depth = std::clamp(static_cast<float>(z) / (cfg::kGridZ - 1), 0.0f, 1.0f);
+	CarveResult result;
+	const float pickFactor = pickSpeed / cfg::kPickSpeed[0];
+	const float maxRadius = cfg::kBiteRadius * cfg::kBiteMaxScale * (1.0f + cfg::kBiteRoughness);
+
+	const int x0 = std::max(0, static_cast<int>(std::floor((center.x - maxRadius) * V)));
+	const int y0 = std::max(0, static_cast<int>(std::floor((center.y - maxRadius) * V)));
+	const int z0 = std::max(0, static_cast<int>(std::floor((center.z - maxRadius) * V)));
+	const int x1 = std::min(cfg::kVoxX - 1, static_cast<int>(std::floor((center.x + maxRadius) * V)));
+	const int y1 = std::min(cfg::kVoxY - 1, static_cast<int>(std::floor((center.y + maxRadius) * V)));
+	const int z1 = std::min(cfg::kVoxZ - 1, static_cast<int>(std::floor((center.z + maxRadius) * V)));
+
+	auto remove = [&](int x, int y, int z, Block block)
+	{
+		mVoxels[Index(x, y, z)] = Block::Air;
+		++result.removed;
+		++result.removedByType[static_cast<int>(block)];
+		if (result.dirty.Empty())
+		{
+			result.dirty.min[0] = result.dirty.max[0] = x;
+			result.dirty.min[1] = result.dirty.max[1] = y;
+			result.dirty.min[2] = result.dirty.max[2] = z;
+		}
+		else
+		{
+			result.dirty.min[0] = std::min(result.dirty.min[0], x); result.dirty.max[0] = std::max(result.dirty.max[0], x);
+			result.dirty.min[1] = std::min(result.dirty.min[1], y); result.dirty.max[1] = std::max(result.dirty.max[1], y);
+			result.dirty.min[2] = std::min(result.dirty.min[2], z); result.dirty.max[2] = std::max(result.dirty.max[2], z);
+		}
+	};
+
+	for (int z = z0; z <= z1; ++z)
+	for (int y = y0; y <= y1; ++y)
+	for (int x = x0; x <= x1; ++x)
+	{
+		const Block block = mVoxels[Index(x, y, z)];
+		if (block == Block::Air || block == Block::Bedrock) continue;
+
+		const float dx = (x + 0.5f) * S - center.x;
+		const float dy = (y + 0.5f) * S - center.y;
+		const float dz = (z + 0.5f) * S - center.z;
+		const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+		const float strength = std::min(std::sqrt(pickFactor / std::max(EffectiveHardness(block, z), 0.01f)), cfg::kBiteMaxScale);
+		const float rough = 1.0f + cfg::kBiteRoughness * (color::Hash01(x, y, z, salt) * 2.0f - 1.0f);
+		if (distance <= cfg::kBiteRadius * strength * rough)
+		{
+			remove(x, y, z, block);
+		}
+	}
+
+	// The voxel you aimed at always breaks, so even very hard rock yields to persistence.
+	if (InGrid(mbx, mby, mbz))
+	{
+		const Block block = mVoxels[Index(mbx, mby, mbz)];
+		if (block != Block::Air && block != Block::Bedrock) remove(mbx, mby, mbz, block);
+	}
+	return result;
+}
+
+// ---- Ray-marched renderer ---------------------------------------------------
+
+std::vector<XMFLOAT4> VoxelWorld::BuildPalette()
+{
+	std::vector<XMFLOAT4> palette(256, XMFLOAT4(1, 0, 1, 1));
+	palette[0] = { 0, 0, 0, 0 };
+	for (int band = 0; band < cfg::kStoneBands; ++band)
+	{
+		const XMFLOAT3 stone = StoneSrgb((band + 0.5f) / cfg::kStoneBands);
+		palette[kStoneFirst + band] = color::WithAlpha(stone);
+		palette[kBedrockFirst + band] = color::WithAlpha(color::Scale(stone, cfg::kBedrockDarken));
+	}
+	for (int type = 0; type < static_cast<int>(Block::Count); ++type)
+	{
+		palette[kOreFirst + type] = color::WithAlpha(color::Srgb(cfg::kBlocks[type].color));
+	}
+	return palette;
+}
+
+uint8_t VoxelWorld::PaletteIndex(Block block, int voxelZ)
+{
+	switch (block)
+	{
+	case Block::Air:     return 0;
+	case Block::Stone:   return static_cast<uint8_t>(kStoneFirst + DepthBand(voxelZ));
+	case Block::Bedrock: return static_cast<uint8_t>(kBedrockFirst + DepthBand(voxelZ));
+	default:             return static_cast<uint8_t>(kOreFirst + static_cast<int>(block));
+	}
+}
+
+std::vector<uint8_t> VoxelWorld::PaletteVoxels() const
+{
+	std::vector<uint8_t> out(mVoxels.size());
+	for (int z = 0; z < cfg::kVoxZ; ++z)
+		for (int y = 0; y < cfg::kVoxY; ++y)
+			for (int x = 0; x < cfg::kVoxX; ++x)
+				out[Index(x, y, z)] = PaletteIndex(mVoxels[Index(x, y, z)], z);
+	return out;
+}
+
+std::vector<uint8_t> VoxelWorld::PaletteVoxels(const Box& box) const
+{
+	std::vector<uint8_t> out;
+	if (box.Empty()) return out;
+	out.reserve(static_cast<size_t>(box.max[0] - box.min[0] + 1) * (box.max[1] - box.min[1] + 1) * (box.max[2] - box.min[2] + 1));
+	for (int z = box.min[2]; z <= box.max[2]; ++z)
+		for (int y = box.min[1]; y <= box.max[1]; ++y)
+			for (int x = box.min[0]; x <= box.max[0]; ++x)
+				out.push_back(PaletteIndex(Get(x, y, z), z));
+	return out;
+}
+
+// ---- Mesh renderer ------------------------------------------------------------
+
+XMFLOAT4 VoxelWorld::VoxelColor(Block block, int x, int y, int z) const
+{
+	const float depth = static_cast<float>(z) / (cfg::kVoxZ - 1);
 	const float jitter = color::Hash01(x, y, z) * 2.0f - 1.0f;
 	XMFLOAT3 srgb;
 	float brightness = 1.0f;
 	switch (block)
 	{
 	case Block::Stone:
-		srgb = color::Lerp(color::Srgb(cfg::kStoneNear), color::Srgb(cfg::kStoneDeep), depth);
+		srgb = StoneSrgb(depth);
 		brightness = 1.0f + jitter * cfg::kStoneJitter;
 		break;
 	case Block::Bedrock:
-		srgb = color::Lerp(color::Srgb(cfg::kStoneNear), color::Srgb(cfg::kStoneDeep), depth);
+		srgb = StoneSrgb(depth);
 		brightness = cfg::kBedrockDarken * (1.0f + jitter * cfg::kStoneJitter);
 		break;
 	default:
@@ -165,24 +303,32 @@ MeshData VoxelWorld::BuildChunkMesh(int chunk) const
 	};
 
 	MeshData mesh;
-	const int z0 = chunk * cfg::kChunkDepth;
-	const int z1 = std::min(z0 + cfg::kChunkDepth, cfg::kGridZ);
+	const int chunkVoxels = cfg::kChunkDepth * V;
+	const int z0 = chunk * chunkVoxels;
+	const int z1 = std::min(z0 + chunkVoxels, cfg::kVoxZ);
+	const float half = S * 0.5f;
 	for (int z = z0; z < z1; ++z)
-	for (int y = 0; y < cfg::kGridY; ++y)
-	for (int x = 0; x < cfg::kGridX; ++x)
+	for (int y = 0; y < cfg::kVoxY; ++y)
+	for (int x = 0; x < cfg::kVoxX; ++x)
 	{
-		const Block block = mCells[Index(x, y, z)];
+		const Block block = mVoxels[Index(x, y, z)];
 		if (block == Block::Air) continue;
 
-		const XMFLOAT4 colour = CellColor(block, x, y, z);
-		const XMVECTOR center = XMVectorSet(x + 0.5f, y + 0.5f, z + 0.5f, 0.0f);
+		XMFLOAT4 colour{};
+		bool colourReady = false;
+		const XMVECTOR center = XMVectorSet((x + 0.5f) * S, (y + 0.5f) * S, (z + 0.5f) * S, 0.0f);
 		for (const FaceDir& f : kDirs)
 		{
 			if (IsSolid(x + f.dx, y + f.dy, z + f.dz)) continue;   // hidden face
+			if (!colourReady)
+			{
+				colour = VoxelColor(block, x, y, z);
+				colourReady = true;
+			}
 
-			const XMVECTOR n = XMLoadFloat3(&f.normal) * 0.5f;
-			const XMVECTOR u = XMLoadFloat3(&f.u) * 0.5f;
-			const XMVECTOR v = XMLoadFloat3(&f.v) * 0.5f;
+			const XMVECTOR n = XMLoadFloat3(&f.normal) * half;
+			const XMVECTOR u = XMLoadFloat3(&f.u) * half;
+			const XMVECTOR v = XMLoadFloat3(&f.v) * half;
 			const XMVECTOR corners[4] = { center + n - u - v, center + n - u + v, center + n + u + v, center + n + u - v };
 			const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
 			for (int i = 0; i < 4; ++i)

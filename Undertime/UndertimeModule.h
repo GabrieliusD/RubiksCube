@@ -9,8 +9,9 @@
 
 // UNDERTIME: first-person mining in a mountain where time runs slower the deeper you go.
 //
-// Milestone 1: voxel grid with exposed-face chunk meshes, first-person controller with
-// voxel collision, lantern light, and DDA ray-cast mining with a progress ring.
+// Milestone 1: fine voxel world (ray-marched by the engine, or exposed-face meshes; V
+// toggles), first-person controller with voxel collision, lantern light, and swing-based
+// mining that carves a chunk of voxels per hit.
 class UndertimeModule : public IGameModule
 {
 public:
@@ -22,16 +23,19 @@ public:
 
 private:
 	enum class State { Title, Playing, Paused };
+	enum class WorldRenderer { RayMarched, Meshes };
 
 	struct Target
 	{
 		bool valid = false;
-		int x = 0, y = 0, z = 0;
+		int x = 0, y = 0, z = 0;              // voxel
 		cfg::Block block = cfg::Block::Air;
+		DirectX::XMFLOAT3 point{ 0, 0, 0 };   // where the ray hit (m)
 	};
 
 	// Setup
-	void CreateWorldMeshes(Engine& engine);
+	void CreateWorldRendering(Engine& engine);
+	void SetWorldRenderer(Engine& engine, WorldRenderer mode);
 	void CreateScenery(Engine& engine);
 	void CreateViewModels(Engine& engine);
 	void RebuildChunk(Engine& engine, int chunk);
@@ -39,12 +43,12 @@ private:
 	// Per frame
 	void UpdateState(Engine& engine);
 	void UpdateMining(Engine& engine, float deltaTime);
-	void BreakCell(Engine& engine, const Target& target);
+	void Swing(Engine& engine);
 	void UpdateCamera(Engine& engine);
 	void UpdateViewModels(Engine& engine, float deltaTime);
 	void UpdateLighting(Engine& engine);
 
-	float Depth() const { return player.position.z; }   // cells (= metres / 10 on the HUD)
+	float Depth() const { return player.position.z; }   // metres into the mountain (x10 on the HUD)
 	bool IsInside() const { return player.position.z > 0.0f; }
 
 	VoxelWorld world;
@@ -54,6 +58,9 @@ private:
 
 	// Rendering
 	MaterialHandle vertexColorMaterial;
+	WorldRenderer worldRenderer = cfg::kStartRayMarched ? WorldRenderer::RayMarched : WorldRenderer::Meshes;
+	VoxelVolumeHandle voxelVolume;
+	Entity voxelEntity = INVALID_ENTITY;
 	std::vector<Entity> chunkEntities;
 	std::vector<MeshHandle> chunkMeshes;
 	std::vector<MeshHandle> sceneryMeshes;
@@ -65,10 +72,11 @@ private:
 
 	// Mining
 	Target target;
-	float mineProgress = 0.0f;
+	float swingTimer = 0.0f;        // 0..1 through the current swing; the pick lands at 1
 	bool waitForRelease = false;    // the click that captured the mouse doesn't mine
-	float swingPhase = 0.0f;
 	float swingAmount = 0.0f;       // 0..1, eases in while mining
+	uint32_t swingCount = 0;        // varies the jagged edge of each bite
+	int voxelsMined = 0;
 
 	// Gear (upgrade levels, 0-based; trading arrives in milestone 2)
 	int pickLevel = 0;

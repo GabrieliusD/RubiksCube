@@ -55,6 +55,9 @@ public:
 	void DestroyMaterial(MaterialHandle material);
 
 	VoxelVolumeHandle CreateVoxelVolume(const VoxelVolumeDesc& desc);
+	// Overwrites a box of voxels (palette indices, x fastest, then y, then z).
+	// Synchronous; meant for edits such as mining, not for streaming whole volumes.
+	bool UpdateVoxelVolume(VoxelVolumeHandle volume, const DirectX::XMUINT3& offset, const DirectX::XMUINT3& size, const uint8_t* voxels);
 	void DestroyVoxelVolume(VoxelVolumeHandle volume);
 	DirectX::XMUINT3 GetVoxelVolumeSize(VoxelVolumeHandle volume) const;
 

@@ -115,9 +115,9 @@ struct VoxelVolumeData
 	uint3 dims;
 	uint  volumeTextureIndex;      // Texture3D<uint>
 	uint  paletteBufferIndex;      // StructuredBuffer<float4>
+	float colorJitter;             // +- relative brightness per voxel (0 = off)
+	float aoStrength;              // corner ambient occlusion, 0..1 (0 = off)
 	uint  pad0;
-	uint  pad1;
-	uint  pad2;
 };
 
 struct DebugVertex

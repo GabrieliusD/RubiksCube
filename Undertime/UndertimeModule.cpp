@@ -44,7 +44,7 @@ void UndertimeModule::OnStartup(Engine& engine)
 	material.fresnelR0 = { 0.02f, 0.02f, 0.02f };
 	vertexColorMaterial = engine.GetRenderer().CreateMaterial(material);
 
-	CreateWorldMeshes(engine);
+	CreateWorldRendering(engine);
 	CreateScenery(engine);
 	CreateViewModels(engine);
 
@@ -56,9 +56,28 @@ void UndertimeModule::OnStartup(Engine& engine)
 	UpdateLighting(engine);
 }
 
-void UndertimeModule::CreateWorldMeshes(Engine& engine)
+void UndertimeModule::CreateWorldRendering(Engine& engine)
 {
 	Scene& scene = engine.GetScene();
+	Renderer& renderer = engine.GetRenderer();
+
+	// Ray-marched: the whole grid as one engine voxel volume (palette indices).
+	VoxelVolumeDesc desc;
+	desc.size = { static_cast<uint32_t>(cfg::kVoxX), static_cast<uint32_t>(cfg::kVoxY), static_cast<uint32_t>(cfg::kVoxZ) };
+	desc.voxels = world.PaletteVoxels();
+	desc.palette = VoxelWorld::BuildPalette();
+	voxelVolume = renderer.CreateVoxelVolume(desc);
+
+	VoxelVolumeRenderer volume;
+	volume.volume = voxelVolume;
+	volume.voxelSize = cfg::kVoxelSize;
+	volume.colorJitter = cfg::kStoneJitter;
+	volume.aoStrength = cfg::kVoxelAoStrength;
+	voxelEntity = scene.CreateEntity();
+	scene.Add(voxelEntity, Transform{});   // the volume's corner sits at the world origin
+	scene.Add(voxelEntity, volume);
+
+	// Meshes: one entity per chunk, built when that renderer is active.
 	const int chunks = VoxelWorld::ChunkCount();
 	chunkEntities.resize(chunks);
 	chunkMeshes.resize(chunks);
@@ -66,8 +85,30 @@ void UndertimeModule::CreateWorldMeshes(Engine& engine)
 	{
 		chunkEntities[i] = scene.CreateEntity();
 		scene.Add(chunkEntities[i], Transform{});
-		scene.Add(chunkEntities[i], MeshRenderer{ {}, vertexColorMaterial });
-		RebuildChunk(engine, i);
+		MeshRenderer meshRenderer{ {}, vertexColorMaterial };
+		meshRenderer.visible = false;
+		scene.Add(chunkEntities[i], meshRenderer);
+	}
+	SetWorldRenderer(engine, worldRenderer);
+}
+
+void UndertimeModule::SetWorldRenderer(Engine& engine, WorldRenderer mode)
+{
+	worldRenderer = mode;
+	Scene& scene = engine.GetScene();
+	scene.Get<VoxelVolumeRenderer>(voxelEntity).visible = mode == WorldRenderer::RayMarched;
+	for (int i = 0; i < static_cast<int>(chunkEntities.size()); ++i)
+	{
+		if (mode == WorldRenderer::Meshes)
+		{
+			RebuildChunk(engine, i);   // meshes aren't kept up to date while hidden
+		}
+		else
+		{
+			engine.GetRenderer().DestroyMesh(chunkMeshes[i]);
+			chunkMeshes[i] = {};
+			scene.Get<MeshRenderer>(chunkEntities[i]).visible = false;
+		}
 	}
 }
 
@@ -155,6 +196,8 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	Renderer& renderer = engine.GetRenderer();
 	Scene& scene = engine.GetScene();
 	for (Entity e : chunkEntities) scene.DestroyEntity(e);
+	scene.DestroyEntity(voxelEntity);
+	renderer.DestroyVoxelVolume(voxelVolume);
 	for (Entity e : sceneryEntities) scene.DestroyEntity(e);
 	scene.DestroyEntity(pickEntity);
 	scene.DestroyEntity(lanternEntity);
@@ -177,20 +220,26 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 	Input& input = engine.GetInput();
 	if (state == State::Playing)
 	{
+		if (input.WasKeyPressed('V'))
+		{
+			SetWorldRenderer(engine, worldRenderer == WorldRenderer::RayMarched ? WorldRenderer::Meshes : WorldRenderer::RayMarched);
+			messages.Show(worldRenderer == WorldRenderer::RayMarched ? "Renderer: ray-marched voxels" : "Renderer: voxel meshes", 1.5f);
+		}
 		player.Update(input, world, dt, 1.0f, input.IsMouseCaptured());
 		UpdateMining(engine, dt);
 
 		// Target outline (world-space lines, depth-tested so only the visible edges show).
 		if (target.valid)
 		{
-			BoundingBox box({ target.x + 0.5f, target.y + 0.5f, target.z + 0.5f }, { 0.505f, 0.505f, 0.505f });
+			const float s = cfg::kVoxelSize;
+			BoundingBox box({ (target.x + 0.5f) * s, (target.y + 0.5f) * s, (target.z + 0.5f) * s }, { s * 0.52f, s * 0.52f, s * 0.52f });
 			const bool unbreakable = target.block == Block::Bedrock;
 			engine.GetRenderer().Debug().Box(box, unbreakable ? DebugDraw::Color(0.9f, 0.3f, 0.25f) : DebugDraw::Color(1.0f, 0.95f, 0.8f));
 		}
 	}
 	else
 	{
-		mineProgress = 0.0f;
+		swingTimer = 0.0f;
 	}
 
 	messages.Update(dt);
@@ -237,7 +286,7 @@ void UndertimeModule::UpdateMining(Engine& engine, float dt)
 		waitForRelease = false;
 	}
 
-	// Find the targeted cell.
+	// Find the targeted voxel.
 	const XMFLOAT3 eye = player.EyePosition();
 	const XMFLOAT3 dir = player.LookDirection();
 	const VoxelWorld::RayHit hit = world.Raycast(eye, dir, cfg::kReach);
@@ -249,54 +298,63 @@ void UndertimeModule::UpdateMining(Engine& engine, float dt)
 		next.y = hit.y;
 		next.z = hit.z;
 		next.block = world.Get(hit.x, hit.y, hit.z);
-	}
-	if (!next.valid || next.x != target.x || next.y != target.y || next.z != target.z)
-	{
-		mineProgress = 0.0f;
+		next.point = hit.point;
 	}
 	target = next;
 
 	const bool mining = !waitForRelease && input.IsMouseDown(MouseButton::Left);
 	swingAmount = std::clamp(swingAmount + (mining ? dt : -dt) * 6.0f, 0.0f, 1.0f);
-	if (!mining || !target.valid)
+	if (!mining)
 	{
-		mineProgress = 0.0f;
+		swingTimer = 0.0f;
 		return;
 	}
 
-	if (target.block == Block::Bedrock)
+	// Holding the button keeps swinging; each time the pick lands, it bites into the rock.
+	swingTimer += dt / cfg::kSwingPeriod;
+	if (swingTimer >= 1.0f)
 	{
-		mineProgress = 0.0f;
-		if (input.WasMousePressed(MouseButton::Left) || messages.Current().empty())
-		{
-			if (target.z == cfg::kGridZ - 1)
-				messages.Show("The rock here is warm, and it hums.\nSomething is on the other side.", cfg::kMessageSeconds);
-			else
-				messages.Show("Too hard to break.", cfg::kMessageSeconds * 0.6f);
-		}
-		return;
-	}
-
-	const float hardness = world.EffectiveHardness(target.x, target.y, target.z);
-	mineProgress += dt * cfg::kPickSpeed[pickLevel] / std::max(hardness, 0.01f);
-	if (mineProgress >= 1.0f)
-	{
-		BreakCell(engine, target);
-		mineProgress = 0.0f;
-		target.valid = false;
+		swingTimer -= 1.0f;
+		Swing(engine);
 	}
 }
 
-void UndertimeModule::BreakCell(Engine& engine, const Target& cell)
+void UndertimeModule::Swing(Engine& engine)
 {
-	world.Set(cell.x, cell.y, cell.z, Block::Air);
+	if (!target.valid) return;   // swung at air
 
-	// The broken cell and its six neighbours may change visibility; neighbours along Z
-	// can live in the next/previous chunk.
-	const int chunk = VoxelWorld::ChunkOf(cell.z);
-	RebuildChunk(engine, chunk);
-	if (cell.z > 0 && VoxelWorld::ChunkOf(cell.z - 1) != chunk) RebuildChunk(engine, chunk - 1);
-	if (cell.z + 1 < cfg::kGridZ && VoxelWorld::ChunkOf(cell.z + 1) != chunk) RebuildChunk(engine, chunk + 1);
+	if (target.block == Block::Bedrock)
+	{
+		const bool farWall = target.z >= (cfg::kGridZ - 1) * cfg::kVoxelsPerMeter;
+		if (farWall)
+			messages.Show("The rock here is warm, and it hums.\nSomething is on the other side.", cfg::kMessageSeconds);
+		else
+			messages.Show("Too hard to break.", cfg::kMessageSeconds * 0.6f);
+		return;
+	}
+
+	// Bite centred just inside the surface we hit.
+	const XMFLOAT3 dir = player.LookDirection();
+	const XMFLOAT3 center{ target.point.x + dir.x * 0.08f, target.point.y + dir.y * 0.08f, target.point.z + dir.z * 0.08f };
+	const VoxelWorld::CarveResult result = world.Carve(center, cfg::kPickSpeed[pickLevel], target.x, target.y, target.z, ++swingCount);
+	if (result.removed == 0) return;
+	voxelsMined += result.removed;
+
+	// Ray-marched volume: upload just the changed box.
+	const VoxelWorld::Box& box = result.dirty;
+	const std::vector<uint8_t> voxels = world.PaletteVoxels(box);
+	engine.GetRenderer().UpdateVoxelVolume(voxelVolume,
+		{ static_cast<uint32_t>(box.min[0]), static_cast<uint32_t>(box.min[1]), static_cast<uint32_t>(box.min[2]) },
+		{ static_cast<uint32_t>(box.max[0] - box.min[0] + 1), static_cast<uint32_t>(box.max[1] - box.min[1] + 1), static_cast<uint32_t>(box.max[2] - box.min[2] + 1) },
+		voxels.data());
+
+	// Meshes: rebuild every chunk the change (and its neighbours' faces) touches.
+	if (worldRenderer == WorldRenderer::Meshes)
+	{
+		const int first = VoxelWorld::ChunkOfVoxelZ(std::max(box.min[2] - 1, 0));
+		const int last = VoxelWorld::ChunkOfVoxelZ(std::min(box.max[2] + 1, cfg::kVoxZ - 1));
+		for (int chunk = first; chunk <= last; ++chunk) RebuildChunk(engine, chunk);
+	}
 
 	// Ore collection, bag and selling arrive in milestone 2.
 }
@@ -335,10 +393,21 @@ void UndertimeModule::UpdateViewModels(Engine& engine, float dt)
 		t.scale = { scale, scale, scale };
 	};
 
-	// Pick (right hand): a chopping swing while mining.
-	if (swingAmount > 0.0f) swingPhase += dt * cfg::kPickSwingRate;
-	const float swing = swingAmount * (0.5f + 0.5f * std::sin(swingPhase)) * 0.9f;
-	const XMVECTOR pickRotation = XMQuaternionRotationRollPitchYaw(0.55f + swing, 0.15f, -0.25f);
+	// Pick (right hand): wind up, then strike so it lands when swingTimer wraps to 0
+	// (the curve starts and ends at the same angle, so repeated swings loop smoothly).
+	const float t = swingTimer;
+	float swing;
+	if (t < 0.6f)
+	{
+		const float u = t / 0.6f;
+		swing = 0.6f + (-0.75f - 0.6f) * (u * u * (3.0f - 2.0f * u));   // ease back
+	}
+	else
+	{
+		const float u = (t - 0.6f) / 0.4f;
+		swing = -0.75f + (0.6f + 0.75f) * (u * u);                       // accelerate into the rock
+	}
+	const XMVECTOR pickRotation = XMQuaternionRotationRollPitchYaw(0.55f + swingAmount * swing, 0.15f, -0.25f);
 	const XMFLOAT3 pickOffset{ cfg::kPickOffset[0], cfg::kPickOffset[1] + bob, cfg::kPickOffset[2] };
 	place(pickEntity, pickOffset, pickRotation, cfg::kPickScale);
 
@@ -415,14 +484,18 @@ void UndertimeModule::OnImGui(Engine& engine)
 	const char* label = target.valid ? cfg::Info(target.block).name : "";
 	const ImU32 labelColor = (target.valid && target.block != Block::Stone && target.block != Block::Bedrock)
 		? ToImColor(cfg::Info(target.block).color) : IM_COL32(230, 222, 210, 255);
-	hud::Crosshair(frame, mineProgress, label, labelColor);
+	// The ring shows the swing: it fills as the pick winds up and lands when it closes.
+	const bool swinging = swingAmount > 0.0f && target.valid && target.block != Block::Bedrock;
+	hud::Crosshair(frame, swinging ? std::max(swingTimer, 0.001f) : 0.0f, label, labelColor);
 
 	char depthLine[64];
 	if (IsInside())
 		std::snprintf(depthLine, sizeof(depthLine), "Depth  %.0f m", Depth() * 10.0f);
 	else
 		std::snprintf(depthLine, sizeof(depthLine), "Outside");
-	hud::Panel(frame, 0, { "UNDERTIME", depthLine });
+	char renderLine[64];
+	std::snprintf(renderLine, sizeof(renderLine), "%s  (V)", worldRenderer == WorldRenderer::RayMarched ? "Ray-marched voxels" : "Voxel meshes");
+	hud::Panel(frame, 0, { "UNDERTIME", depthLine, renderLine });
 
 	messages.Draw(frame);
 
@@ -442,7 +515,8 @@ void UndertimeModule::OnImGui(Engine& engine)
 	{
 		ImGui::Text("Player  %.2f, %.2f, %.2f", player.position.x, player.position.y, player.position.z);
 		ImGui::Text("Grounded %s  yaw %.2f  pitch %.2f", player.grounded ? "yes" : "no", player.yaw, player.pitch);
-		ImGui::Text("Target  %s (%d, %d, %d)", target.valid ? cfg::Info(target.block).name : "-", target.x, target.y, target.z);
+		ImGui::Text("Target  %s (voxel %d, %d, %d)", target.valid ? cfg::Info(target.block).name : "-", target.x, target.y, target.z);
+		ImGui::Text("Voxels mined  %d", voxelsMined);
 		ImGui::SliderInt("Pick level", &pickLevel, 0, 3);
 		ImGui::SliderInt("Lantern level", &lanternLevel, 0, 3);
 	}

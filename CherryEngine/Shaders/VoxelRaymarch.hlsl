@@ -21,6 +21,44 @@ static const uint kCubeIndices[36] =
 	4, 6, 7, 4, 7, 5,   // +Z
 };
 
+uint IsSolid(Texture3D<uint> voxels, int3 c, int3 dims)
+{
+	if (any(c < 0) || any(c >= dims)) return 0;
+	return voxels.Load(int4(c, 0)) != 0 ? 1 : 0;
+}
+
+float Hash01(int3 c)
+{
+	uint h = uint(c.x) * 73856093u ^ uint(c.y) * 19349663u ^ uint(c.z) * 83492791u;
+	h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+	return (h & 0xFFFFFF) / 16777216.0;
+}
+
+// Smooth corner ambient occlusion for the face of `cell` that faces `n` (Minecraft-style:
+// each face corner is darkened by the solid voxels around it, then interpolated).
+float FaceAO(Texture3D<uint> voxels, int3 dims, int3 cell, int axis, int3 n, float3 hitLocal, float strength)
+{
+	const int ta = (axis + 1) % 3;
+	const int tb = (axis + 2) % 3;
+	int3 t1 = 0; t1[ta] = 1;
+	int3 t2 = 0; t2[tb] = 1;
+	const int3 a = cell + n;   // the air voxel in front of the face
+
+	float corner[4];
+	[unroll] for (int i = 0; i < 4; ++i)
+	{
+		const int s = (i & 1) ? 1 : -1;
+		const int u = (i & 2) ? 1 : -1;
+		const uint side1 = IsSolid(voxels, a + s * t1, dims);
+		const uint side2 = IsSolid(voxels, a + u * t2, dims);
+		const uint diag = IsSolid(voxels, a + s * t1 + u * t2, dims);
+		const float occlusion = (side1 & side2) ? 3.0 : float(side1 + side2 + diag);
+		corner[i] = 1.0 - strength * occlusion / 3.0;
+	}
+	const float2 f = saturate(float2(hitLocal[ta] - cell[ta], hitLocal[tb] - cell[tb]));
+	return lerp(lerp(corner[0], corner[1], f.x), lerp(corner[2], corner[3], f.x), f.y);
+}
+
 VoxelVolumeData LoadVolume()
 {
 	StructuredBuffer<VoxelVolumeData> volumes = ResourceDescriptorHeap[gFrame.voxelVolumeBufferIndex];
@@ -129,6 +167,17 @@ PixelOut PSMain(VertexOut pin)
 
 	float3 hitW = gView.eyePosW + rayDirW * t;
 	float4 albedo = palette[hitValue];
+	if (volume.colorJitter > 0.0)
+	{
+		albedo.rgb *= 1.0 + (Hash01(cell) * 2.0 - 1.0) * volume.colorJitter;
+	}
+	float ao = 1.0;
+	if (volume.aoStrength > 0.0)
+	{
+		int3 n = 0;
+		n[axis] = -stepDir[axis];
+		ao = FaceAO(voxels, int3(volume.dims), cell, axis, n, origin + dir * t, volume.aoStrength);
+	}
 
 	Material mat;
 	mat.DiffuseAlbedo = albedo;
@@ -138,7 +187,7 @@ PixelOut PSMain(VertexOut pin)
 	float3 color = gFrame.ambientLight.rgb * albedo.rgb
 		+ ComputeLighting(gFrame.lights, gFrame.numDirLights, mat, normalW, toEye)
 		+ ComputePointLights(gFrame.pointLights, gFrame.numPointLights, mat, hitW, normalW, toEye);
-	color = ApplyFog(color, t, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
+	color = ApplyFog(color * ao, t, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
 
 	float4 clip = mul(float4(hitW, 1.0), gView.viewProj);
 

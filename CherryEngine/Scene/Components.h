@@ -72,4 +72,6 @@ struct VoxelVolumeRenderer
 	VoxelVolumeHandle volume;
 	float voxelSize = 0.1f;
 	bool visible = true;
+	float colorJitter = 0.0f;   // +- brightness variation per voxel (e.g. 0.15 = 15%)
+	float aoStrength = 0.0f;    // corner ambient occlusion, 0..1
 };

@@ -641,6 +641,20 @@ VoxelVolumeHandle Renderer::CreateVoxelVolume(const VoxelVolumeDesc& desc)
 	return r.voxelVolumes.Add(std::move(volume));
 }
 
+bool Renderer::UpdateVoxelVolume(VoxelVolumeHandle volume, const XMUINT3& offset, const XMUINT3& size, const uint8_t* voxels)
+{
+	VoxelResource* resource = mImpl->voxelVolumes.Get(volume);
+	if (!resource || !voxels) return false;
+	const XMUINT3& dims = resource->size;
+	if (offset.x + size.x > dims.x || offset.y + size.y > dims.y || offset.z + size.z > dims.z)
+	{
+		CHERRY_ERROR("UpdateVoxelVolume: region is outside the volume");
+		return false;
+	}
+	resource->volume->UploadRegion(offset.x, offset.y, offset.z, size.x, size.y, size.z, voxels, 1);
+	return true;
+}
+
 void Renderer::DestroyVoxelVolume(VoxelVolumeHandle volume)
 {
 	mImpl->voxelVolumes.Remove(volume);
@@ -884,6 +898,8 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		data.dims = volume->size;
 		data.volumeTextureIndex = volume->volume->SrvIndex();
 		data.paletteBufferIndex = volume->palette->SrvIndex();
+		data.colorJitter = renderer.colorJitter;
+		data.aoStrength = renderer.aoStrength;
 		r.voxelScratch.push_back(data);
 	}
 

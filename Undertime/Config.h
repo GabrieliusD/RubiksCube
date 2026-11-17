@@ -11,8 +11,21 @@ namespace cfg
 	constexpr int kGridY = 12;
 	constexpr int kGridZ = 110;
 	constexpr int kCenterX = 10;                  // entrance column
-	constexpr int kChunkDepth = 16;               // cells along Z per render chunk
+	constexpr int kChunkDepth = 16;               // metres along Z per mesh chunk (mesh renderer)
 	constexpr uint32_t kWorldSeed = 0x0DE7B00Bu;  // same layout every run
+
+	// The layout above is in metres; the world itself is stored as finer voxels.
+	constexpr int kVoxelsPerMeter = 4;
+	constexpr float kVoxelSize = 1.0f / kVoxelsPerMeter;
+	constexpr int kVoxX = kGridX * kVoxelsPerMeter;
+	constexpr int kVoxY = kGridY * kVoxelsPerMeter;
+	constexpr int kVoxZ = kGridZ * kVoxelsPerMeter;
+
+	// Rendering: ray-marched voxels (engine VoxelVolumeRenderer) or exposed-face meshes.
+	// Toggle in game with V.
+	constexpr bool kStartRayMarched = true;
+	constexpr float kVoxelAoStrength = 0.6f;      // corner ambient occlusion (ray-marched)
+	constexpr int kStoneBands = 48;               // palette entries for the stone depth gradient
 
 	// Pre-carved openings (inclusive ranges).
 	constexpr int kEntranceZ0 = 0, kEntranceZ1 = 5;    // 1 wide x 2 tall
@@ -43,6 +56,7 @@ namespace cfg
 	constexpr float kJumpSpeed = 6.2f;            // m/s
 	constexpr float kGravity = 20.0f;             // m/s^2
 	constexpr float kMaxFallSpeed = 30.0f;
+	constexpr float kStepHeight = 0.3f;           // walk up ledges this high (carved floors are uneven)
 	constexpr float kBodyWidth = 0.6f;
 	constexpr float kBodyHeight = 1.7f;
 	constexpr float kEyeHeight = 1.55f;
@@ -54,8 +68,14 @@ namespace cfg
 
 	// ---- Mining ---------------------------------------------------------------
 	constexpr float kReach = 4.5f;                // m
-	constexpr float kHardnessDepthScale = 45.0f;  // effective = hardness * (1 + z / this)
-	constexpr float kPickSwingRate = 9.0f;        // swing animation speed (rad/s of phase)
+	constexpr float kHardnessDepthScale = 45.0f;  // effective = hardness * (1 + z / this), z in metres
+	// Each swing carves a rough sphere. A voxel breaks if it is within
+	//   kBiteRadius * sqrt((pickSpeed / kPickSpeed[0]) / effectiveHardness)
+	// of the impact point, so hard ore stands proud and better picks take bigger bites.
+	constexpr float kSwingPeriod = 0.42f;         // seconds per swing (wind-up + strike)
+	constexpr float kBiteRadius = 0.55f;          // m, for the starting pick in hardness-1 rock
+	constexpr float kBiteMaxScale = 2.2f;         // cap on the bite growth from upgrades
+	constexpr float kBiteRoughness = 0.35f;       // jagged edges: +- this fraction per voxel
 
 	// Upgrade levels (index 0 = starting gear).
 	constexpr float kPickSpeed[4] = { 1.5f, 2.6f, 4.2f, 7.0f };
