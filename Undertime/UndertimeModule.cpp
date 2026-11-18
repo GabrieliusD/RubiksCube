@@ -110,6 +110,7 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	const auto start = std::chrono::steady_clock::now();
 	layout = GenerateCaves(world, seed);
 	teleportZone = -1;
+	map.Rebuild(world, layout);
 	generationMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
 
 	// Loose rock belongs to the old world.
@@ -275,6 +276,17 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 		}
 		if (input.WasKeyPressed(VK_F8)) NewWorld(engine, RandomSeed());
 		if (input.WasKeyPressed(VK_F9)) DebugTeleportToNextZone(engine);
+		if (input.WasKeyPressed('M')) mapOpen = !mapOpen;
+		if (mapOpen)
+		{
+			// Mining changes the map; refresh it a couple of times a second while it's open.
+			mapRefreshTimer -= dt;
+			if (mapRefreshTimer <= 0.0f)
+			{
+				map.Rebuild(world, layout);
+				mapRefreshTimer = 0.5f;
+			}
+		}
 		if (input.WasKeyPressed(VK_F6)) DebugDropRock(engine);
 		if (input.WasKeyPressed(VK_F7)) DebugCaveIn(engine);
 		player.Update(input, dt, 1.0f, input.IsMouseCaptured());
@@ -751,6 +763,10 @@ void UndertimeModule::OnImGui(Engine& engine)
 	hud::Panel(frame, 0, { "UNDERTIME", depthLine, renderLine });
 
 	messages.Draw(frame);
+	if (mapOpen)
+	{
+		map.Draw(frame, layout, player.position, player.yaw);
+	}
 
 	if (state == State::Paused)
 	{

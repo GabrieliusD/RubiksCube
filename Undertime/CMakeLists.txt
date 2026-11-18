@@ -18,6 +18,8 @@ set(UndertimeSrc
     Noise.h
     CaveGenerator.h
     CaveGenerator.cpp
+    CaveMap.h
+    CaveMap.cpp
     Player.h
     Player.cpp
     Meshes.h

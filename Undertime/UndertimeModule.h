@@ -8,6 +8,7 @@
 #include "WorldCollision.h"
 #include "Fragments.h"
 #include "CaveGenerator.h"
+#include "CaveMap.h"
 #include <vector>
 
 // UNDERTIME: first-person mining in a mountain where time runs slower the deeper you go.
@@ -69,6 +70,9 @@ private:
 	VoxelWorld world;
 	uint32_t seed = 0;
 	CaveLayout layout;
+	CaveMap map;
+	bool mapOpen = false;
+	float mapRefreshTimer = 0.0f;
 	int teleportZone = -1;
 	char seedInput[16] = "";
 	float generationMs = 0.0f;
