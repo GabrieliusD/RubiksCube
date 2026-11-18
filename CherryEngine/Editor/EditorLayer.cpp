@@ -100,11 +100,18 @@ void EditorLayer::Draw(Engine& engine, IGameModule* game, bool editorMode, bool 
 		return;
 	}
 
+	HandleSceneHotkeys(engine);
+	UpdateEditorCamera(engine);
 	DrawMenuBar(engine);
 	DrawDockspace();
 	DrawViewport(engine);
+	DrawHierarchy(engine);
+	DrawInspector(engine);
 	DrawStats(engine, frameMs);
 	DrawOutput();
+	DrawContentBrowser(engine);
+	DrawSelection(engine);
+	UpdateUndo(engine);
 
 	ImGui::Begin(kGameWindow);
 	if (game)
@@ -128,6 +135,8 @@ void EditorLayer::Draw(Engine& engine, IGameModule* game, bool editorMode, bool 
 
 void EditorLayer::OnWorldChanging(Engine& engine)
 {
+	mSelected = INVALID_ENTITY;   // entity ids belong to the world being left
+	mEulerEntity = INVALID_ENTITY;
 	// The test volume belongs to the world it was made in.
 	if (mVoxelTest)
 	{
@@ -196,6 +205,8 @@ void EditorLayer::DrawMenuBar(Engine& engine)
 		if (ImGui::MenuItem("Exit")) engine.RequestQuit();
 		ImGui::EndMenu();
 	}
+	DrawSceneMenu(engine);
+	DrawEditMenu(engine);
 
 	if (status.hasProject)
 	{
@@ -330,18 +341,22 @@ void EditorLayer::DrawDockspace()
 {
 	const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
-	// First run (no imgui.ini layout yet): viewport left over the output log, stats + game panels right.
+	// First run (no imgui.ini layout yet, or one from before the newest panel existed):
+	// hierarchy left, viewport over the output log in the middle, inspector/stats and game right.
 	if (!mLayoutBuilt)
 	{
 		mLayoutBuilt = true;
 		ImGuiDockNode* node = ImGui::DockBuilderGetNode(dockspace);
-		if (!node || node->IsLeafNode() && node->Windows.Size == 0)
+		// A layout saved before the newest panel existed is rebuilt (bump this name when adding panels).
+		const bool oldLayout = ImGui::FindWindowSettingsByID(ImHashStr("Content")) == nullptr;
+		if (!node || (node->IsLeafNode() && node->Windows.Size == 0) || oldLayout)
 		{
 			ImGui::DockBuilderRemoveNode(dockspace);
 			ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
 			ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->Size);
 			ImGuiID center = 0;
 			ImGuiID right = ImGui::DockBuilderSplitNode(dockspace, ImGuiDir_Right, 0.26f, nullptr, &center);
+			ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.2f, nullptr, &center);
 			ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22f, nullptr, &center);
 			// The viewport is the central node, so it absorbs window resizes and the side panels keep their width.
 			if (ImGuiDockNode* centerNode = ImGui::DockBuilderGetNode(center))
@@ -351,8 +366,11 @@ void EditorLayer::DrawDockspace()
 			ImGuiID rightBottom = 0;
 			ImGuiID rightTop = ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.6f, nullptr, &rightBottom);
 			ImGui::DockBuilderDockWindow(kOutputWindow, bottom);
+			ImGui::DockBuilderDockWindow("Content", bottom);
 			ImGui::DockBuilderDockWindow(kViewportWindow, center);
+			ImGui::DockBuilderDockWindow("Hierarchy", left);
 			ImGui::DockBuilderDockWindow(kStatsWindow, rightTop);
+			ImGui::DockBuilderDockWindow("Inspector", rightTop);
 			ImGui::DockBuilderDockWindow(kGameWindow, rightBottom);
 			ImGui::DockBuilderFinish(dockspace);
 		}
@@ -382,6 +400,7 @@ void EditorLayer::DrawViewport(Engine& engine)
 	{
 		ImGui::SetWindowFocus();
 	}
+	DrawViewportOverlay(engine);
 
 	ImGui::End();
 	ImGui::PopStyleVar();

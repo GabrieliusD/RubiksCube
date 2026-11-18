@@ -270,6 +270,7 @@ struct Renderer::Impl
 	void SetViewport(ID3D12GraphicsCommandList* cmd, uint32_t width, uint32_t height);
 	void BindGlobals(ID3D12GraphicsCommandList4* cmd);
 	gpu::FrameConstants BuildFrameConstants();
+	std::vector<PointLight> sceneLights;   // PointLight components of the scene being rendered
 	void ClearView(ID3D12GraphicsCommandList4* cmd);
 };
 
@@ -561,6 +562,61 @@ TextureHandle Renderer::LoadTexture(const std::wstring& path, bool srgb)
 	return r.textures.Add(std::move(texture));
 }
 
+TextureHandle Renderer::CreateTexture(uint32_t width, uint32_t height, const uint8_t* rgba, bool srgb)
+{
+	Impl& r = *mImpl;
+	if (width == 0 || height == 0 || !rgba) return {};
+
+	// Mip chain by 2x2 box filtering (in the stored space; good enough for albedo maps).
+	std::vector<std::vector<uint8_t>> levels;
+	levels.emplace_back(rgba, rgba + static_cast<size_t>(width) * height * 4);
+	uint32_t w = width, h = height;
+	while (w > 1 || h > 1)
+	{
+		const uint32_t nw = std::max(w / 2, 1u), nh = std::max(h / 2, 1u);
+		const std::vector<uint8_t>& src = levels.back();
+		std::vector<uint8_t> dst(static_cast<size_t>(nw) * nh * 4);
+		for (uint32_t y = 0; y < nh; ++y)
+		for (uint32_t x = 0; x < nw; ++x)
+		for (uint32_t c = 0; c < 4; ++c)
+		{
+			const uint32_t x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
+			const uint32_t y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
+			const uint32_t sum = src[(y0 * w + x0) * 4 + c] + src[(y0 * w + x1) * 4 + c] + src[(y1 * w + x0) * 4 + c] + src[(y1 * w + x1) * 4 + c];
+			dst[(static_cast<size_t>(y) * nw + x) * 4 + c] = static_cast<uint8_t>((sum + 2) / 4);
+		}
+		levels.push_back(std::move(dst));
+		w = nw;
+		h = nh;
+	}
+
+	rhi::TextureDesc desc;
+	desc.width = width;
+	desc.height = height;
+	desc.mipLevels = static_cast<uint32_t>(levels.size());
+	desc.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.srvFormat = srgb ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.usage = rhi::TextureUsage_ShaderResource;
+	desc.name = "CreatedTexture";
+
+	std::vector<D3D12_SUBRESOURCE_DATA> data(levels.size());
+	w = width;
+	h = height;
+	for (size_t i = 0; i < levels.size(); ++i)
+	{
+		data[i].pData = levels[i].data();
+		data[i].RowPitch = static_cast<LONG_PTR>(w) * 4;
+		data[i].SlicePitch = static_cast<LONG_PTR>(w) * 4 * h;
+		w = std::max(w / 2, 1u);
+		h = std::max(h / 2, 1u);
+	}
+
+	TextureResource texture;
+	texture.texture = rhi::Texture::Create(r.device, desc);
+	texture.texture->Upload(data.data(), static_cast<uint32_t>(data.size()), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	return r.textures.Add(std::move(texture));
+}
+
 void Renderer::DestroyTexture(TextureHandle texture)
 {
 	mImpl->textures.Remove(texture);
@@ -776,10 +832,12 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants()
 	frame.lights[2].Strength = { 0.2f * fill, 0.2f * fill, 0.22f * fill };
 	frame.numDirLights = 3;
 
-	const uint32_t pointCount = std::min<uint32_t>(static_cast<uint32_t>(settings.pointLights.size()), CHERRY_MAX_POINT_LIGHTS);
+	// The game's lights first, then the scene's PointLight components.
+	const uint32_t gameLights = static_cast<uint32_t>(settings.pointLights.size());
+	const uint32_t pointCount = std::min<uint32_t>(gameLights + static_cast<uint32_t>(sceneLights.size()), CHERRY_MAX_POINT_LIGHTS);
 	for (uint32_t i = 0; i < pointCount; ++i)
 	{
-		const PointLight& light = settings.pointLights[i];
+		const PointLight& light = i < gameLights ? settings.pointLights[i] : sceneLights[i - gameLights];
 		gpu::Light& out = frame.pointLights[i];
 		out.Position = light.position;
 		out.Strength = { light.color.x * light.intensity, light.color.y * light.intensity, light.color.z * light.intensity };
@@ -847,7 +905,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		const MeshResource* mesh = r.meshes.Get(renderer.mesh);
 		if (!mesh) continue;
 
-		const XMMATRIX world = scene.Get<Transform>(entity).Matrix();
+		const XMMATRIX world = scene.WorldMatrix(entity);
 		const bool viewModel = renderer.layer == RenderLayer::ViewModel;
 		BoundingBox worldBounds;
 		mesh->bounds.Transform(worldBounds, world);
@@ -886,7 +944,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		const VoxelResource* volume = r.voxelVolumes.Get(renderer.volume);
 		if (!volume) continue;
 
-		const XMMATRIX world = XMMatrixScaling(renderer.voxelSize, renderer.voxelSize, renderer.voxelSize) * scene.Get<Transform>(entity).Matrix();
+		const XMMATRIX world = XMMatrixScaling(renderer.voxelSize, renderer.voxelSize, renderer.voxelSize) * scene.WorldMatrix(entity);
 		BoundingOrientedBox box;
 		BoundingOrientedBox::CreateFromBoundingBox(box, BoundingBox(
 			XMFLOAT3(volume->size.x * 0.5f, volume->size.y * 0.5f, volume->size.z * 0.5f),
@@ -908,6 +966,19 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		data.aoStrength = renderer.aoStrength;
 		data.jitterOffset = renderer.jitterOffset;
 		r.voxelScratch.push_back(data);
+	}
+
+	// ---- Scene lights ---------------------------------------------------------
+	r.sceneLights.clear();
+	for (Entity entity : scene.PointLightEntities())
+	{
+		const PointLightComponent& component = scene.Get<PointLightComponent>(entity);
+		PointLight light;
+		light.position = scene.WorldPosition(entity);
+		light.color = component.color;
+		light.intensity = component.intensity;
+		light.range = component.range;
+		r.sceneLights.push_back(light);
 	}
 
 	// ---- Upload per-frame data ---------------------------------------------

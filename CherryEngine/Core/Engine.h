@@ -6,12 +6,14 @@
 #include "Core/Window.h"
 #include "Physics/PhysicsWorld.h"
 #include "Core/Project.h"
+#include "Core/Assets.h"
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
 
 class IGameModule;
+class ISystem;
 
 // How the engine starts (see CherryLaunch).
 struct LaunchOptions
@@ -95,17 +97,42 @@ public:
 	void Play();
 	void Stop();
 	void SetPaused(bool paused);
+	// During OnStartup after a hot reload: what the old module's SaveState returned (it is
+	// also passed to LoadState right after). Empty otherwise.
+	const std::string& HotReloadState() const;
 
 	// ---- Editor-facing ----------------------------------------------------------
 	ModuleStatus GetModuleStatus() const;
+	// The game's systems (for the editor's inspector hooks).
+	const std::vector<std::unique_ptr<ISystem>>& GameSystems() const;
 	// Builds the project's game module with CMake in the background; a successful build
 	// is reloaded automatically (also when the build comes from Visual Studio).
 	void CompileModule();
 	void ReloadModule();
-	// Restarts the editor on another project.
+	// Restarts the editor on another project (asks about unsaved scene changes first).
 	void OpenProject(const std::filesystem::path& projectFile);
 
+	// ---- Edit scene (the scene document the editor edits) -----------------------
+	// Paths may be absolute or relative to the project root. Scene changes requested while
+	// playing stop play first. All of these take effect at the start of the next frame.
+	void NewScene();
+	void OpenScene(const std::filesystem::path& file);
+	// Saves the edit scene (an empty path: to its current file). Returns false on failure.
+	bool SaveScene(const std::filesystem::path& file = {});
+	const std::filesystem::path& ScenePath() const;   // empty for a scene never saved
+	bool IsSceneDirty() const;
+	void MarkSceneDirty();
+	// The edit world's scene, whatever is playing.
+	Scene& GetEditScene();
+	// Makes `file` the scene the project opens with (written to the .cherryproject).
+	bool SetStartupScene(const std::filesystem::path& file);
+	// Shows a Save / Don't save / Cancel prompt if the scene has unsaved changes.
+	// Returns false if the user cancelled.
+	bool ConfirmDiscardSceneChanges();
+
+	// The scene of the world being shown: the play world while playing, else the edit world.
 	Scene& GetScene();
+	AssetManager& GetAssets();
 	Renderer& GetRenderer();
 	Input& GetInput();
 	Window& GetWindow();

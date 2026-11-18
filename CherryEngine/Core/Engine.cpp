@@ -4,7 +4,10 @@
 #include "Core/BuildProcess.h"
 #include "Game/GameModule.h"
 #include "Editor/EditorLayer.h"
+#include "Scene/SceneSerializer.h"
 #include "imgui.h"
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 #include <algorithm>
 #include <chrono>
@@ -34,6 +37,16 @@ namespace
 	}
 
 	std::wstring Widen(const std::string& text) { return fs::path(text).wstring(); }
+
+	Transform DefaultCameraTransform()
+	{
+		Transform transform;
+		transform.position = { 0.0f, 6.0f, -15.0f };
+		transform.LookAt({ 0, 0, 0 });
+		return transform;
+	}
+
+	fs::path SavedDirFor(const ProjectDesc& project) { return project.IsValid() ? project.saved : cherry::EngineUserDir(); }
 }
 
 struct Engine::Impl
@@ -41,7 +54,14 @@ struct Engine::Impl
 	Window window;
 	Input input;
 	Renderer renderer;
+	AssetManager assets;
 	EditorLayer editor;
+
+	// The scene document
+	fs::path scenePath;               // absolute; empty until saved
+	bool sceneDirty = false;
+	bool wantNewScene = false;
+	fs::path wantOpenScene;
 
 	World editWorld;
 	World playWorld;
@@ -52,11 +72,15 @@ struct Engine::Impl
 	ModuleHost host;
 	IGameModule* staticGame = nullptr;
 	IGameModule* game = nullptr;          // the loaded game, or null
+	std::vector<std::unique_ptr<ISystem>> systems;   // the game's systems (made by RegisterTypes)
+	Engine* self = nullptr;
+	std::string pendingGameState;         // SaveState() of the module before a reload, for LoadState()
 	std::string moduleError;
 	BuildProcess build;
 	bool lastBuildFailed = false;
 	uint32_t reloads = 0;
 	float watchTimer = 0.0f;
+	float assetWatchTimer = 0.0f;
 
 	// Play mode
 	PlayState playState = PlayState::Edit;
@@ -84,7 +108,18 @@ struct Engine::Impl
 
 	bool ResolveProject(const LaunchOptions& options, std::string& error);
 	void LoadModule();
-	World MakeWorld();
+	void UnloadModule();
+	void NotifySystemsUnload();
+	void RegisterGameTypes();
+	std::string GameOwner() const { return staticGame ? std::string("game") : project.module; }
+	World MakeWorld(bool withCamera);
+	fs::path ResolveScenePath(const fs::path& file) const;
+	void LoadEditScene(const fs::path& file);
+	void MakeNewScene(bool templateContent);
+	void LoadEditorState();
+	void SaveEditorState();
+	void ResolveAssets(Scene& scene);
+	void ApplyEnvironment(Scene& scene);
 	void DestroyWorld(World& world);
 	void StartPlay(Engine& engine);
 	void StopPlay(Engine& engine);
@@ -98,6 +133,8 @@ Engine::Engine() : mImpl(std::make_unique<Impl>()) {}
 Engine::~Engine() = default;
 
 Scene& Engine::GetScene() { return *mImpl->active->scene; }
+Scene& Engine::GetEditScene() { return *mImpl->editWorld.scene; }
+AssetManager& Engine::GetAssets() { return mImpl->assets; }
 Renderer& Engine::GetRenderer() { return mImpl->renderer; }
 Input& Engine::GetInput() { return mImpl->input; }
 Window& Engine::GetWindow() { return mImpl->window; }
@@ -122,9 +159,12 @@ fs::path Engine::SavedDir() const { return mImpl->project.IsValid() ? mImpl->pro
 std::wstring Engine::ContentPath(const std::wstring& relative) const { return (mImpl->project.content / relative).wstring(); }
 
 PlayState Engine::GetPlayState() const { return mImpl->playState; }
+const std::string& Engine::HotReloadState() const { return mImpl->pendingGameState; }
 void Engine::Play() { mImpl->wantPlay = true; }
 void Engine::Stop() { mImpl->wantStop = true; }
 void Engine::SetPaused(bool paused) { mImpl->wantPause = true; mImpl->pauseRequested = paused; }
+
+const std::vector<std::unique_ptr<ISystem>>& Engine::GameSystems() const { return mImpl->systems; }
 
 ModuleStatus Engine::GetModuleStatus() const
 {
@@ -166,6 +206,8 @@ void Engine::ReloadModule() { mImpl->wantReload = true; }
 
 void Engine::OpenProject(const fs::path& projectFile)
 {
+	if (!ConfirmDiscardSceneChanges()) return;
+	mImpl->sceneDirty = false;   // answered: don't ask again on the way out
 	// A fresh process is the simplest way to get a clean engine, ImGui layout and module.
 	wchar_t exePath[MAX_PATH];
 	GetModuleFileNameW(nullptr, exePath, MAX_PATH);
@@ -182,13 +224,192 @@ void Engine::OpenProject(const fs::path& projectFile)
 	mImpl->quitRequested = true;
 }
 
+void Engine::NewScene() { mImpl->wantNewScene = true; }
+void Engine::OpenScene(const fs::path& file) { mImpl->wantOpenScene = mImpl->ResolveScenePath(file); }
+const fs::path& Engine::ScenePath() const { return mImpl->scenePath; }
+bool Engine::IsSceneDirty() const { return mImpl->sceneDirty; }
+void Engine::MarkSceneDirty() { mImpl->sceneDirty = true; }
+
+bool Engine::SaveScene(const fs::path& file)
+{
+	Impl& e = *mImpl;
+	const fs::path target = file.empty() ? e.scenePath : e.ResolveScenePath(file);
+	if (target.empty() || !e.editWorld) return false;
+	std::string error;
+	if (!cherry::SaveScene(*e.editWorld.scene, target, error))
+	{
+		CHERRY_ERROR("Saving the scene failed: %s", error.c_str());
+		return false;
+	}
+	e.scenePath = target;
+	e.sceneDirty = false;
+	e.SaveEditorState();
+	CHERRY_LOG("Saved scene %s", target.string().c_str());
+	return true;
+}
+
+bool Engine::SetStartupScene(const fs::path& file)
+{
+	Impl& e = *mImpl;
+	if (!e.project.IsValid() || e.project.file.empty()) return false;
+	std::ifstream in(e.project.file);
+	nlohmann::ordered_json json = nlohmann::ordered_json::parse(in, nullptr, false);
+	if (json.is_discarded() || !json.is_object()) return false;
+	const fs::path relative = e.ResolveScenePath(file).lexically_relative(e.project.root);
+	json["startupScene"] = relative.generic_string();
+	in.close();
+	std::ofstream out(e.project.file, std::ios::trunc);
+	out << json.dump(2) << "\n";
+	if (!out) return false;
+	e.project.startupScene = relative.generic_string();
+	CHERRY_LOG("Startup scene: %s", e.project.startupScene.c_str());
+	return true;
+}
+
+bool Engine::ConfirmDiscardSceneChanges()
+{
+	Impl& e = *mImpl;
+	if (!e.sceneDirty) return true;
+	const std::string name = e.scenePath.empty() ? std::string("the untitled scene") : e.scenePath.filename().string();
+	const std::string question = "Save changes to " + name + "?";
+	const int answer = MessageBoxA(e.window.Handle(), question.c_str(), "Cherry Editor", MB_YESNOCANCEL | MB_ICONQUESTION);
+	if (answer == IDCANCEL) return false;
+	if (answer == IDYES)
+	{
+		if (e.scenePath.empty())
+		{
+			// No file yet: put it in Content/Scenes under a free name.
+			fs::path target = e.project.content / "Scenes" / "Untitled.scene";
+			for (int i = 2; fs::exists(target); ++i) target = e.project.content / "Scenes" / ("Untitled" + std::to_string(i) + ".scene");
+			return SaveScene(target);
+		}
+		return SaveScene();
+	}
+	return true;
+}
+
+fs::path Engine::Impl::ResolveScenePath(const fs::path& file) const
+{
+	if (file.empty()) return {};
+	if (file.is_absolute()) return file.lexically_normal();
+	return (project.root / file).lexically_normal();
+}
+
+void Engine::Impl::MakeNewScene(bool templateContent)
+{
+	Scene& scene = *editWorld.scene;
+	scene.Clear();
+	const Entity environment = scene.CreateNamedEntity("Environment");
+	scene.Add(environment, Environment{});
+	if (templateContent)
+	{
+		const Entity floor = scene.CreateNamedEntity("Floor");
+		scene.Get<Transform>(floor).scale = { 20.0f, 1.0f, 20.0f };
+		MeshRenderer floorMesh;
+		floorMesh.meshAsset = "engine/Plane";
+		floorMesh.materialAsset = "engine/Stone";
+		scene.Add(floor, floorMesh);
+
+		const Entity cube = scene.CreateNamedEntity("Cube");
+		scene.Get<Transform>(cube).position = { 0.0f, 0.5f, 0.0f };
+		MeshRenderer cubeMesh;
+		cubeMesh.meshAsset = "engine/Cube";
+		cubeMesh.materialAsset = "engine/Default";
+		scene.Add(cube, cubeMesh);
+
+		const Entity light = scene.CreateNamedEntity("Light");
+		scene.Get<Transform>(light).position = { 2.0f, 3.0f, -2.0f };
+		scene.Add(light, PointLightComponent{});
+	}
+	scenePath.clear();
+	sceneDirty = false;
+}
+
+void Engine::Impl::LoadEditScene(const fs::path& file)
+{
+	std::string error;
+	if (!cherry::LoadScene(*editWorld.scene, file, error))
+	{
+		CHERRY_ERROR("Opening the scene failed: %s", error.c_str());
+		MakeNewScene(false);
+		return;
+	}
+	scenePath = file;
+	sceneDirty = false;
+	CHERRY_LOG("Opened scene %s (%zu entities)", file.string().c_str(), editWorld.scene->Entities().size());
+}
+
+void Engine::Impl::LoadEditorState()
+{
+	fs::path last;
+	std::ifstream in(SavedDirFor(project) / "EditorState.json");
+	if (in)
+	{
+		nlohmann::json json = nlohmann::json::parse(in, nullptr, false);
+		if (json.is_object() && json.contains("scene") && json["scene"].is_string())
+		{
+			last = ResolveScenePath(fs::path(json["scene"].get<std::string>()));
+		}
+	}
+	if (last.empty() && !project.startupScene.empty()) last = ResolveScenePath(project.startupScene);
+	if (!last.empty() && fs::exists(last)) LoadEditScene(last);
+	else MakeNewScene(false);
+}
+
+void Engine::Impl::SaveEditorState()
+{
+	if (!project.IsValid() || staticGame) return;
+	nlohmann::json json = nlohmann::json::object();
+	json["scene"] = scenePath.empty() ? std::string() : scenePath.lexically_relative(project.root).generic_string();
+	std::ofstream out(SavedDirFor(project) / "EditorState.json", std::ios::trunc);
+	out << json.dump(2) << "\n";
+}
+
+void Engine::Impl::ResolveAssets(Scene& scene)
+{
+	for (Entity entity : scene.MeshEntities())
+	{
+		MeshRenderer& renderer = scene.Get<MeshRenderer>(entity);
+		if (!renderer.mesh.IsValid() && !renderer.meshAsset.empty()) renderer.mesh = assets.GetMesh(renderer.meshAsset);
+		if (!renderer.material.IsValid() && !renderer.materialAsset.empty()) renderer.material = assets.GetMaterial(renderer.materialAsset);
+	}
+}
+
+void Engine::Impl::ApplyEnvironment(Scene& scene)
+{
+	for (Entity entity : scene.Entities())
+	{
+		const Environment* environment = scene.TryGet<Environment>(entity);
+		if (!environment) continue;
+		RenderSettings& settings = renderer.Settings();
+		settings.clearColor = environment->skyColor;
+		settings.ambient = environment->ambient;
+		settings.sunDirection = environment->sunDirection;
+		settings.sunColor = environment->sunColor;
+		settings.fillLightScale = environment->fillLightScale;
+		settings.fogEnabled = environment->fogEnabled;
+		settings.fogColor = environment->fogColor;
+		settings.fogStart = environment->fogStart;
+		settings.fogEnd = environment->fogEnd;
+		settings.exposure = environment->exposure;
+		return;   // the first one wins
+	}
+}
+
 bool Engine::Impl::ResolveProject(const LaunchOptions& options, std::string& error)
 {
 	if (options.staticGame)
 	{
-		// Packaged game: content was copied next to the executable.
+		// Packaged game: content (and the project file, for the startup scene) were copied
+		// next to the executable.
 		const fs::path exeDir = cherry::ExecutableDir();
-		project.name = "Game";
+		std::error_code ec;
+		for (const fs::directory_entry& entry : fs::directory_iterator(exeDir, ec))
+		{
+			std::string ignored;
+			if (entry.path().extension() == ".cherryproject" && cherry::LoadProjectFile(entry.path(), project, ignored)) break;
+		}
+		if (project.name.empty()) project.name = "Game";
 		project.module = "(static)";
 		project.root = exeDir;
 		project.content = exeDir / "Content";
@@ -228,6 +449,7 @@ void Engine::Impl::LoadModule()
 	if (staticGame)
 	{
 		game = staticGame;
+		RegisterGameTypes();
 		return;
 	}
 	if (!project.IsValid()) return;
@@ -235,6 +457,7 @@ void Engine::Impl::LoadModule()
 	if (host.Load(dll, project.saved / "Modules", moduleError))
 	{
 		game = host.Game();
+		RegisterGameTypes();
 	}
 	else
 	{
@@ -242,18 +465,56 @@ void Engine::Impl::LoadModule()
 	}
 }
 
-World Engine::Impl::MakeWorld()
+void Engine::Impl::RegisterGameTypes()
+{
+	TypeRegistry& registry = TypeRegistry::Get();
+	registry.SetCurrentOwner(GameOwner());
+	GameTypes types(registry);
+	try
+	{
+		game->RegisterTypes(types);
+	}
+	catch (const std::exception& ex)
+	{
+		CHERRY_ERROR("Game RegisterTypes threw: %s", ex.what());
+	}
+	registry.SetCurrentOwner("engine");
+	systems = std::move(types.Systems());
+	size_t components = 0;
+	for (const auto& info : registry.Components()) if (info->owner == GameOwner()) ++components;
+	if (components || !systems.empty()) CHERRY_LOG("Game types: %zu components, %zu systems", components, systems.size());
+}
+
+void Engine::Impl::NotifySystemsUnload()
+{
+	// While the scenes still exist: systems free what they made outside play.
+	for (auto& system : systems)
+	{
+		try { if (self) system->OnUnload(*self); }
+		catch (const std::exception& ex) { CHERRY_ERROR("System OnUnload threw: %s", ex.what()); }
+	}
+}
+
+void Engine::Impl::UnloadModule()
+{
+	// Everything made by code in the DLL goes before the DLL: systems, then the
+	// reflected types (their scene operations), then the module itself.
+	systems.clear();
+	TypeRegistry::Get().Unregister(GameOwner());
+	game = nullptr;
+	host.Unload();
+}
+
+World Engine::Impl::MakeWorld(bool withCamera)
 {
 	World world;
 	world.physics = std::make_unique<PhysicsWorld>();
 	world.physics->Initialize();
 	world.scene = std::make_unique<Scene>();
+	if (!withCamera) return world;
 
 	world.camera = world.scene->CreateEntity();
-	Transform transform;
-	transform.position = { 0.0f, 6.0f, -15.0f };
-	transform.LookAt({ 0, 0, 0 });
-	world.scene->Add(world.camera, transform);
+	world.scene->Add(world.camera, DefaultCameraTransform());
 	world.scene->Add(world.camera, Camera{});
 	return world;
 }
@@ -275,19 +536,41 @@ void Engine::Impl::StartPlay(Engine& engine)
 	editor.OnWorldChanging(engine);
 	settingsBeforePlay = renderer.Settings();
 	descriptorsBeforePlay = renderer.Stats().descriptorsInUse;
-	playWorld = MakeWorld();
+
+	// The play world starts as a copy of the edit scene. Its camera is the scene's first
+	// Camera entity, or (scenes without one) a default camera the game can move.
+	playWorld = MakeWorld(false);
+	cherry::CopyScene(*editWorld.scene, *playWorld.scene);
+	for (Entity entity : playWorld.scene->Entities())
+	{
+		if (playWorld.scene->Has<Camera>(entity) && playWorld.scene->Has<Transform>(entity))
+		{
+			playWorld.camera = entity;
+			break;
+		}
+	}
+	if (playWorld.camera == INVALID_ENTITY)
+	{
+		playWorld.camera = playWorld.scene->CreateEntity();
+		playWorld.scene->Add(playWorld.camera, DefaultCameraTransform());
+		playWorld.scene->Add(playWorld.camera, Camera{});
+	}
 	active = &playWorld;
+	ApplyEnvironment(*playWorld.scene);   // before OnStartup, so the game can override it
 	playState = PlayState::Playing;
 	CHERRY_LOG("Play");
 	try
 	{
 		game->OnStartup(engine);
+		for (auto& system : systems) system->OnPlayBegin(engine);
+		if (!pendingGameState.empty()) game->LoadState(engine, pendingGameState);
 	}
 	catch (const std::exception& ex)
 	{
 		CHERRY_ERROR("Game OnStartup threw: %s", ex.what());
 		wantStop = true;
 	}
+	pendingGameState.clear();
 }
 
 void Engine::Impl::StopPlay(Engine& engine)
@@ -295,6 +578,7 @@ void Engine::Impl::StopPlay(Engine& engine)
 	if (playState == PlayState::Edit) return;
 	try
 	{
+		for (auto& system : systems) system->OnPlayEnd(engine);
 		if (game) game->OnShutdown(engine);
 	}
 	catch (const std::exception& ex)
@@ -326,10 +610,25 @@ void Engine::Impl::ProcessRequests(Engine& engine)
 		if (!staticGame && project.IsValid())
 		{
 			const bool wasPlaying = playState != PlayState::Edit;
+			if (wasPlaying && game)
+			{
+				try { pendingGameState = game->SaveState(engine); }
+				catch (const std::exception& ex) { CHERRY_ERROR("Game SaveState threw: %s", ex.what()); }
+			}
 			StopPlay(engine);
-			host.Unload();
-			game = nullptr;
+
+			// The edit scene may hold components whose code is in the old DLL. Save it with
+			// the old types, drop it, swap the module, and load it back with the new types
+			// (fields are matched by name, so changed component layouts load too).
+			editor.OnSceneReplaced(engine);
+			NotifySystemsUnload();
+			const std::string editJson = cherry::SceneToJson(*editWorld.scene);
+			editWorld.scene.reset();
+			UnloadModule();
 			LoadModule();
+			editWorld.scene = std::make_unique<Scene>();
+			std::string error;
+			if (!cherry::SceneFromJson(*editWorld.scene, editJson, error)) CHERRY_ERROR("Reloading the scene failed: %s", error.c_str());
 			if (game)
 			{
 				++reloads;
@@ -339,6 +638,16 @@ void Engine::Impl::ProcessRequests(Engine& engine)
 			}
 			if (wasPlaying) wantPlay = true;
 		}
+	}
+	if (wantNewScene || !wantOpenScene.empty())
+	{
+		StopPlay(engine);
+		editor.OnSceneReplaced(engine);
+		if (wantNewScene) MakeNewScene(true);
+		else LoadEditScene(wantOpenScene);
+		wantNewScene = false;
+		wantOpenScene.clear();
+		SaveEditorState();
 	}
 	if (wantStop)
 	{
@@ -380,12 +689,25 @@ bool Engine::Impl::UpdateMainView()
 {
 	Scene& scene = *active->scene;
 	const Entity camera = active->camera;
-	if (!scene.IsAlive(camera) || !scene.Has<Camera>(camera) || !scene.Has<Transform>(camera))
+	Transform transform;
+	Camera cameraData;
+	if (playState == PlayState::Edit)
 	{
-		return false;
+		// Editing: the editor's own fly camera, not an entity.
+		editor.GetEditorCamera(transform, cameraData);
 	}
-	const Transform& transform = scene.Get<Transform>(camera);
-	const Camera& cameraData = scene.Get<Camera>(camera);
+	else
+	{
+		if (!scene.IsAlive(camera) || !scene.Has<Camera>(camera) || !scene.Has<Transform>(camera))
+		{
+			return false;
+		}
+		cameraData = scene.Get<Camera>(camera);
+		XMVECTOR scale, rotation, translation;
+		XMMatrixDecompose(&scale, &rotation, &translation, scene.WorldMatrix(camera));
+		XMStoreFloat4(&transform.rotation, rotation);
+		XMStoreFloat3(&transform.position, translation);
+	}
 
 	// View = inverse of the camera's rigid transform (scale ignored).
 	const XMMATRIX world = XMMatrixRotationQuaternion(XMLoadFloat4(&transform.rotation))
@@ -411,6 +733,7 @@ int Engine::Run(IGameModule& game)
 int Engine::Run(const LaunchOptions& options)
 {
 	Impl& e = *mImpl;
+	e.self = this;
 	e.staticGame = options.staticGame;
 	e.gameSession = options.play || options.staticGame || !options.moduleName.empty();
 
@@ -463,11 +786,24 @@ int Engine::Run(const LaunchOptions& options)
 		e.imguiIniPath = (SavedDir() / "imgui.ini").string();
 		ImGui::GetIO().IniFilename = e.imguiIniPath.c_str();
 
-		e.editWorld = e.MakeWorld();
+		e.assets.Initialize(e.renderer);
+		if (e.project.IsValid()) e.assets.SetContentRoot(e.project.content);
+		e.editWorld = e.MakeWorld(false);
 		e.active = &e.editWorld;
+		e.editor.LoadSettings(SavedDir() / "EditorCamera.txt");
+		if (e.gameSession && !e.project.startupScene.empty()) e.LoadEditScene(e.ResolveScenePath(e.project.startupScene));
+		else if (e.gameSession) e.MakeNewScene(false);
+		else e.LoadEditorState();
+		e.ResolveAssets(*e.editWorld.scene);
 		if (e.gameSession) e.StartPlay(*this);
 		exitCode = e.Loop(*this);
 		e.StopPlay(*this);
+		if (!e.gameSession)
+		{
+			ConfirmDiscardSceneChanges();   // the window is closing either way: Cancel means don't save
+			e.SaveEditorState();
+			e.editor.SaveSettings(SavedDir() / "EditorCamera.txt");
+		}
 	}
 	catch (const std::exception& ex)
 	{
@@ -476,12 +812,13 @@ int Engine::Run(const LaunchOptions& options)
 		exitCode = -3;
 	}
 
+	if (e.editWorld) e.NotifySystemsUnload();
 	e.editor.Shutdown(*this);
 	e.DestroyWorld(e.playWorld);
 	e.active = &e.editWorld;
 	e.DestroyWorld(e.editWorld);
-	e.game = nullptr;
-	e.host.Unload();
+	e.UnloadModule();
+	e.assets.Shutdown();
 	e.renderer.Shutdown();
 	e.window.Destroy();
 	return exitCode;
@@ -557,6 +894,7 @@ int Engine::Impl::Loop(Engine& engine)
 			try
 			{
 				game->OnUpdate(engine, deltaTime);
+				for (auto& system : systems) system->OnUpdate(engine, deltaTime);
 			}
 			catch (const std::exception& ex)
 			{
@@ -577,6 +915,34 @@ int Engine::Impl::Loop(Engine& engine)
 			}
 		}
 
+		// Asset files changed on disk: reload, and point both worlds at replaced meshes.
+		assetWatchTimer += deltaTime;
+		if (assetWatchTimer > 1.0f)
+		{
+			assetWatchTimer = 0.0f;
+			std::vector<std::pair<MeshHandle, MeshHandle>> replaced;
+			assets.PollChanges(replaced);
+			for (World* world : { &editWorld, &playWorld })
+			{
+				if (!*world) continue;
+				for (Entity entity : world->scene->MeshEntities())
+				{
+					MeshRenderer& renderer = world->scene->Get<MeshRenderer>(entity);
+					for (const auto& [old, fresh] : replaced) if (renderer.mesh == old) renderer.mesh = fresh;
+				}
+			}
+		}
+		if (playState == PlayState::Edit)
+		{
+			for (auto& system : systems)
+			{
+				if (!system->RunsInEditMode()) continue;
+				try { system->OnEditUpdate(engine, deltaTime); }
+				catch (const std::exception& ex) { CHERRY_ERROR("System OnEditUpdate threw: %s", ex.what()); }
+			}
+		}
+		ResolveAssets(*active->scene);
+		if (playState == PlayState::Edit) ApplyEnvironment(*active->scene);
 		if (UpdateMainView())
 		{
 			renderer.RenderScene(*active->scene, mainView);
@@ -596,7 +962,9 @@ int Engine::Impl::Loop(Engine& engine)
 		{
 			const wchar_t* state = playState == PlayState::Playing ? L"playing" : playState == PlayState::Paused ? L"paused" : L"editing";
 			wchar_t title[256];
-			swprintf_s(title, L"%s  |  %.0f fps  %.2f ms  |  GPU %.2f ms  |  %s, %s (F1)", baseTitle.c_str(),
+			std::wstring sceneName = scenePath.empty() ? std::wstring(L"untitled") : scenePath.stem().wstring();
+			if (sceneDirty) sceneName += L"*";
+			swprintf_s(title, L"%s - %s  |  %.0f fps  %.2f ms  |  GPU %.2f ms  |  %s, %s (F1)", baseTitle.c_str(), sceneName.c_str(),
 				titleFrames / titleTimer, 1000.0f * titleTimer / titleFrames, renderer.Stats().gpuFrameMs,
 				state, editorMode ? L"editor" : L"game view");
 			window.SetTitle(title);
@@ -644,7 +1012,7 @@ std::optional<RaycastHit> Engine::Raycast(const Ray& ray) const
 
 		// Intersect in the mesh's local space. The local direction is not renormalized,
 		// so t is a world-space distance.
-		const XMMATRIX world = scene.Get<Transform>(entity).Matrix();
+		const XMMATRIX world = scene.WorldMatrix(entity);
 		const XMMATRIX invWorld = XMMatrixInverse(nullptr, world);
 		XMFLOAT3 o, d;
 		XMStoreFloat3(&o, XMVector3TransformCoord(originW, invWorld));

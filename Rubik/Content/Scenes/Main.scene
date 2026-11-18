@@ -1,0 +1,33 @@
+{
+	"format": "cherry-scene",
+	"version": 1,
+	"entities": [
+		{
+			"guid": "6a1f0c2e9b7d4e01",
+			"components": {
+				"EntityInfo": { "name": "Environment" },
+				"Transform": { "position": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },
+				"Environment": {
+					"skyColor": [0.2, 0.26, 0.38, 1],
+					"ambient": [0.25, 0.25, 0.32],
+					"sunDirection": [-0.4, -0.8, 0.45],
+					"sunColor": [1, 0.97, 0.9],
+					"fillLightScale": 1,
+					"fogEnabled": false,
+					"fogColor": [0.35, 0.48, 0.75],
+					"fogStart": 50,
+					"fogEnd": 200,
+					"exposure": 1
+				}
+			}
+		},
+		{
+			"guid": "6a1f0c2e9b7d4e02",
+			"components": {
+				"EntityInfo": { "name": "Rubik's Cube" },
+				"Transform": { "position": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },
+				"RubikCube": { "turnTime": 0.18, "cameraDistance": 17 }
+			}
+		}
+	]
+}

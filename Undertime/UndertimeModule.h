@@ -9,6 +9,7 @@
 #include "Fragments.h"
 #include "CaveGenerator.h"
 #include "CaveMap.h"
+#include "SceneComponents.h"
 #include <array>
 #include <string>
 #include <vector>
@@ -22,10 +23,14 @@ class UndertimeModule : public IGameModule
 {
 public:
 	EngineConfig GetConfig() const override;
+	void RegisterTypes(GameTypes& types) override;
 	void OnStartup(Engine& engine) override;
 	void OnUpdate(Engine& engine, float deltaTime) override;
 	void OnImGui(Engine& engine) override;
 	void OnShutdown(Engine& engine) override;
+	// Hot reload while playing keeps the mountain (seed) and where the player stands.
+	std::string SaveState(Engine& engine) override;
+	void LoadState(Engine& engine, const std::string& state) override;
 
 private:
 	enum class State { Title, Playing, Paused };
@@ -83,6 +88,11 @@ private:
 
 	VoxelWorld world;
 	uint32_t seed = 0;
+	// From the scene: the CaveWorld's seed (0 = random) and the PlayerStart, if any.
+	uint32_t sceneSeed = 0;
+	bool hasSceneSpawn = false;
+	DirectX::XMFLOAT3 sceneSpawn{ 0, 0, 0 };
+	float sceneSpawnYaw = 0.0f;
 	CaveLayout layout;
 	CaveMap map;
 	bool mapOpen = false;

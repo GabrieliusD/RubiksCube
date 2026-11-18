@@ -1,4 +1,6 @@
 #include "RubikModule.h"
+#include <Core/Log.h>
+#include <sstream>
 #include <imgui.h>
 #include <cmath>
 #include <algorithm>
@@ -93,14 +95,45 @@ MeshHandle RubikModule::CreateCubieMesh(Renderer& renderer, const int home[3])
 	return renderer.CreateMesh(mesh);
 }
 
+void RubikModule::RegisterTypes(GameTypes& types)
+{
+	types.Component<RubikCube>("RubikCube")
+		.Field("turnTime", &RubikCube::turnTime, 0.03f, 2.0f).Speed(0.01f)
+		.Field("cameraDistance", &RubikCube::cameraDistance, 4.0f, 60.0f).Speed(0.1f);
+}
+
 void RubikModule::OnStartup(Engine& engine)
 {
 	Renderer& renderer = engine.GetRenderer();
 	Scene& scene = engine.GetScene();
 
-	RenderSettings& settings = renderer.Settings();
-	settings.sunDirection = { -0.4f, -0.8f, 0.45f };
-	settings.clearColor = { 0.20f, 0.26f, 0.38f, 1.0f };
+	// The scene's RubikCube says where the puzzle is; a scene without one gets a cube at the origin.
+	mCubeEntity = INVALID_ENTITY;
+	scene.RegisterComponent<RubikCube>();
+	scene.Each<RubikCube>([&](Entity entity, RubikCube&) { if (mCubeEntity == INVALID_ENTITY) mCubeEntity = entity; });
+	mOwnCubeEntity = mCubeEntity == INVALID_ENTITY;
+	if (mOwnCubeEntity)
+	{
+		mCubeEntity = scene.CreateEntity();
+		scene.Add(mCubeEntity, Transform{});
+		scene.Add(mCubeEntity, RubikCube{});
+	}
+	if (!scene.Has<Transform>(mCubeEntity)) scene.Add(mCubeEntity, Transform{});
+	const RubikCube& settingsComponent = scene.Get<RubikCube>(mCubeEntity);
+	ResetPuzzle();
+	mSelected.reset();
+	mOpenVictory = false;
+	mTurnDuration = settingsComponent.turnTime;
+
+	// Lighting: the scene's Environment if it has one, else the game's own.
+	bool hasEnvironment = false;
+	scene.Each<Environment>([&](Entity, Environment&) { hasEnvironment = true; });
+	if (!hasEnvironment)
+	{
+		RenderSettings& settings = renderer.Settings();
+		settings.sunDirection = { -0.4f, -0.8f, 0.45f };
+		settings.clearColor = { 0.20f, 0.26f, 0.38f, 1.0f };
+	}
 
 	mStickerTexture = renderer.LoadTexture(engine.ContentPath(L"Textures/rubicPallet.dds"));
 
@@ -120,10 +153,11 @@ void RubikModule::OnStartup(Engine& engine)
 		mCubieEntities[i] = scene.CreateEntity();
 		scene.Add(mCubieEntities[i], Transform{});
 		scene.Add(mCubieEntities[i], MeshRenderer{ mCubieMeshes[i], mMaterial });
+		scene.Add(mCubieEntities[i], Parent{ mCubeEntity });
 	}
 
-	mOrbit.target = { 0, 0, 0 };
-	mOrbit.distance = 17.0f;
+	mOrbit.target = scene.WorldPosition(mCubeEntity);
+	mOrbit.distance = settingsComponent.cameraDistance;
 	mOrbit.yaw = 0.65f;
 	mOrbit.pitch = 0.5f;
 	mOrbit.Apply(scene.Get<Transform>(engine.MainCamera()));
@@ -143,6 +177,32 @@ void RubikModule::OnShutdown(Engine& engine)
 	renderer.DestroyMaterial(mMaterial);
 	renderer.DestroyMaterial(mSelectedMaterial);
 	renderer.DestroyTexture(mStickerTexture);
+	if (mOwnCubeEntity) scene.DestroyEntity(mCubeEntity);
+	mCubeEntity = INVALID_ENTITY;
+}
+
+// Hot reload while playing: the turns so far, so the new module rebuilds the same cube.
+std::string RubikModule::SaveState(Engine&)
+{
+	return std::to_string(mMoveCount) + " " + std::to_string(mSolveTime) + " " + (mScrambled ? "1" : "0") + "|" + mHistory;
+}
+
+void RubikModule::LoadState(Engine& engine, const std::string& state)
+{
+	const size_t bar = state.find('|');
+	if (bar == std::string::npos) return;
+	int scrambled = 0;
+	std::istringstream(state.substr(0, bar)) >> mMoveCount >> mSolveTime >> scrambled;
+	mScrambled = scrambled != 0;
+	std::vector<std::pair<Face, bool>> turns;
+	RubikPuzzle::ParseMoves(state.substr(bar + 1), turns);
+	for (const auto& [face, clockwise] : turns)
+	{
+		mPuzzle.Turn(face, clockwise);
+	}
+	mHistory = state.substr(bar + 1);
+	SyncEntities(engine);
+	CHERRY_LOG("Rubik: restored %zu turns after reload", turns.size());
 }
 
 void RubikModule::QueueMove(Face face, bool clockwise, bool byPlayer)
@@ -170,6 +230,7 @@ void RubikModule::ResetPuzzle()
 	mTurning = false;
 	mTurnTime = 0.0f;
 	mPuzzle.Reset();
+	mHistory.clear();
 	mScrambled = false;
 	mMoveCount = 0;
 	mSolveTime = 0.0f;
@@ -191,7 +252,12 @@ void RubikModule::HandleInput(Engine& engine)
 		{
 			if (std::find(mCubieEntities.begin(), mCubieEntities.end(), hit->entity) != mCubieEntities.end())
 			{
-				mSelected = RubikPuzzle::FromNormal(hit->normal);
+				// The hit normal is in world space; the faces are in the cube entity's space.
+				XMVECTOR scale, rotation, translation;
+				XMMatrixDecompose(&scale, &rotation, &translation, scene.WorldMatrix(mCubeEntity));
+				XMFLOAT3 local;
+				XMStoreFloat3(&local, XMVector3Rotate(XMLoadFloat3(&hit->normal), XMQuaternionInverse(rotation)));
+				mSelected = RubikPuzzle::FromNormal(local);
 			}
 		}
 	}
@@ -234,6 +300,8 @@ void RubikModule::UpdateTurn(float deltaTime)
 	if (mTurnTime < move.duration) return;
 
 	mPuzzle.Turn(move.face, move.clockwise);
+	mHistory += RubikPuzzle::Letter(move.face);
+	mHistory += move.clockwise ? " " : "' ";
 	const bool byPlayer = move.byPlayer;
 	mQueue.pop_front();
 	mTurning = false;
@@ -289,7 +357,10 @@ void RubikModule::SyncEntities(Engine& engine)
 		const float half = 1.5f * kSpacing + 0.05f;
 		BoundingBox layer({ n.x * kSpacing, n.y * kSpacing, n.z * kSpacing },
 			{ n.x != 0 ? kSpacing * 0.5f + 0.05f : half, n.y != 0 ? kSpacing * 0.5f + 0.05f : half, n.z != 0 ? kSpacing * 0.5f + 0.05f : half });
-		engine.GetRenderer().Debug().Box(layer, DebugDraw::Color(1.0f, 0.85f, 0.2f));
+		BoundingOrientedBox box;
+		BoundingOrientedBox::CreateFromBoundingBox(box, layer);
+		box.Transform(box, scene.WorldMatrix(mCubeEntity));
+		engine.GetRenderer().Debug().Box(box, DebugDraw::Color(1.0f, 0.85f, 0.2f));
 	}
 }
 

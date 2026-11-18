@@ -5,7 +5,17 @@ Goal: turn the CherryEngine editor into an Unreal-style editor. You open a game
 press **Play** to run the current scene as the game. **Stop** returns to the scene
 exactly as you left it.
 
-Status: M1 (projects and module host) is implemented on `features/editor-projects`. M2 onwards is design only.
+Status: M1 to M6 are implemented on `features/editor-projects`. Some decisions changed during implementation:
+
+| Planned | Built instead | Why |
+|---|---|---|
+| Asset GUIDs in `.meta` sidecar files | Assets referenced by their path under `Content/` (`Meshes/rock.glb`, `Materials/rock.mat`; built-ins `engine/Cube`) | Simpler, readable scene files, no sidecars; `*.meta` is in `.gitignore` anyway. Renaming a file breaks references to it. |
+| ImGuizmo | A small gizmo of our own (`Editor/Gizmo.cpp`) | No third-party code fetched outside vcpkg, and no dependency on an ImGui fork. |
+| Undo commands per edit | Whole-scene JSON snapshots, committed when a drag ends | Covers every kind of edit with no per-command code; scenes are small. |
+| Separate `WorldTransform` component | `Scene::WorldMatrix(entity)`, computed from the `Parent` chain when needed | No per-frame transform system to keep in sync. |
+| Unknown components stored per entity | Same (`UnknownComponents`), written back on save | |
+
+The sections below are the original design; see the table above for where the code differs.
 
 ## Decisions taken
 

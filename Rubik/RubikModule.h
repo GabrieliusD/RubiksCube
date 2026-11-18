@@ -7,15 +7,26 @@
 #include <deque>
 #include <optional>
 
+// Placed in a scene: where the puzzle goes and how it plays. Without one, OnStartup
+// puts a cube at the origin.
+struct RubikCube
+{
+	float turnTime = 0.18f;        // seconds per player turn
+	float cameraDistance = 17.0f;  // orbit camera distance from the cube
+};
+
 // The Rubik's cube game, built on CherryEngine as a separate module.
 class RubikModule : public IGameModule
 {
 public:
 	EngineConfig GetConfig() const override;
+	void RegisterTypes(GameTypes& types) override;
 	void OnStartup(Engine& engine) override;
 	void OnUpdate(Engine& engine, float deltaTime) override;
 	void OnImGui(Engine& engine) override;
 	void OnShutdown(Engine& engine) override;
+	std::string SaveState(Engine& engine) override;
+	void LoadState(Engine& engine, const std::string& state) override;
 
 private:
 	using Face = RubikPuzzle::Face;
@@ -37,6 +48,9 @@ private:
 	void SyncEntities(Engine& engine);
 
 	RubikPuzzle mPuzzle;
+	Entity mCubeEntity = INVALID_ENTITY;      // the RubikCube entity: cubies are its children
+	bool mOwnCubeEntity = false;              // made by OnStartup (no RubikCube in the scene)
+	std::string mHistory;                     // every turn applied since the last reset ("R U' ...")
 	std::array<Entity, 27> mCubieEntities{};
 	std::array<MeshHandle, 27> mCubieMeshes{};
 	TextureHandle mStickerTexture;

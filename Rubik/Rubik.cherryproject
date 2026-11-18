@@ -1,5 +1,6 @@
 {
   "name": "Rubik's Cube",
   "module": "RubikGame",
-  "content": "Content"
+  "content": "Content",
+  "startupScene": "Content/Scenes/Main.scene"
 }

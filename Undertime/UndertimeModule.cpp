@@ -4,6 +4,7 @@
 #include "Structure.h"
 #include <cmath>
 #include <cstdio>
+#include <sstream>
 #include <climits>
 #include <random>
 #include <unordered_set>
@@ -67,8 +68,56 @@ std::string UndertimeModule::BuildStamp()
 	return text;
 }
 
+void UndertimeModule::RegisterTypes(GameTypes& types)
+{
+	types.Component<CaveWorld>("CaveWorld")
+		.Field("seed", &CaveWorld::seed);
+	types.Component<PlayerStart>("PlayerStart");
+	types.System<CavePreviewSystem>();
+}
+
+std::string UndertimeModule::SaveState(Engine&)
+{
+	char text[96];
+	std::snprintf(text, sizeof(text), "%u %.4f %.4f %.4f %.4f", seed, player.position.x, player.position.y, player.position.z, player.yaw);
+	return text;
+}
+
+void UndertimeModule::LoadState(Engine& engine, const std::string& text)
+{
+	unsigned savedSeed = 0;
+	DirectX::XMFLOAT3 feet{};
+	float yaw = 0.0f;
+	std::istringstream stream(text);
+	if (!(stream >> savedSeed >> feet.x >> feet.y >> feet.z >> yaw)) return;
+	if (savedSeed != seed) NewWorld(engine, savedSeed);
+	player.Teleport(feet, yaw);
+	UpdateCamera(engine);
+	CHERRY_LOG("UNDERTIME: kept seed %u and the player's position across the reload", savedSeed);
+}
+
 void UndertimeModule::OnStartup(Engine& engine)
 {
+	// The module object lives across plays in the editor: start each one fresh.
+	state = State::Title;
+
+	// What the scene asks for.
+	Scene& startScene = engine.GetScene();
+	sceneSeed = 0;
+	hasSceneSpawn = false;
+	startScene.Each<CaveWorld>([&](Entity, CaveWorld& caveWorld) { sceneSeed = caveWorld.seed; });
+	startScene.Each<PlayerStart>([&](Entity entity, PlayerStart&)
+	{
+		if (hasSceneSpawn) return;
+		hasSceneSpawn = true;
+		sceneSpawn = startScene.WorldPosition(entity);
+		DirectX::XMVECTOR scale, rotation, translation;
+		DirectX::XMMatrixDecompose(&scale, &rotation, &translation, startScene.WorldMatrix(entity));
+		DirectX::XMFLOAT3 forward;
+		DirectX::XMStoreFloat3(&forward, DirectX::XMVector3Rotate(DirectX::XMVectorSet(0, 0, 1, 0), rotation));
+		sceneSpawnYaw = std::atan2(forward.x, forward.z);
+	});
+
 	buildStamp = BuildStamp();
 	CHERRY_LOG("UNDERTIME %s", buildStamp.c_str());
 	MaterialDesc material;
@@ -85,8 +134,12 @@ void UndertimeModule::OnStartup(Engine& engine)
 	physics.SetGravity(cfg::kGravity);
 	player.CreateBody(physics);
 
-	// A fresh mountain every game.
-	NewWorld(engine, RandomSeed());
+	// The scene's mountain, or a fresh one every game (after a hot reload: the same one
+	// as before, so LoadState doesn't have to generate it a second time).
+	uint32_t startSeed = sceneSeed != 0 ? sceneSeed : RandomSeed();
+	unsigned reloadSeed = 0;
+	if (std::istringstream(engine.HotReloadState()) >> reloadSeed && reloadSeed != 0) startSeed = reloadSeed;
+	NewWorld(engine, startSeed);
 
 	Camera& camera = engine.GetScene().Get<Camera>(engine.MainCamera());
 	camera.nearZ = cfg::kNearPlane;
@@ -166,8 +219,9 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	collision.Build(physics, world);
 	SetWorldRenderer(engine, worldRenderer);
 
-	// Back outside, facing the mountain.
-	player.Teleport({ cfg::kSpawnX, cfg::kGroundY, cfg::kSpawnZ }, 0.0f);
+	// Back outside, facing the mountain (or at the scene's PlayerStart).
+	if (hasSceneSpawn) player.Teleport(sceneSpawn, sceneSpawnYaw);
+	else player.Teleport({ cfg::kSpawnX, cfg::kGroundY, cfg::kSpawnZ }, 0.0f);
 	target = {};
 	swingTimer = 0.0f;
 	CHERRY_LOG("UNDERTIME: seed %u: %d zones, %d pockets, %d floating voxels removed, generated in %.0f ms (collision %.0f ms)",

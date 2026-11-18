@@ -90,6 +90,19 @@ and the error is shown in the Stats panel.
 | F1 | Toggle editor / full-window game mode |
 | F5 | Play / Stop |
 | Ctrl+Shift+B | Compile the game module |
+
+Editor (scene editing, while not playing):
+
+| Key / mouse | Action |
+|---|---|
+| Right mouse held + WASD / QE | Fly the editor camera (wheel: speed, Shift: faster) |
+| Wheel / middle drag | Dolly / pan |
+| Left click | Select (meshes, light and camera markers) |
+| W / E / R | Move / rotate / scale gizmo (Ctrl flips snapping) |
+| F | Frame the selection |
+| Ctrl+D / Del | Duplicate / delete (with children) |
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+N / Ctrl+O / Ctrl+S | New / open / save scene |
 | F2 | Toggle the voxel test volume |
 | F3 | Toggle bounding-box debug lines |
 
@@ -117,5 +130,29 @@ Build it as a shared library that links `CherryEngine` and call
 { "name": "My Game", "module": "MyGameTarget", "content": "Content" }
 ```
 
-Load assets with `engine.ContentPath(L"Textures/foo.dds")`. `OnStartup` runs on every
-Play and `OnShutdown` on every Stop, so a game must free everything it created there.
+Load assets with `engine.ContentPath(L"Textures/foo.dds")`, or through `engine.GetAssets()`
+by Content path. `OnStartup` runs on every Play (in a fresh copy of the edit scene) and
+`OnShutdown` on every Stop, so a game must free everything it created there.
+
+### Scenes, components and systems
+
+Scenes are JSON files (`Content/Scenes/*.scene`) edited in the editor. A game adds its
+own components and systems in `RegisterTypes`; they show up in the inspector's Add
+Component menu and are saved with the scene:
+
+```cpp
+struct Lantern { float intensity = 4.0f; DirectX::XMFLOAT3 color{ 1, 0.8f, 0.6f }; };
+
+void MyGame::RegisterTypes(GameTypes& types)
+{
+    types.Component<Lantern>("Lantern")
+        .Field("intensity", &Lantern::intensity, 0.0f, 20.0f)
+        .Field("color", &Lantern::color, Field_Color);
+    types.System<LanternSystem>();   // an ISystem: OnPlayBegin / OnUpdate / OnPlayEnd, optional edit-mode hooks
+}
+```
+
+In `OnStartup` (or a system), find placed entities with `scene.Each<Lantern>(...)`.
+Fields are matched by name when loading, so changing a component keeps old scenes
+loadable, and a hot reload keeps the edit scene through the change. While playing, a
+hot reload restarts the game; `SaveState` / `LoadState` let it keep what matters.

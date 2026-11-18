@@ -47,6 +47,8 @@ public:
 	// Loads a .dds texture. Relative paths resolve against the executable folder.
 	// `srgb` = colour data stored gamma-encoded (true for albedo maps).
 	TextureHandle LoadTexture(const std::wstring& path, bool srgb = true);
+	// From RGBA8 pixels (rows top to bottom, `width * 4` bytes each). Builds the mip chain.
+	TextureHandle CreateTexture(uint32_t width, uint32_t height, const uint8_t* rgba, bool srgb = true);
 	void DestroyTexture(TextureHandle texture);
 
 	MaterialHandle CreateMaterial(const MaterialDesc& desc);

@@ -28,6 +28,8 @@ set(UndertimeSrc
     Hud.cpp
     UndertimeModule.h
     UndertimeModule.cpp
+    SceneComponents.h
+    CavePreview.cpp
 )
 
 if(CHERRY_MONOLITHIC)

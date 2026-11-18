@@ -13,6 +13,8 @@ set(ENGINE_HEADERS
   Core/Project.h
   Core/ModuleHost.h
   Core/BuildProcess.h
+  Core/Assets.h
+  Core/AssetImport.h
   Core/Input.h
   Core/Log.h
   Core/Window.h
@@ -21,11 +23,14 @@ set(ENGINE_HEADERS
   Scene/ECS.h
   Scene/Components.h
   Scene/Scene.h
+  Scene/Reflection.h
+  Scene/SceneSerializer.h
   Renderer/Renderer.h
   Renderer/RenderTypes.h
   Renderer/ResourcePool.h
   Renderer/DebugDraw.h
   Editor/EditorLayer.h
+  Editor/Gizmo.h
   Physics/PhysicsWorld.h
   RHI/D3DCommon.h
   RHI/DescriptorHeap.h
@@ -48,13 +53,20 @@ set(ENGINE_SOURCES
   Core/Project.cpp
   Core/ModuleHost.cpp
   Core/BuildProcess.cpp
+  Core/Assets.cpp
+  Core/AssetImport.cpp
   Core/Input.cpp
   Core/Log.cpp
   Core/Window.cpp
   Scene/Scene.cpp
+  Scene/Reflection.cpp
+  Scene/SceneSerializer.cpp
   Renderer/Renderer.cpp
   Renderer/DebugDraw.cpp
   Editor/EditorLayer.cpp
+  Editor/ScenePanels.cpp
+  Editor/Gizmo.cpp
+  Editor/ContentBrowser.cpp
   Physics/PhysicsWorld.cpp
   RHI/D3DCommon.cpp
   RHI/DescriptorHeap.cpp
@@ -167,6 +179,10 @@ source_group("ThirdParty\\imgui" FILES ${IMGUI_SOURCES})
 
 # Jolt Physics stays private to the engine: games use PhysicsWorld's handle-based API.
 find_package(nlohmann_json CONFIG REQUIRED)
+# Header-only asset libraries (vcpkg: cgltf, stb): glTF meshes and PNG/JPG/TGA textures.
+find_path(CHERRY_CGLTF_INCLUDE_DIR "cgltf.h" REQUIRED)
+find_path(CHERRY_STB_INCLUDE_DIR "stb_image.h" REQUIRED)
+target_include_directories(CherryEngine PRIVATE "${CHERRY_CGLTF_INCLUDE_DIR}" "${CHERRY_STB_INCLUDE_DIR}")
 target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt nlohmann_json::nlohmann_json)
 
 target_compile_definitions(CherryEngine
@@ -192,6 +208,16 @@ target_include_directories(CherryEngine
 )
 
 
+
+# ---------------------------------------------------------------------------
+# Tests: scene, reflection and serialization (no window or GPU needed)
+# ---------------------------------------------------------------------------
+add_executable(CherryEngineTests Tests/EngineTests.cpp)
+target_link_libraries(CherryEngineTests PRIVATE CherryEngine)
+if(MSVC)
+  target_compile_options(CherryEngineTests PRIVATE /W3 /utf-8)
+endif()
+add_test(NAME CherryEngineTests COMMAND CherryEngineTests)
 
 # ---------------------------------------------------------------------------
 # Install (engine SDK: headers + library + runtime DLLs)

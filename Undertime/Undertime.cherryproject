@@ -1,5 +1,6 @@
 {
   "name": "UNDERTIME",
   "module": "UndertimeGame",
-  "content": "Content"
+  "content": "Content",
+  "startupScene": "Content/Scenes/Mine.scene"
 }

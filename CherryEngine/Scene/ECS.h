@@ -14,11 +14,11 @@
 #include <cstdint>
 
 using Entity = std::uint32_t;
-constexpr Entity MAX_ENTITIES = 5000;
+constexpr Entity MAX_ENTITIES = 65536;
 constexpr Entity INVALID_ENTITY = 0xFFFFFFFFu;
 
 using ComponentType = std::uint8_t;
-constexpr ComponentType MAX_COMPONENTS = 32;
+constexpr ComponentType MAX_COMPONENTS = 64;
 using Signature = std::bitset<MAX_COMPONENTS>;
 
 // Component and system types are keyed by typeid name rather than type_index so
@@ -81,8 +81,8 @@ template <typename T>
 class ComponentArray : public IComponentArray
 {
 public:
-	ComponentArray() { mComponentArray.resize(MAX_ENTITIES); }
-
+	// Packed and grown on demand (not preallocated for MAX_ENTITIES): a scene has an
+	// array per registered type, and most types are on few entities.
 	void InsertData(Entity entity, const T& component)
 	{
 		auto it = mEntityToIndexMap.find(entity);
@@ -94,7 +94,7 @@ public:
 		size_t newIndex = mSize;
 		mEntityToIndexMap[entity] = newIndex;
 		mIndexToEntityMap[newIndex] = entity;
-		mComponentArray[newIndex] = component;
+		mComponentArray.push_back(component);
 		++mSize;
 	}
 
@@ -103,7 +103,11 @@ public:
 		assert(mEntityToIndexMap.find(entity) != mEntityToIndexMap.end() && "Removing missing component");
 		size_t indexOfRemovedEntity = mEntityToIndexMap[entity];
 		size_t indexOfLastElement = mSize - 1;
-		mComponentArray[indexOfRemovedEntity] = mComponentArray[indexOfLastElement];
+		if (indexOfRemovedEntity != indexOfLastElement)
+		{
+			mComponentArray[indexOfRemovedEntity] = std::move(mComponentArray[indexOfLastElement]);
+		}
+		mComponentArray.pop_back();
 
 		Entity entityOfLastElement = mIndexToEntityMap[indexOfLastElement];
 		mEntityToIndexMap[entityOfLastElement] = indexOfRemovedEntity;
@@ -295,6 +299,7 @@ public:
 
 	bool IsAlive(Entity entity) const { return mEntityManager->IsAlive(entity); }
 	uint32_t LivingCount() const { return mEntityManager->LivingCount(); }
+	Signature GetSignature(Entity entity) const { return mEntityManager->GetSignature(entity); }
 
 	template <typename T>
 	void RegisterComponent() { mComponentManager->RegisterComponent<T>(); }

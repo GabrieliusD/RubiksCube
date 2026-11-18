@@ -69,6 +69,11 @@ function(cherry_add_runtime_assets target_name)
     if(EXISTS "${game_source_dir}/Content")
       list(APPEND commands COMMAND ${CMAKE_COMMAND} -E copy_directory "${game_source_dir}/Content" "${out_dir}/Content")
     endif()
+    # The project file names the startup scene.
+    file(GLOB _project_files "${game_source_dir}/*.cherryproject")
+    foreach(_project_file IN LISTS _project_files)
+      list(APPEND commands COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_project_file}" "${out_dir}")
+    endforeach()
   endif()
 
   add_custom_target(${target_name}RuntimeAssets ALL ${commands}
