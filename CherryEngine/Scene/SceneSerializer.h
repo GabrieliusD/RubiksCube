@@ -32,4 +32,12 @@ namespace cherry
 
 	// Copies an entity and its children within the scene (new guids, "<name> (copy)").
 	CHERRY_API Entity DuplicateEntity(Scene& scene, Entity entity);
+
+	// Prefabs: an entity and its children in the scene file format ("cherry-prefab"), root
+	// first. References inside the tree are kept; references to entities outside it are
+	// cleared when the prefab is placed.
+	CHERRY_API std::string PrefabToJson(Scene& scene, Entity root);
+	CHERRY_API bool SavePrefab(Scene& scene, Entity root, const std::filesystem::path& file, std::string& error);
+	// Adds a copy of the prefab to the scene (new guids). Returns its root, or INVALID_ENTITY.
+	CHERRY_API Entity InstantiatePrefab(Scene& scene, const std::string& json, std::string& error);
 }

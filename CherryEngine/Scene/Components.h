@@ -18,6 +18,7 @@ struct EntityInfo
 {
 	uint64_t guid = 0;      // stable across saves; entity references are saved as guids
 	std::string name;
+	std::string prefab;     // the prefab this entity is the root of (Content path), if any
 };
 
 // Makes the entity's Transform relative to another entity's (see Scene::WorldMatrix).

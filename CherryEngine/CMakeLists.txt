@@ -20,6 +20,8 @@ set(ENGINE_HEADERS
   Core/Window.h
   Core/CameraControllers.h
   Game/GameModule.h
+  Game/Script.h
+  Game/BuiltinScripts.h
   Scene/ECS.h
   Scene/Components.h
   Scene/Scene.h
@@ -59,6 +61,8 @@ set(ENGINE_SOURCES
   Core/Log.cpp
   Core/Window.cpp
   Scene/Scene.cpp
+  Game/Script.cpp
+  Game/BuiltinScripts.cpp
   Scene/Reflection.cpp
   Scene/SceneSerializer.cpp
   Renderer/Renderer.cpp

@@ -4,6 +4,7 @@
 // systems keep a set of the entities whose signature matches theirs.
 #include <memory>
 #include <vector>
+#include <deque>
 #include <set>
 #include <unordered_map>
 #include <queue>
@@ -82,7 +83,9 @@ class ComponentArray : public IComponentArray
 {
 public:
 	// Packed and grown on demand (not preallocated for MAX_ENTITIES): a scene has an
-	// array per registered type, and most types are on few entities.
+	// array per registered type, and most types are on few entities. A deque, so adding
+	// components never moves the existing ones (a script's `this` stays valid while it
+	// spawns entities with the same script).
 	void InsertData(Entity entity, const T& component)
 	{
 		auto it = mEntityToIndexMap.find(entity);
@@ -139,7 +142,7 @@ public:
 	}
 
 private:
-	std::vector<T> mComponentArray;
+	std::deque<T> mComponentArray;
 	std::unordered_map<Entity, size_t> mEntityToIndexMap;
 	std::unordered_map<size_t, Entity> mIndexToEntityMap;
 	size_t mSize = 0;

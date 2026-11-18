@@ -152,6 +152,40 @@ void MyGame::RegisterTypes(GameTypes& types)
 }
 ```
 
+### Scripts
+
+A script is a component with behaviour. Subclass `Script` (`Game/Script.h`), register it,
+and add it to entities in the inspector:
+
+```cpp
+class Door : public Script
+{
+public:
+    float openAngle = 90.0f;        // reflected below: edited in the inspector, saved
+    void OnStart() override { /* ... */ }
+    void OnUpdate(float dt) override { GetTransform().SetRotationEuler(0, ..., 0); }
+private:
+    float mAngle = 0.0f;            // runtime only
+};
+
+types.Script<Door>("Door").Field("openAngle", &Door::openAngle, 0.0f, 180.0f);
+// A script deriving from another registered one inherits its fields: .Base<Pawn>()
+```
+
+While playing, `OnStart` runs on a script's first frame (also for spawned entities),
+`OnUpdate` every frame after the game's `OnUpdate`, and `OnDestroy` when it is destroyed
+with `Destroy()` or play stops. Helpers: `GetTransform()`, `Get<T>()`, `Has<T>()`,
+`Spawn(prefab, position)`, `Destroy()`, `Find(name)`. Built-in scripts: `Spinner`,
+`Spawner` and `Lifetime`.
+
+### Prefabs
+
+A `.prefab` file is an entity and its children, saved from the hierarchy (right-click,
+Save as Prefab...). Drag it from Content into the viewport, or spawn it from code with
+`engine.Spawn("Prefabs/Door.prefab", position)`. A placed prefab is a copy: "Save to
+Prefab" in the inspector writes an edited instance back to the file, and instances
+already placed keep their own copy.
+
 In `OnStartup` (or a system), find placed entities with `scene.Each<Lantern>(...)`.
 Fields are matched by name when loading, so changing a component keeps old scenes
 loadable, and a hot reload keeps the edit scene through the change. While playing, a

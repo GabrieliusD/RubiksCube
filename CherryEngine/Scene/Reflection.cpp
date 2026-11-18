@@ -1,5 +1,6 @@
 #include "Scene/Reflection.h"
 #include "Scene/Scene.h"
+#include "Game/BuiltinScripts.h"
 #include <algorithm>
 
 const FieldInfo* ComponentInfo::FindField(const std::string& fieldName) const
@@ -19,7 +20,8 @@ namespace
 
 		registry.Component<EntityInfo>("EntityInfo", Component_Hidden | Component_NotAddable | Component_NotRemovable)
 			.Field("guid", &EntityInfo::guid, Field_ReadOnly | Field_Hidden)
-			.Field("name", &EntityInfo::name);
+			.Field("name", &EntityInfo::name)
+			.Field("prefab", &EntityInfo::prefab, Field_Hidden);
 
 		registry.Component<Transform>("Transform", Component_NotRemovable)
 			.Field("position", &Transform::position).Speed(0.05f)
@@ -70,6 +72,8 @@ namespace
 
 		// Saved by the scene serializer itself (each entry is its own component in the file).
 		registry.Component<UnknownComponents>("UnknownComponents", Component_Hidden | Component_NotAddable);
+
+		RegisterBuiltinScripts(registry);
 	}
 }
 

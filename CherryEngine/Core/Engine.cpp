@@ -5,6 +5,7 @@
 #include "Game/GameModule.h"
 #include "Editor/EditorLayer.h"
 #include "Scene/SceneSerializer.h"
+#include "Game/Script.h"
 #include "imgui.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -75,6 +76,7 @@ struct Engine::Impl
 	std::vector<std::unique_ptr<ISystem>> systems;   // the game's systems (made by RegisterTypes)
 	Engine* self = nullptr;
 	std::string pendingGameState;         // SaveState() of the module before a reload, for LoadState()
+	std::vector<Entity> destroyQueue;     // DestroyLater
 	std::string moduleError;
 	BuildProcess build;
 	bool lastBuildFailed = false;
@@ -119,6 +121,10 @@ struct Engine::Impl
 	void LoadEditorState();
 	void SaveEditorState();
 	void ResolveAssets(Scene& scene);
+	void RunScripts(Engine& engine, float deltaTime);
+	void DestroyScriptsOf(Scene& scene, Entity root);
+	void FlushDestroyQueue();
+	void StopScripts();
 	void ApplyEnvironment(Scene& scene);
 	void DestroyWorld(World& world);
 	void StartPlay(Engine& engine);
@@ -396,6 +402,127 @@ void Engine::Impl::ApplyEnvironment(Scene& scene)
 	}
 }
 
+Entity Engine::Spawn(const std::string& prefab, const XMFLOAT3& position, Entity parent)
+{
+	Impl& e = *mImpl;
+	std::string text, error;
+	if (!e.assets.ReadPrefab(prefab, text)) return INVALID_ENTITY;
+	Scene& scene = *e.active->scene;
+	const Entity root = cherry::InstantiatePrefab(scene, text, error);
+	if (root == INVALID_ENTITY)
+	{
+		CHERRY_ERROR("Spawn %s: %s", prefab.c_str(), error.c_str());
+		return INVALID_ENTITY;
+	}
+	if (!scene.Has<Transform>(root)) scene.Add(root, Transform{});
+	if (parent != INVALID_ENTITY) scene.SetParent(root, parent, false);
+	// The position is in world space: convert it under the parent.
+	const XMMATRIX parentWorld = parent != INVALID_ENTITY ? scene.WorldMatrix(parent) : XMMatrixIdentity();
+	XMStoreFloat3(&scene.Get<Transform>(root).position, XMVector3TransformCoord(XMLoadFloat3(&position), XMMatrixInverse(nullptr, parentWorld)));
+	scene.Get<EntityInfo>(root).prefab = prefab;
+	return root;
+}
+
+void Engine::DestroyLater(Entity entity)
+{
+	if (entity != INVALID_ENTITY) mImpl->destroyQueue.push_back(entity);
+}
+
+void Engine::Impl::RunScripts(Engine& engine, float deltaTime)
+{
+	Scene& scene = *active->scene;
+	const TypeRegistry& registry = TypeRegistry::Get();
+
+	// Who has which script, collected first: scripts may spawn entities while running
+	// (they start next frame) and destroying waits for the end of the pass.
+	std::vector<std::pair<const ComponentInfo*, Entity>> scripts;
+	for (const auto& info : registry.Components())
+	{
+		if (!info->Is(Component_Script) || !info->asScript) continue;
+		for (Entity entity : scene.Entities())
+		{
+			if (info->has(scene, entity)) scripts.emplace_back(info.get(), entity);
+		}
+	}
+	for (const auto& [info, entity] : scripts)
+	{
+		if (!scene.IsAlive(entity)) continue;
+		void* component = info->get(scene, entity);
+		if (!component) continue;
+		Script& script = *info->asScript(component);
+		try
+		{
+			if (!script.HasStarted())
+			{
+				ScriptBinding::Bind(script, &engine, entity);
+				ScriptBinding::SetStarted(script, true);
+				script.OnStart();
+			}
+			script.OnUpdate(deltaTime);
+		}
+		catch (const std::exception& ex)
+		{
+			if (gameSession) throw;
+			CHERRY_ERROR("Script %s on %s threw: %s (stopping)", info->name.c_str(), scene.DisplayName(entity).c_str(), ex.what());
+			wantStop = true;
+			break;
+		}
+	}
+	FlushDestroyQueue();
+}
+
+void Engine::Impl::DestroyScriptsOf(Scene& scene, Entity root)
+{
+	std::vector<Entity> tree{ root };
+	for (size_t i = 0; i < tree.size(); ++i)
+	{
+		for (Entity child : scene.Children(tree[i])) tree.push_back(child);
+	}
+	for (Entity entity : tree)
+	{
+		for (const auto& info : TypeRegistry::Get().Components())
+		{
+			if (!info->Is(Component_Script) || !info->asScript) continue;
+			void* component = info->get(scene, entity);
+			if (!component) continue;
+			Script& script = *info->asScript(component);
+			if (!script.HasStarted()) continue;
+			ScriptBinding::SetStarted(script, false);
+			try { script.OnDestroy(); }
+			catch (const std::exception& ex) { CHERRY_ERROR("Script %s OnDestroy threw: %s", info->name.c_str(), ex.what()); }
+		}
+	}
+}
+
+void Engine::Impl::FlushDestroyQueue()
+{
+	Scene& scene = *active->scene;
+	// OnDestroy may queue more: keep going until it settles.
+	for (int round = 0; round < 8 && !destroyQueue.empty(); ++round)
+	{
+		std::vector<Entity> queue;
+		queue.swap(destroyQueue);
+		for (Entity entity : queue)
+		{
+			if (!scene.IsAlive(entity)) continue;
+			DestroyScriptsOf(scene, entity);
+			scene.DestroyTree(entity);
+		}
+	}
+	destroyQueue.clear();
+}
+
+void Engine::Impl::StopScripts()
+{
+	if (!playWorld) return;
+	Scene& scene = *playWorld.scene;
+	for (Entity entity : std::vector<Entity>(scene.Entities()))
+	{
+		if (scene.IsAlive(entity) && scene.GetParent(entity) == INVALID_ENTITY) DestroyScriptsOf(scene, entity);
+	}
+	destroyQueue.clear();
+}
+
 bool Engine::Impl::ResolveProject(const LaunchOptions& options, std::string& error)
 {
 	if (options.staticGame)
@@ -576,6 +703,7 @@ void Engine::Impl::StartPlay(Engine& engine)
 void Engine::Impl::StopPlay(Engine& engine)
 {
 	if (playState == PlayState::Edit) return;
+	StopScripts();
 	try
 	{
 		for (auto& system : systems) system->OnPlayEnd(engine);
@@ -902,6 +1030,8 @@ int Engine::Impl::Loop(Engine& engine)
 				CHERRY_ERROR("Game OnUpdate threw: %s (stopping)", ex.what());
 				wantStop = true;
 			}
+
+			if (playState == PlayState::Playing) RunScripts(engine, deltaTime);
 
 			// Fixed-step physics, then move rigid-body entities to their (interpolated) poses.
 			PhysicsWorld& physics = *active->physics;

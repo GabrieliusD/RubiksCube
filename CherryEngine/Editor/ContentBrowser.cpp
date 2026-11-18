@@ -25,6 +25,7 @@ namespace
 		if (type == "material") return ImVec4(1.00f, 0.70f, 0.45f, 1);
 		if (type == "texture") return ImVec4(0.70f, 0.95f, 0.60f, 1);
 		if (type == "scene") return ImVec4(0.95f, 0.85f, 0.45f, 1);
+		if (type == "prefab") return ImVec4(0.60f, 0.75f, 1.00f, 1);
 		return ImVec4(0.55f, 0.55f, 0.55f, 1);
 	}
 
@@ -174,7 +175,7 @@ void EditorLayer::DrawContentBrowser(Engine& engine)
 			ImGui::PopStyleColor();
 			if (!type.empty()) AssetDragSource(entry.path);
 			if (!type.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s (%s)%s", entry.path.c_str(), type.c_str(),
-				type == "mesh" || type == "material" ? "\nDrag into the viewport or onto an asset field" : type == "scene" ? "\nDouble-click to open" : "");
+				type == "mesh" || type == "material" || type == "prefab" ? "\nDrag into the viewport or onto an asset field" : type == "scene" ? "\nDouble-click to open" : "");
 		}
 		ImGui::PopID();
 	}
@@ -266,6 +267,18 @@ void EditorLayer::DrawAssetInspector(Engine& engine)
 		}
 		ImGui::TextDisabled("Or drag it into the viewport.");
 	}
+	else if (type == "prefab")
+	{
+		if (engine.GetPlayState() == PlayState::Edit && ImGui::Button("Place in Scene"))
+		{
+			Transform view;
+			view.SetRotationEuler(mCamera.pitch, mCamera.yaw, 0.0f);
+			XMFLOAT3 position;
+			XMStoreFloat3(&position, XMLoadFloat3(&mCamera.position) + view.Forward() * 6.0f);
+			PlacePrefab(engine, path, position);
+		}
+		ImGui::TextDisabled("Or drag it into the viewport. Scripts spawn it with Spawn(\"%s\", position).", path.c_str());
+	}
 	else if (type == "scene")
 	{
 		if (ImGui::Button("Open Scene"))
@@ -296,6 +309,15 @@ void EditorLayer::PlaceMesh(Engine& engine, const std::string& path, const XMFLO
 	Edited(engine);
 }
 
+void EditorLayer::PlacePrefab(Engine& engine, const std::string& path, const XMFLOAT3& position)
+{
+	const Entity root = engine.Spawn(path, position);
+	if (root == INVALID_ENTITY) return;
+	mSelected = root;
+	mSelectedAsset.clear();
+	Edited(engine);
+}
+
 void EditorLayer::HandleViewportDrop(Engine& engine)
 {
 	if (engine.GetPlayState() != PlayState::Edit) return;
@@ -308,7 +330,7 @@ void EditorLayer::HandleViewportDrop(Engine& engine)
 		const std::string type = AssetManager::TypeOf(path);
 		const XMFLOAT2 mouse(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y);
 		Scene& scene = engine.GetEditScene();
-		if (type == "mesh")
+		if (type == "mesh" || type == "prefab")
 		{
 			// On the surface under the mouse, else a few metres in front of the camera.
 			const float x = (mouse.x - viewportPosition.x) / viewportSize.x * 2.0f - 1.0f;
@@ -322,7 +344,8 @@ void EditorLayer::HandleViewportDrop(Engine& engine)
 			XMFLOAT3 position;
 			if (const std::optional<RaycastHit> hit = engine.Raycast(ray)) position = hit->point;
 			else XMStoreFloat3(&position, XMLoadFloat3(&ray.origin) + XMLoadFloat3(&ray.direction) * 6.0f);
-			PlaceMesh(engine, path, position);
+			if (type == "prefab") PlacePrefab(engine, path, position);
+			else PlaceMesh(engine, path, position);
 		}
 		else if (type == "material")
 		{

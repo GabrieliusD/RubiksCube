@@ -194,6 +194,8 @@ namespace
 		return object;
 	}
 
+	std::vector<Entity> LoadEntities(Scene& scene, const json& list, bool keepGuids);
+
 	json SceneToJsonObject(Scene& scene)
 	{
 		// Only entities with an EntityInfo are saved: the rest were made by game or editor
@@ -223,22 +225,31 @@ namespace
 			return false;
 		}
 		scene.Clear();
+		LoadEntities(scene, root["entities"], true);
+		return true;
+	}
+
+	// Creates the entities of a JSON "entities" list in `scene` (added to what's there).
+	// `keepGuids`: use the file's guids (a scene) or give every entity a new one (a prefab
+	// instance). References between the listed entities are restored either way.
+	std::vector<Entity> LoadEntities(Scene& scene, const json& list, bool keepGuids)
+	{
 		const TypeRegistry& registry = TypeRegistry::Get();
 
-		// Pass 1: create every entity, so references can point anywhere in the file.
-		const json& list = root["entities"];
+		// Pass 1: create every entity, so references can point anywhere in the list.
 		std::vector<Entity> created;
-		std::unordered_map<uint64_t, Entity> guidToEntity;
+		std::unordered_map<uint64_t, Entity> guidToEntity;   // guid in the file -> entity
 		created.reserve(list.size());
 		for (const json& item : list)
 		{
 			const Entity entity = scene.CreateEntity();
-			uint64_t guid = item.is_object() && item.contains("guid") ? GuidFromJson(item["guid"]) : 0;
+			const uint64_t fileGuid = item.is_object() && item.contains("guid") ? GuidFromJson(item["guid"]) : 0;
+			uint64_t guid = keepGuids ? fileGuid : 0;
 			if (guid == 0 || guidToEntity.count(guid)) guid = Scene::NewGuid();
 			EntityInfo info;
 			info.guid = guid;
 			scene.Add(entity, info);
-			guidToEntity[guid] = entity;
+			if (fileGuid != 0 && !guidToEntity.count(fileGuid)) guidToEntity[fileGuid] = entity;
 			created.push_back(entity);
 		}
 
@@ -269,7 +280,13 @@ namespace
 			}
 			if (!unknown.entries.empty()) scene.Add(entity, unknown);
 		}
-		return true;
+		return created;
+	}
+
+	void CollectTree(Scene& scene, Entity root, std::vector<Entity>& out)
+	{
+		out.push_back(root);
+		for (Entity child : scene.Children(root)) CollectTree(scene, child, out);
 	}
 }
 
@@ -337,6 +354,61 @@ namespace cherry
 			return false;
 		}
 		return true;
+	}
+
+	std::string PrefabToJson(Scene& scene, Entity root)
+	{
+		if (!scene.IsAlive(root)) return {};
+		std::vector<Entity> tree;
+		CollectTree(scene, root, tree);
+		for (Entity entity : tree) scene.EnsureGuid(entity);
+
+		json entities = json::array();
+		for (Entity entity : tree)
+		{
+			json item = EntityToJson(scene, entity);
+			// The root's parent is outside the prefab: it gets one when it is placed.
+			if (entity == root) item["components"].erase("Parent");
+			entities.push_back(std::move(item));
+		}
+		json document = json::object();
+		document["format"] = "cherry-prefab";
+		document["version"] = kSceneVersion;
+		document["entities"] = std::move(entities);
+		return document.dump(1, '\t');
+	}
+
+	bool SavePrefab(Scene& scene, Entity root, const std::filesystem::path& file, std::string& error)
+	{
+		const std::string text = PrefabToJson(scene, root);
+		if (text.empty())
+		{
+			error = "no such entity";
+			return false;
+		}
+		std::error_code ec;
+		if (file.has_parent_path()) std::filesystem::create_directories(file.parent_path(), ec);
+		std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+		stream << text << "\n";
+		if (!stream)
+		{
+			error = "can't write " + file.string();
+			return false;
+		}
+		return true;
+	}
+
+	Entity InstantiatePrefab(Scene& scene, const std::string& text, std::string& error)
+	{
+		const json document = json::parse(text, nullptr, false);
+		if (document.is_discarded() || !document.is_object() || !document.contains("entities") || !document["entities"].is_array()
+			|| document["entities"].empty())
+		{
+			error = "not a prefab (no entities)";
+			return INVALID_ENTITY;
+		}
+		const std::vector<Entity> created = LoadEntities(scene, document["entities"], false);
+		return created.empty() ? INVALID_ENTITY : created.front();
 	}
 
 	void CopyScene(Scene& from, Scene& to)

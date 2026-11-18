@@ -10,6 +10,7 @@
 #include <vector>
 
 class Scene;
+class Script;
 
 // Component reflection: one description per component type drives scene files, the
 // play-world copy and the editor's inspector.
@@ -58,6 +59,7 @@ enum ComponentFlags : uint32_t
 	Component_Hidden = 1u << 1,          // not shown in the inspector
 	Component_NotAddable = 1u << 2,      // not offered by "Add Component"
 	Component_NotRemovable = 1u << 3,
+	Component_Script = 1u << 4,          // a Script subclass: the engine runs its OnStart/OnUpdate while playing
 };
 
 struct CHERRY_API ComponentInfo
@@ -74,6 +76,7 @@ struct CHERRY_API ComponentInfo
 	std::function<void*(Scene&, Entity)> addDefault;            // returns the new component
 	std::function<void(Scene&, Entity, const void*)> addCopy;   // copies a component of this type
 	std::function<void(Scene&, Entity)> remove;
+	std::function<Script*(void*)> asScript;                     // Component_Script only: the component as a Script
 
 	const FieldInfo* FindField(const std::string& fieldName) const;
 	bool Is(uint32_t flag) const { return (flags & flag) != 0; }
@@ -149,6 +152,13 @@ public:
 		field.assetType = assetType;
 		return *this;
 	}
+
+	// Inherit the fields of a registered base class (scripts deriving from other scripts).
+	// Register the base first.
+	template <typename B>
+	ComponentBuilder& Base();
+
+	ComponentInfo& Info() { return mInfo; }
 
 	// Inspector drag speed for the last field.
 	ComponentBuilder& Speed(float speed)
@@ -229,3 +239,23 @@ private:
 	std::string mCurrentOwner = "engine";
 	uint32_t mVersion = 0;
 };
+
+template <typename C>
+template <typename B>
+ComponentBuilder<C>& ComponentBuilder<C>::Base()
+{
+	static_assert(std::is_base_of_v<B, C>, "Base<B>() needs B to be a base class of the component");
+	const ComponentInfo* base = TypeRegistry::Get().Find<B>();
+	if (!base) return *this;
+	// Insert the base's fields first, so the inspector lists them above the subclass's own.
+	std::vector<FieldInfo> inherited;
+	for (const FieldInfo& field : base->fields)
+	{
+		FieldInfo copy = field;
+		const auto baseAccess = field.access;
+		copy.access = [baseAccess](void* component) -> void* { return baseAccess(static_cast<B*>(static_cast<C*>(component))); };
+		inherited.push_back(std::move(copy));
+	}
+	mInfo.fields.insert(mInfo.fields.begin(), inherited.begin(), inherited.end());
+	return *this;
+}

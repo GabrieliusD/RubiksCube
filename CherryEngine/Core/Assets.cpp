@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 
@@ -93,6 +94,7 @@ struct AssetManager::Impl
 	std::map<std::string, MaterialHandle> materials;
 	std::map<std::string, TextureHandle> textures;
 	std::map<std::string, MaterialFile> materialFiles;   // loaded materials' source data (for texture reloads)
+	std::map<std::string, std::string> prefabs;          // prefab path -> JSON text
 	std::set<std::string> reportedMissing;
 
 	// Change tracking: file -> last write time seen.
@@ -387,6 +389,7 @@ std::string AssetManager::TypeOf(const std::string& path)
 	if (extension == ".mat") return "material";
 	if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".tga" || extension == ".bmp" || extension == ".dds") return "texture";
 	if (extension == ".scene") return "scene";
+	if (extension == ".prefab") return "prefab";
 	if (IsBuiltin(path))
 	{
 		for (const char* mesh : kBuiltinMeshes) if (path == mesh) return "mesh";
@@ -402,6 +405,26 @@ std::string AssetManager::AssetPathOf(const fs::path& file) const
 	const fs::path relative = file.lexically_normal().lexically_relative(mImpl->contentRoot);
 	if (relative.empty() || relative.native().rfind(L"..", 0) == 0) return {};
 	return relative.generic_u8string();
+}
+
+bool AssetManager::ReadPrefab(const std::string& path, std::string& out)
+{
+	Impl& a = *mImpl;
+	auto it = a.prefabs.find(path);
+	if (it == a.prefabs.end())
+	{
+		std::ifstream stream(a.Full(path), std::ios::binary);
+		if (!stream)
+		{
+			a.ReportMissing("prefab", path);
+			return false;
+		}
+		std::string text((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+		it = a.prefabs.emplace(path, std::move(text)).first;
+		a.Watch(path);
+	}
+	out = it->second;
+	return true;
 }
 
 bool AssetManager::ReadMaterial(const std::string& path, MaterialFile& out)
@@ -461,6 +484,7 @@ void AssetManager::PollChanges(std::vector<std::pair<MeshHandle, MeshHandle>>& r
 	{
 		CHERRY_LOG("Reloading %s", file.c_str());
 		a.reportedMissing.clear();
+		a.prefabs.erase(file);   // read again on the next spawn
 
 		// Textures from this file (the file itself, or images inside a glTF).
 		std::set<std::string> reloadedTextures;

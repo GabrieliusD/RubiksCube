@@ -5,6 +5,7 @@
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 #include "Game/GameModule.h"
+#include "Game/Script.h"
 #include "imgui.h"
 #include <windows.h>
 #include <commdlg.h>
@@ -60,7 +61,9 @@ namespace
 		return false;
 	}
 
-	std::wstring FileDialog(HWND owner, bool save, const fs::path& initialDir, const std::wstring& defaultName)
+	// `filter`: e.g. L"Cherry scene (*.scene)\0*.scene\0", `extension`: L"scene".
+	std::wstring FileDialog(HWND owner, bool save, const fs::path& initialDir, const std::wstring& defaultName,
+		const wchar_t* filter = L"Cherry scene (*.scene)\0*.scene\0", const wchar_t* extension = L"scene")
 	{
 		wchar_t file[MAX_PATH];
 		wcsncpy_s(file, defaultName.c_str(), _TRUNCATE);
@@ -70,11 +73,11 @@ namespace
 		OPENFILENAMEW dialog{};
 		dialog.lStructSize = sizeof(dialog);
 		dialog.hwndOwner = owner;
-		dialog.lpstrFilter = L"Cherry scene (*.scene)\0*.scene\0";
+		dialog.lpstrFilter = filter;
 		dialog.lpstrFile = file;
 		dialog.nMaxFile = MAX_PATH;
 		dialog.lpstrInitialDir = dir.c_str();
-		dialog.lpstrDefExt = L"scene";
+		dialog.lpstrDefExt = extension;
 		dialog.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
 		const BOOL ok = save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog);
 		return ok ? std::wstring(file) : std::wstring();
@@ -443,6 +446,7 @@ void EditorLayer::DrawHierarchyNode(Engine& engine, Scene& scene, Entity entity,
 		const bool editing = engine.GetPlayState() == PlayState::Edit;
 		if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, editing)) DuplicateSelection(engine);
 		if (ImGui::MenuItem("Delete", "Del", false, editing)) DeleteSelection(engine);
+		if (ImGui::MenuItem("Save as Prefab...", nullptr, false, editing)) SaveAsPrefab(engine, entity);
 		if (editing && scene.GetParent(entity) != INVALID_ENTITY && ImGui::MenuItem("Unparent"))
 		{
 			if (scene.SetParent(entity, INVALID_ENTITY, true)) Edited(engine);
@@ -715,6 +719,22 @@ void EditorLayer::DrawInspector(Engine& engine)
 		Edited(engine);
 	}
 	ImGui::TextDisabled("id %u  guid %016llx", entity, static_cast<unsigned long long>(scene.GetGuid(entity)));
+	if (scene.Has<EntityInfo>(entity) && !scene.Get<EntityInfo>(entity).prefab.empty())
+	{
+		const std::string prefab = scene.Get<EntityInfo>(entity).prefab;
+		ImGui::TextColored(ImVec4(0.6f, 0.75f, 1.0f, 1), "Prefab: %s", prefab.c_str());
+		if (engine.GetPlayState() == PlayState::Edit)
+		{
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Save to Prefab"))
+			{
+				std::string error;
+				if (cherry::SavePrefab(scene, entity, engine.GetAssets().FullPath(prefab), error)) CHERRY_LOG("Saved prefab %s", prefab.c_str());
+				else CHERRY_ERROR("Saving prefab %s failed: %s", prefab.c_str(), error.c_str());
+			}
+			ImGui::SetItemTooltip("Overwrite %s with this entity and its children.\nInstances already placed keep their own copy.", prefab.c_str());
+		}
+	}
 
 	const ComponentInfo* toRemove = nullptr;
 	for (const auto& infoPtr : registry.Components())
@@ -727,7 +747,8 @@ void EditorLayer::DrawInspector(Engine& engine)
 		ImGui::PushID(info.name.c_str());
 		bool keep = true;
 		const bool removable = !info.Is(Component_NotRemovable) && engine.GetPlayState() == PlayState::Edit;
-		const bool open = ImGui::CollapsingHeader(info.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_DefaultOpen);
+		const std::string header = info.Is(Component_Script) ? info.name + "  (script)" : info.name;
+		const bool open = ImGui::CollapsingHeader(header.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_DefaultOpen);
 		if (!keep) toRemove = &info;
 		if (open)
 		{
@@ -745,6 +766,12 @@ void EditorLayer::DrawInspector(Engine& engine)
 				}
 			}
 			if (info.fields.empty()) ImGui::TextDisabled("(no editable fields)");
+			if (info.Is(Component_Script) && info.asScript)
+			{
+				Script& script = *info.asScript(component);
+				if (!ScriptBinding::IsBound(script) || script.GetEntity() != entity) ScriptBinding::Bind(script, &engine, entity);
+				script.OnInspectorGui();
+			}
 		}
 		ImGui::PopID();
 	}
@@ -1052,4 +1079,38 @@ void EditorLayer::DrawEditMenu(Engine& engine)
 	ImGui::DragFloat("Turn step", &mSnap.rotate, 0.5f, 1.0f, 90.0f, "%.0f deg");
 	ImGui::DragFloat("Scale step", &mSnap.scale, 0.01f, 0.01f, 1.0f, "%.2f");
 	ImGui::EndMenu();
+}
+
+// =============================================================================
+// Prefabs
+// =============================================================================
+
+void EditorLayer::SaveAsPrefab(Engine& engine, Entity entity)
+{
+	Scene& scene = engine.GetEditScene();
+	if (!scene.IsAlive(entity)) return;
+	const fs::path dir = engine.Project().content / "Prefabs";
+	std::wstring name = fs::u8path(scene.DisplayName(entity)).wstring() + L".prefab";
+	std::replace_if(name.begin(), name.end(), [](wchar_t c) { return c == L'/' || c == L'\\' || c == L':' || c == L'*' || c == L'?' || c == L'"' || c == L'<' || c == L'>' || c == L'|'; }, L'_');
+	const std::wstring file = FileDialog(engine.GetWindow().Handle(), true, dir, name, L"Cherry prefab (*.prefab)\0*.prefab\0", L"prefab");
+	if (file.empty()) return;
+
+	const std::string path = engine.GetAssets().AssetPathOf(file);
+	if (path.empty())
+	{
+		CHERRY_ERROR("Prefabs must be saved inside the project's Content folder");
+		return;
+	}
+	// The entity becomes an instance of the new prefab.
+	scene.EnsureGuid(entity);
+	scene.Get<EntityInfo>(entity).prefab = path;
+	std::string error;
+	if (!cherry::SavePrefab(scene, entity, file, error))
+	{
+		CHERRY_ERROR("Saving the prefab failed: %s", error.c_str());
+		return;
+	}
+	Edited(engine);
+	mContentScanTimer = 0.0f;
+	CHERRY_LOG("Saved prefab %s", path.c_str());
 }

@@ -1,6 +1,8 @@
 // Tests for the scene, reflection and scene files (no window, no GPU). Run via CTest or directly.
 #include <Scene/Scene.h>
 #include <Scene/SceneSerializer.h>
+#include <Game/Script.h>
+#include <Game/BuiltinScripts.h>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -207,6 +209,76 @@ int main()
 		cherry::SceneFromJson(withoutType, savedWithType, error);
 		const Entity kept = withoutType.FindByGuid(scene.GetGuid(entity));
 		Check(kept != INVALID_ENTITY && withoutType.Has<UnknownComponents>(kept), "after Unregister its data is kept as unknown");
+	}
+
+	// ---- Prefabs ------------------------------------------------------------------------------
+	{
+		Scene scene;
+		Entity root, child;
+		BuildSample(scene, root, child);
+		const Entity outsider = scene.CreateNamedEntity("Outsider");
+		struct Pointer { Entity target = INVALID_ENTITY; Entity inside = INVALID_ENTITY; };
+		TypeRegistry::Get().SetCurrentOwner("tests");
+		TypeRegistry::Get().Component<Pointer>("Pointer").EntityRef("target", &Pointer::target).EntityRef("inside", &Pointer::inside);
+		TypeRegistry::Get().SetCurrentOwner("engine");
+		scene.RegisterComponent<Pointer>();
+		scene.Add(root, Pointer{ outsider, child });
+
+		const std::string prefab = cherry::PrefabToJson(scene, root);
+		Check(prefab.find("cherry-prefab") != std::string::npos && prefab.find("Outsider") == std::string::npos, "a prefab holds the entity and its children only");
+
+		std::string error;
+		const Entity a = cherry::InstantiatePrefab(scene, prefab, error);
+		const Entity b = cherry::InstantiatePrefab(scene, prefab, error);
+		Check(a != INVALID_ENTITY && b != INVALID_ENTITY && a != b, "a prefab can be placed twice");
+		Check(scene.Entities().size() == 4 + 4, "each instance adds the root and its child");
+		Check(scene.GetGuid(a) != scene.GetGuid(root) && scene.GetGuid(a) != scene.GetGuid(b), "instances get new guids");
+		Check(scene.GetParent(a) == INVALID_ENTITY, "an instance's root has no parent");
+		const std::vector<Entity> childrenA = scene.Children(a);
+		Check(childrenA.size() == 1 && childrenA[0] != child, "an instance has its own child");
+		const Pointer& pointer = scene.Get<Pointer>(a);
+		Check(pointer.target == INVALID_ENTITY, "references to entities outside the prefab are cleared");
+		Check(childrenA.size() == 1 && pointer.inside == childrenA[0], "references inside the prefab point into the instance");
+		Check(scene.Has<MeshRenderer>(a) && scene.Get<MeshRenderer>(a).meshAsset == "engine/Cube", "components come with the instance");
+		TypeRegistry::Get().Unregister("tests");
+	}
+
+	// ---- Scripts -------------------------------------------------------------------------------
+	{
+		const ComponentInfo* spinner = TypeRegistry::Get().Find("Spinner");
+		Check(spinner && spinner->Is(Component_Script) && spinner->asScript, "built-in scripts are registered as scripts");
+
+		struct BaseScript : public Script { float speed = 1.0f; };
+		struct DerivedScript : public BaseScript { float jump = 2.0f; };
+		TypeRegistry& registry = TypeRegistry::Get();
+		registry.SetCurrentOwner("tests");
+		RegisterScript<BaseScript>(registry, "BaseScript").Field("speed", &BaseScript::speed);
+		RegisterScript<DerivedScript>(registry, "DerivedScript").Base<BaseScript>().Field("jump", &DerivedScript::jump);
+		registry.SetCurrentOwner("engine");
+		const ComponentInfo* derived = registry.Find("DerivedScript");
+		Check(derived && derived->fields.size() == 2 && derived->fields[0].name == "speed", "Base<>() inherits the base class's fields first");
+
+		Scene scene;
+		const Entity entity = scene.CreateNamedEntity("Scripted");
+		DerivedScript* script = derived ? static_cast<DerivedScript*>(derived->addDefault(scene, entity)) : nullptr;
+		if (script) { script->speed = 7.0f; script->jump = 3.0f; }
+		Spinner spin;
+		spin.degreesPerSecond = 45.0f;
+		scene.Add(entity, spin);
+		Scene loaded;
+		std::string error;
+		cherry::SceneFromJson(loaded, cherry::SceneToJson(scene), error);
+		const Entity loadedEntity = loaded.FindByGuid(scene.GetGuid(entity));
+		Check(loadedEntity != INVALID_ENTITY && loaded.IsRegistered<DerivedScript>() && loaded.Has<DerivedScript>(loadedEntity)
+			&& loaded.Get<DerivedScript>(loadedEntity).speed == 7.0f && loaded.Get<DerivedScript>(loadedEntity).jump == 3.0f,
+			"a script's own and inherited fields are saved");
+		Check(loadedEntity != INVALID_ENTITY && loaded.Get<Spinner>(loadedEntity).degreesPerSecond == 45.0f, "built-in script fields are saved");
+
+		Scene play;
+		cherry::CopyScene(scene, play);
+		const Entity copy = play.FindByGuid(scene.GetGuid(entity));
+		Check(copy != INVALID_ENTITY && play.Has<Spinner>(copy) && !play.Get<Spinner>(copy).HasStarted(), "scripts are copied into the play world, not started");
+		registry.Unregister("tests");
 	}
 
 	std::printf("\n%s (%d failure%s)\n", gFailures == 0 ? "All engine tests passed" : "ENGINE TESTS FAILED", gFailures, gFailures == 1 ? "" : "s");

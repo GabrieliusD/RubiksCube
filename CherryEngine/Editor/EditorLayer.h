@@ -94,6 +94,8 @@ private:
 	void HandleViewportDrop(Engine& engine);
 	void SelectAsset(const std::string& path);
 	void PlaceMesh(Engine& engine, const std::string& path, const DirectX::XMFLOAT3& position);
+	void PlacePrefab(Engine& engine, const std::string& path, const DirectX::XMFLOAT3& position);
+	void SaveAsPrefab(Engine& engine, Entity entity);
 
 	bool mLayoutBuilt = false;
 	bool mVoxelTest = false;

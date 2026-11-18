@@ -1,5 +1,6 @@
 #pragma once
 #include "Scene/Reflection.h"
+#include "Game/Script.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -54,6 +55,13 @@ public:
 	ComponentBuilder<C> Component(const std::string& name, uint32_t flags = Component_None)
 	{
 		return mRegistry.Component<C>(name, flags);
+	}
+
+	// A Script subclass: a component the engine runs while playing (see Game/Script.h).
+	template <typename S>
+	ComponentBuilder<S> Script(const std::string& name, uint32_t flags = Component_None)
+	{
+		return RegisterScript<S>(mRegistry, name, flags);
 	}
 
 	template <typename S, typename... Args>

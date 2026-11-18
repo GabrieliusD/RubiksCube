@@ -130,6 +130,14 @@ public:
 	// Returns false if the user cancelled.
 	bool ConfirmDiscardSceneChanges();
 
+	// ---- Spawning ------------------------------------------------------------------------
+	// Places a prefab (Content path) in the active scene at a world position; returns its
+	// root (INVALID_ENTITY if the prefab can't be read). Scripts in it start next frame.
+	Entity Spawn(const std::string& prefab, const DirectX::XMFLOAT3& position, Entity parent = INVALID_ENTITY);
+	// Destroys an entity and its children at the end of this frame's script update, after
+	// calling OnDestroy on their scripts (safe from inside scripts).
+	void DestroyLater(Entity entity);
+
 	// The scene of the world being shown: the play world while playing, else the edit world.
 	Scene& GetScene();
 	AssetManager& GetAssets();
