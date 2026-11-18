@@ -1,0 +1,11 @@
+{
+  "baseColor": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "roughness": 0.5,
+  "metallic": 0.0,
+  "albedoTexture": "Textures/rubicPallet.dds"
+}

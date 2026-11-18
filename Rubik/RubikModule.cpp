@@ -379,7 +379,7 @@ void RubikModule::OnImGui(Engine& /*engine*/)
 {
 	ImGui::Text("Rubik's Cube");
 	ImGui::Separator();
-	if (ImGui::Button("Scramble"))
+	if (ImGui::Button("Scrambles"))
 	{
 		ResetPuzzle();
 		Scramble(RubikPuzzle::RandomScramble(25));
