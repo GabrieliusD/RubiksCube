@@ -72,16 +72,27 @@ void EditorLayer::DrawContentBrowser(Engine& engine)
 		mContentScanTimer = 2.0f;
 		mContent.clear();
 		std::error_code ec;
-		std::vector<fs::path> files;
-		for (fs::recursive_directory_iterator it(root, ec), end; it != end && !ec; it.increment(ec)) files.push_back(it->path());
-		std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b)
+		// Depth-first tree order with folders before files at every level: sort by a key of
+		// one ("0" folder / "1" file, name) pair per path element.
+		struct Item { fs::path file; std::vector<std::string> key; };
+		std::vector<Item> items;
+		for (fs::recursive_directory_iterator it(root, ec), end; it != end && !ec; it.increment(ec))
 		{
-			// Folders before files at each level, then by name.
-			const fs::path pa = a.parent_path(), pb = b.parent_path();
-			if (pa != pb) return a < b;
-			const bool da = fs::is_directory(a), db = fs::is_directory(b);
-			return da != db ? da : a.filename() < b.filename();
-		});
+			Item item{ it->path(), {} };
+			const fs::path relative = item.file.lexically_relative(root);
+			const bool isFolder = it->is_directory(ec);
+			size_t index = 0;
+			const size_t count = static_cast<size_t>(std::distance(relative.begin(), relative.end()));
+			for (const fs::path& element : relative)
+			{
+				const bool elementIsFolder = ++index < count || isFolder;   // every element but the last is a folder
+				item.key.push_back((elementIsFolder ? "0" : "1") + element.u8string());
+			}
+			items.push_back(std::move(item));
+		}
+		std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.key < b.key; });
+		std::vector<fs::path> files;
+		for (Item& item : items) files.push_back(std::move(item.file));
 		for (const fs::path& file : files)
 		{
 			ContentEntry entry;

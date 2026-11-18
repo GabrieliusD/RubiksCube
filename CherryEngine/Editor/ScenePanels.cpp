@@ -217,6 +217,8 @@ void EditorLayer::OnSceneReplaced(Engine& engine)
 
 void EditorLayer::DeleteSelection(Engine& engine)
 {
+	// Not while playing: game code may still hold the entity.
+	if (engine.GetPlayState() != PlayState::Edit) return;
 	const Entity selected = ValidSelection(engine);
 	if (selected == INVALID_ENTITY) return;
 	engine.GetScene().DestroyTree(selected);
@@ -226,6 +228,7 @@ void EditorLayer::DeleteSelection(Engine& engine)
 
 void EditorLayer::DuplicateSelection(Engine& engine)
 {
+	if (engine.GetPlayState() != PlayState::Edit) return;
 	const Entity selected = ValidSelection(engine);
 	if (selected == INVALID_ENTITY) return;
 	mSelected = cherry::DuplicateEntity(engine.GetScene(), selected);
@@ -429,7 +432,7 @@ void EditorLayer::DrawHierarchyNode(Engine& engine, Scene& scene, Entity entity,
 		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
 		{
 			const Entity dragged = *static_cast<const Entity*>(payload->Data);
-			if (scene.SetParent(dragged, entity, true)) Edited(engine);
+			if (engine.GetPlayState() == PlayState::Edit && scene.SetParent(dragged, entity, true)) Edited(engine);
 		}
 		ImGui::EndDragDropTarget();
 	}
@@ -437,9 +440,10 @@ void EditorLayer::DrawHierarchyNode(Engine& engine, Scene& scene, Entity entity,
 	{
 		mSelected = entity;
 		if (ImGui::BeginMenu("Create Child")) { DrawCreateMenu(engine, scene, entity); ImGui::EndMenu(); }
-		if (ImGui::MenuItem("Duplicate", "Ctrl+D")) DuplicateSelection(engine);
-		if (ImGui::MenuItem("Delete", "Del")) DeleteSelection(engine);
-		if (scene.GetParent(entity) != INVALID_ENTITY && ImGui::MenuItem("Unparent"))
+		const bool editing = engine.GetPlayState() == PlayState::Edit;
+		if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, editing)) DuplicateSelection(engine);
+		if (ImGui::MenuItem("Delete", "Del", false, editing)) DeleteSelection(engine);
+		if (editing && scene.GetParent(entity) != INVALID_ENTITY && ImGui::MenuItem("Unparent"))
 		{
 			if (scene.SetParent(entity, INVALID_ENTITY, true)) Edited(engine);
 		}
@@ -506,7 +510,7 @@ void EditorLayer::DrawHierarchy(Engine& engine)
 		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload))
 		{
 			const Entity dragged = *static_cast<const Entity*>(payload->Data);
-			if (scene.SetParent(dragged, INVALID_ENTITY, true)) Edited(engine);
+			if (engine.GetPlayState() == PlayState::Edit && scene.SetParent(dragged, INVALID_ENTITY, true)) Edited(engine);
 		}
 		ImGui::EndDragDropTarget();
 	}
@@ -722,7 +726,8 @@ void EditorLayer::DrawInspector(Engine& engine)
 
 		ImGui::PushID(info.name.c_str());
 		bool keep = true;
-		const bool open = ImGui::CollapsingHeader(info.name.c_str(), info.Is(Component_NotRemovable) ? nullptr : &keep, ImGuiTreeNodeFlags_DefaultOpen);
+		const bool removable = !info.Is(Component_NotRemovable) && engine.GetPlayState() == PlayState::Edit;
+		const bool open = ImGui::CollapsingHeader(info.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_DefaultOpen);
 		if (!keep) toRemove = &info;
 		if (open)
 		{
@@ -766,6 +771,12 @@ void EditorLayer::DrawInspector(Engine& engine)
 
 	ImGui::Spacing();
 	ImGui::Separator();
+	if (engine.GetPlayState() != PlayState::Edit)
+	{
+		ImGui::TextDisabled("Playing: field changes apply to the play world and are\nthrown away on Stop. Components can't be added or removed.");
+		ImGui::End();
+		return;
+	}
 	if (ImGui::Button("Add Component", ImVec2(-FLT_MIN, 0))) ImGui::OpenPopup("AddComponent");
 	if (ImGui::BeginPopup("AddComponent"))
 	{
@@ -1028,8 +1039,8 @@ void EditorLayer::DrawEditMenu(Engine& engine)
 	if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editing && !mRedo.empty())) Redo(engine);
 	ImGui::Separator();
 	const bool hasSelection = ValidSelection(engine) != INVALID_ENTITY;
-	if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSelection)) DuplicateSelection(engine);
-	if (ImGui::MenuItem("Delete", "Del", false, hasSelection)) DeleteSelection(engine);
+	if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, editing && hasSelection)) DuplicateSelection(engine);
+	if (ImGui::MenuItem("Delete", "Del", false, editing && hasSelection)) DeleteSelection(engine);
 	if (ImGui::MenuItem("Frame Selected", "F", false, hasSelection)) FocusSelection(engine);
 	ImGui::Separator();
 	if (ImGui::MenuItem("Move", "W", mGizmoMode == Gizmo::Mode::Translate)) mGizmoMode = Gizmo::Mode::Translate;
