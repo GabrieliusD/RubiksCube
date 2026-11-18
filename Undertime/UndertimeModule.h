@@ -9,6 +9,8 @@
 #include "Fragments.h"
 #include "CaveGenerator.h"
 #include "CaveMap.h"
+#include <array>
+#include <string>
 #include <vector>
 
 // UNDERTIME: first-person mining in a mountain where time runs slower the deeper you go.
@@ -44,6 +46,9 @@ private:
 	// Generates a new mountain for `seed` and rebuilds everything that depends on it.
 	void NewWorld(Engine& engine, uint32_t seed);
 	static uint32_t RandomSeed();
+	// "v0.4 (mining feel)  Release  built 18 Nov 19:05", from cfg::kGameVersion and the
+	// game module's own file time.
+	static std::string BuildStamp();
 	void SetWorldRenderer(Engine& engine, WorldRenderer mode);
 	void CreateScenery(Engine& engine);
 	void CreateViewModels(Engine& engine);
@@ -53,7 +58,16 @@ private:
 	void UpdateState(Engine& engine);
 	void UpdateMining(Engine& engine, float deltaTime);
 	void Swing(Engine& engine);
-	void SpawnDebris(Engine& engine, const VoxelWorld::CarveResult& carve);
+	// Turns voxels knocked out by a swing into flying pieces: ore becomes nuggets that come
+	// to the player, stone becomes rubble that crumbles. `voxels` are in a grid whose (0,0,0)
+	// corner sits at `gridPosition` with `gridRotation`; `gridOrigin` is that corner's world
+	// voxel (for colours). `out` is the direction the pieces are thrown.
+	void SpawnChips(Engine& engine, const std::vector<VoxelWorld::RemovedVoxel>& voxels, const DirectX::XMINT3& gridOrigin,
+		const DirectX::XMFLOAT3& gridPosition, const DirectX::XMFLOAT4& gridRotation, const DirectX::XMFLOAT3& baseVelocity,
+		const DirectX::XMFLOAT3& out, const DirectX::XMFLOAT3& facePoint);
+	void UpdatePickups(Engine& engine, float deltaTime);
+	// After a bite that broke ore: the connected ore around the impact falls out as one chunk.
+	void BreakOutVein(Engine& engine, const VoxelWorld::CarveResult& carve, const DirectX::XMFLOAT3& center);
 	// Pushes a world edit to the GPU volume, the collision slabs and (in mesh mode) the chunk
 	// meshes; with `checkSupport`, rock left hanging free breaks off and falls.
 	void ApplyWorldChange(Engine& engine, const VoxelWorld::Box& box, bool checkSupport);
@@ -86,6 +100,7 @@ private:
 	int lastSupportVisited = 0;
 	State state = State::Title;
 	MessageLog messages;
+	std::string buildStamp;
 
 	// Rendering
 	MaterialHandle vertexColorMaterial;
@@ -107,7 +122,16 @@ private:
 	bool waitForRelease = false;    // the click that captured the mouse doesn't mine
 	float swingAmount = 0.0f;       // 0..1, eases in while mining
 	uint32_t swingCount = 0;        // varies the jagged edge of each bite
+	bool wasMining = false;
+	float hitStop = 0.0f;           // seconds the pick stays frozen in the rock after a hit
+	float hitFeedback = 0.0f;       // seconds left of the impact jolt / shake / pick recoil
+	float hitStrength = 0.0f;       // 1 for a clean bite, less for a hollow hit
 	int voxelsMined = 0;
+
+	// Collected ore (voxels per block type; the bag and selling arrive in milestone 2).
+	std::array<int, static_cast<int>(cfg::Block::Count)> collected{};
+	std::array<int, static_cast<int>(cfg::Block::Count)> recentPickup{};   // shown as "+3 Copper"
+	float pickupToast = 0.0f;
 
 	// Gear (upgrade levels, 0-based; trading arrives in milestone 2)
 	int pickLevel = 0;

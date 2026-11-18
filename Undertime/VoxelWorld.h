@@ -3,6 +3,7 @@
 #include <Renderer/RenderTypes.h>
 #include <DirectXMath.h>
 #include <array>
+#include <unordered_map>
 #include <vector>
 
 // The mountain interior as a fine voxel grid (cfg::kVoxelsPerMeter per metre), plus the
@@ -45,7 +46,8 @@ public:
 		int removed = 0;
 		std::vector<RemovedVoxel> voxels;
 		std::array<int, static_cast<int>(Block::Count)> removedByType{};
-		Box dirty;
+		Box dirty;     // voxels removed
+		Box cracked;   // voxels damaged but still standing (colour changes only)
 	};
 
 	// Generated worlds come from GenerateCaves() (CaveGenerator.h).
@@ -78,7 +80,11 @@ public:
 
 	// ---- Ray-marched renderer ----
 	static std::vector<DirectX::XMFLOAT4> BuildPalette();       // sRGB
-	static uint8_t PaletteIndex(Block block, int voxelZ);
+	// crack: 0 = intact, 1 = lightly cracked, 2 = badly cracked.
+	static uint8_t PaletteIndex(Block block, int voxelZ, int crack = 0);
+	int CrackLevel(int x, int y, int z) const;
+	float Damage(int x, int y, int z) const;
+	void ClearDamage() { mDamage.clear(); }
 	std::vector<uint8_t> PaletteVoxels() const;                  // whole grid
 	std::vector<uint8_t> PaletteVoxels(const Box& box) const;    // a box, x fastest
 
@@ -100,4 +106,5 @@ private:
 	DirectX::XMFLOAT4 VoxelColor(Block block, int x, int y, int z) const;
 
 	std::vector<Block> mVoxels;
+	std::unordered_map<uint32_t, float> mDamage;   // accumulated pick damage of standing voxels
 };

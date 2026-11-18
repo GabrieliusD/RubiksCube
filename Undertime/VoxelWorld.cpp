@@ -15,7 +15,10 @@ namespace
 	constexpr int kStoneFirst = 1;
 	constexpr int kBedrockFirst = kStoneFirst + cfg::kStoneBands;
 	constexpr int kOreFirst = kBedrockFirst + cfg::kStoneBands;
-	static_assert(kOreFirst + static_cast<int>(Block::Count) <= 256, "palette overflow");
+	// Then two cracked copies (stone bands + ores) for damaged voxels.
+	constexpr int kCrackSet = cfg::kStoneBands + static_cast<int>(Block::Count);
+	constexpr int kCrackFirst = kOreFirst + static_cast<int>(Block::Count);
+	static_assert(kCrackFirst + 2 * kCrackSet <= 256, "palette overflow");
 
 	int DepthBand(int voxelZ)
 	{
@@ -65,7 +68,26 @@ VoxelWorld::Block VoxelWorld::Get(int x, int y, int z) const
 
 void VoxelWorld::Set(int x, int y, int z, Block block)
 {
-	if (InGrid(x, y, z)) mVoxels[Index(x, y, z)] = block;
+	if (!InGrid(x, y, z)) return;
+	mVoxels[Index(x, y, z)] = block;
+	if (!mDamage.empty()) mDamage.erase(static_cast<uint32_t>(Index(x, y, z)));
+}
+
+float VoxelWorld::Damage(int x, int y, int z) const
+{
+	if (mDamage.empty() || !InGrid(x, y, z)) return 0.0f;
+	auto it = mDamage.find(static_cast<uint32_t>(Index(x, y, z)));
+	return it == mDamage.end() ? 0.0f : it->second;
+}
+
+int VoxelWorld::CrackLevel(int x, int y, int z) const
+{
+	// Cracks spread as a speckle: more voxels darken (and some darken further) as damage grows.
+	const float d = Damage(x, y, z);
+	if (d <= 0.0f) return 0;
+	const float h = color::Hash01(x, y, z, 977u);
+	if (h < (d - 0.45f) * 1.6f) return 2;
+	return h < d * 1.7f ? 1 : 0;
 }
 
 bool VoxelWorld::IsSolid(int x, int y, int z) const
@@ -162,9 +184,21 @@ VoxelWorld::CarveResult VoxelWorld::Carve(const XMFLOAT3& center, float pickSpee
 	const int y1 = std::min(cfg::kVoxY - 1, static_cast<int>(std::floor((center.y + maxRadius) * V)));
 	const int z1 = std::min(cfg::kVoxZ - 1, static_cast<int>(std::floor((center.z + maxRadius) * V)));
 
+	auto grow = [](Box& box, int x, int y, int z)
+	{
+		if (box.Empty())
+		{
+			box.min[0] = box.max[0] = x; box.min[1] = box.max[1] = y; box.min[2] = box.max[2] = z;
+			return;
+		}
+		box.min[0] = std::min(box.min[0], x); box.max[0] = std::max(box.max[0], x);
+		box.min[1] = std::min(box.min[1], y); box.max[1] = std::max(box.max[1], y);
+		box.min[2] = std::min(box.min[2], z); box.max[2] = std::max(box.max[2], z);
+	};
 	auto remove = [&](int x, int y, int z, Block block)
 	{
 		mVoxels[Index(x, y, z)] = Block::Air;
+		mDamage.erase(static_cast<uint32_t>(Index(x, y, z)));
 		++result.removed;
 		result.voxels.push_back({ x, y, z, block });
 		++result.removedByType[static_cast<int>(block)];
@@ -194,19 +228,24 @@ VoxelWorld::CarveResult VoxelWorld::Carve(const XMFLOAT3& center, float pickSpee
 		const float dz = (z + 0.5f) * S - center.z;
 		const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-		const float strength = std::min(std::sqrt(pickFactor / std::max(EffectiveHardness(block, z), 0.01f)), cfg::kBiteMaxScale);
 		const float rough = 1.0f + cfg::kBiteRoughness * (color::Hash01(x, y, z, salt) * 2.0f - 1.0f);
-		if (distance <= cfg::kBiteRadius * strength * rough)
+		const float radius = cfg::kBiteRadius * std::min(std::sqrt(pickFactor), cfg::kBiteMaxScale) * rough;
+		float falloff = std::clamp((1.0f - distance / radius) * cfg::kBiteFalloff, 0.0f, 1.0f);
+		// The voxel you aimed at always takes a full hit, so even very hard rock yields to persistence.
+		if (x == mbx && y == mby && z == mbz) falloff = 1.0f;
+		if (falloff <= 0.0f) continue;
+
+		const uint32_t key = static_cast<uint32_t>(Index(x, y, z));
+		const float damage = (mDamage.count(key) ? mDamage[key] : 0.0f) + cfg::kPickPower * pickFactor / std::max(EffectiveHardness(block, z), 0.01f) * falloff;
+		if (damage >= 0.999f)
 		{
 			remove(x, y, z, block);
 		}
-	}
-
-	// The voxel you aimed at always breaks, so even very hard rock yields to persistence.
-	if (InGrid(mbx, mby, mbz))
-	{
-		const Block block = mVoxels[Index(mbx, mby, mbz)];
-		if (block != Block::Air && block != Block::Bedrock) remove(mbx, mby, mbz, block);
+		else
+		{
+			mDamage[key] = damage;
+			grow(result.cracked, x, y, z);
+		}
 	}
 	return result;
 }
@@ -334,11 +373,24 @@ std::vector<XMFLOAT4> VoxelWorld::BuildPalette()
 	{
 		palette[kOreFirst + type] = color::WithAlpha(color::Srgb(cfg::kBlocks[type].color));
 	}
+	for (int level = 0; level < 2; ++level)
+	{
+		const int first = kCrackFirst + level * kCrackSet;
+		for (int band = 0; band < cfg::kStoneBands; ++band)
+			palette[first + band] = color::WithAlpha(color::Scale(StoneSrgb((band + 0.5f) / cfg::kStoneBands), cfg::kCrackShade[level]));
+		for (int type = 0; type < static_cast<int>(Block::Count); ++type)
+			palette[first + cfg::kStoneBands + type] = color::WithAlpha(color::Scale(color::Srgb(cfg::kBlocks[type].color), cfg::kCrackShade[level]));
+	}
 	return palette;
 }
 
-uint8_t VoxelWorld::PaletteIndex(Block block, int voxelZ)
+uint8_t VoxelWorld::PaletteIndex(Block block, int voxelZ, int crack)
 {
+	if (crack > 0 && block != Block::Air && block != Block::Bedrock)
+	{
+		const int first = kCrackFirst + (std::min(crack, 2) - 1) * kCrackSet;
+		return static_cast<uint8_t>(block == Block::Stone ? first + DepthBand(voxelZ) : first + cfg::kStoneBands + static_cast<int>(block));
+	}
 	switch (block)
 	{
 	case Block::Air:     return 0;
@@ -366,7 +418,7 @@ std::vector<uint8_t> VoxelWorld::PaletteVoxels(const Box& box) const
 	for (int z = box.min[2]; z <= box.max[2]; ++z)
 		for (int y = box.min[1]; y <= box.max[1]; ++y)
 			for (int x = box.min[0]; x <= box.max[0]; ++x)
-				out.push_back(PaletteIndex(Get(x, y, z), z));
+				out.push_back(PaletteIndex(Get(x, y, z), z, CrackLevel(x, y, z)));
 	return out;
 }
 

@@ -320,6 +320,32 @@ int main()
 	std::mt19937 rng(1234);
 
 	{
+		// Cracking: shallow stone pops in one hit, deep stone cracks for a few hits first.
+		auto hitsToBreak = [](float zMetres, bool& crackedFirst)
+		{
+			VoxelWorld world;
+			world.GenerateBasic();
+			const int V = cfg::kVoxelsPerMeter;
+			const int x = 10 * V, y = 5 * V, z = static_cast<int>(zMetres * V);
+			const XMFLOAT3 c{ (x + 0.5f) * cfg::kVoxelSize, (y + 0.5f) * cfg::kVoxelSize, (z + 0.5f) * cfg::kVoxelSize };
+			crackedFirst = false;
+			for (int hit = 1; hit <= 20; ++hit)
+			{
+				const VoxelWorld::CarveResult r = world.Carve(c, cfg::kPickSpeed[0], x, y, z, hit);
+				if (hit == 1) crackedFirst = r.removed == 0 && !r.cracked.Empty() && world.CrackLevel(x, y, z) >= 0;
+				if (world.Get(x, y, z) == Block::Air) return hit;
+			}
+			return 99;
+		};
+		bool shallowCracked = false, deepCracked = false;
+		const int shallow = hitsToBreak(2.0f, shallowCracked);
+		const int deep = hitsToBreak(150.0f, deepCracked);
+		std::printf("        hits to break: %d at 2 m, %d at 150 m\n", shallow, deep);
+		Check(shallow == 1, "cracking: stone near the entrance breaks in one hit");
+		Check(deep >= 3 && deep <= 8 && deepCracked, "cracking: deep stone cracks first and breaks after 3-8 hits");
+	}
+
+	{
 		bool ok = true;
 		for (int i = 0; i < 30 && ok; ++i)
 		{

@@ -4,7 +4,9 @@
 #include "Structure.h"
 #include <cmath>
 #include <cstdio>
+#include <climits>
 #include <random>
+#include <unordered_set>
 #include <algorithm>
 #include <chrono>
 #include <Core/Log.h>
@@ -37,8 +39,38 @@ EngineConfig UndertimeModule::GetConfig() const
 // Setup
 // =============================================================================
 
+std::string UndertimeModule::BuildStamp()
+{
+#ifdef _DEBUG
+	const char* config = "Debug";
+#else
+	const char* config = "Release";
+#endif
+	// When this module's file (the game DLL, or the exe in a monolithic build) was written.
+	char built[48] = "unknown";
+	HMODULE module = nullptr;
+	wchar_t path[MAX_PATH];
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	SYSTEMTIME utc, local;
+	if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			reinterpret_cast<LPCWSTR>(&UndertimeModule::BuildStamp), &module)
+		&& GetModuleFileNameW(module, path, MAX_PATH) > 0
+		&& GetFileAttributesExW(path, GetFileExInfoStandard, &data)
+		&& FileTimeToSystemTime(&data.ftLastWriteTime, &utc)
+		&& SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local))
+	{
+		static const char* kMonths[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+		std::snprintf(built, sizeof(built), "%d %s %02d:%02d", local.wDay, kMonths[(local.wMonth + 11) % 12], local.wHour, local.wMinute);
+	}
+	char text[128];
+	std::snprintf(text, sizeof(text), "v%s  %s  built %s", cfg::kGameVersion, config, built);
+	return text;
+}
+
 void UndertimeModule::OnStartup(Engine& engine)
 {
+	buildStamp = BuildStamp();
+	CHERRY_LOG("UNDERTIME %s", buildStamp.c_str());
 	MaterialDesc material;
 	material.baseColor = { 1, 1, 1, 1 };     // colour comes from the vertices
 	material.roughness = 0.85f;
@@ -115,6 +147,10 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 
 	// Loose rock belongs to the old world.
 	fragments.Clear(engine);
+	world.ClearDamage();
+	collected.fill(0);
+	recentPickup.fill(0);
+	pickupToast = 0.0f;
 
 	// GPU volume.
 	renderer.DestroyVoxelVolume(voxelVolume);
@@ -312,6 +348,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 	const XMFLOAT3 keepMax{ player.position.x + r, player.position.y + cfg::kBodyHeight + 0.05f, player.position.z + r };
 	changedScratch.clear();
 	fragments.Update(engine, world, dt, keepMin, keepMax, changedScratch);
+	UpdatePickups(engine, dt);
 	for (const VoxelWorld::Box& box : changedScratch)
 	{
 		ApplyWorldChange(engine, box, true);   // rubble that landed unsupported falls again
@@ -388,28 +425,63 @@ void UndertimeModule::UpdateMining(Engine& engine, float dt)
 		next.point = hit.point;
 		for (int a = 0; a < 3; ++a) next.normal[a] = hit.normal[a];
 	}
-	if (auto loose = engine.GetPhysics().Raycast(eye, dir, cfg::kReach, true))
+	// Loose boulders. The player's own capsule is a physics body too (so falling rock hits
+	// you), so the ray starts where it leaves the capsule, and skips past chips and nuggets.
+	float along = 0.0f;
 	{
-		if (fragments.Owns(loose->body) && (!next.valid || loose->distance < hit.distance))
+		const float r = cfg::kBodyWidth * 0.5f + 0.03f;
+		const float bottom = player.position.y + r, top = player.position.y + cfg::kBodyHeight - r;
+		for (; along < cfg::kReach; along += 0.02f)
+		{
+			const float px = eye.x + dir.x * along - player.position.x, pz = eye.z + dir.z * along - player.position.z;
+			const float py = eye.y + dir.y * along;
+			const float dy = py < bottom ? bottom - py : (py > top ? py - top : 0.0f);
+			if (px * px + pz * pz + dy * dy > r * r) break;
+		}
+	}
+	for (int attempt = 0; attempt < 4 && along < cfg::kReach; ++attempt)
+	{
+		const XMFLOAT3 from{ eye.x + dir.x * along, eye.y + dir.y * along, eye.z + dir.z * along };
+		const auto loose = engine.GetPhysics().Raycast(from, dir, cfg::kReach - along, true);
+		if (!loose) break;
+		const float distance = along + loose->distance;
+		if (next.valid && distance >= hit.distance) break;
+		if (fragments.Owns(loose->body))
 		{
 			next = Target{};
 			next.valid = true;
 			next.block = Block::Stone;
 			next.point = loose->point;
 			next.fragment = loose->body;
+			break;
 		}
+		along = distance + 0.3f;   // a chip or nugget in the way: look past it
 	}
 	target = next;
 
+	hitFeedback = std::max(hitFeedback - dt, 0.0f);
 	const bool mining = !waitForRelease && input.IsMouseDown(MouseButton::Left);
 	swingAmount = std::clamp(swingAmount + (mining ? dt : -dt) * 6.0f, 0.0f, 1.0f);
 	if (!mining)
 	{
 		swingTimer = 0.0f;
+		wasMining = false;
 		return;
 	}
+	if (!wasMining)
+	{
+		// A fresh click skips most of the wind-up so the first hit lands quickly.
+		swingTimer = std::max(swingTimer, cfg::kFirstSwingStart);
+		wasMining = true;
+	}
 
-	// Holding the button keeps swinging; each time the pick lands, it bites into the rock.
+	// Holding the button keeps swinging; each time the pick lands, it bites into the rock
+	// (and sticks in it for a moment).
+	if (hitStop > 0.0f)
+	{
+		hitStop -= dt;
+		return;
+	}
 	swingTimer += dt / cfg::kSwingPeriod;
 	if (swingTimer >= 1.0f)
 	{
@@ -423,16 +495,23 @@ void UndertimeModule::Swing(Engine& engine)
 	if (!target.valid) return;   // swung at air
 	const XMFLOAT3 dir = player.LookDirection();
 
-	// Hitting a loose chunk knocks it away.
+	// Hitting a loose boulder breaks a bite out of it and splits what's left.
 	if (target.fragment != kInvalidBody)
 	{
-		engine.GetPhysics().AddImpulse(target.fragment,
-			{ dir.x * cfg::kPickImpulse, dir.y * cfg::kPickImpulse, dir.z * cfg::kPickImpulse }, target.point);
+		const ChipResult chip = fragments.Chip(engine, target.fragment, target.point, cfg::kPickSpeed[pickLevel] / cfg::kPickSpeed[0], ++swingCount);
+		if (!chip.hit) return;
+		hitFeedback = cfg::kHitFeedbackTime;
+		hitStrength = 1.0f;
+		hitStop = cfg::kHitStop;
+		voxelsMined += static_cast<int>(chip.voxels.size());
+		SpawnChips(engine, chip.voxels, chip.worldOrigin, chip.position, chip.rotation, chip.velocity, { -dir.x, -dir.y, -dir.z }, target.point);
 		return;
 	}
 
 	if (target.block == Block::Bedrock)
 	{
+		hitFeedback = cfg::kHitFeedbackTime;
+		hitStrength = cfg::kHollowHitScale;
 		const bool farWall = target.z >= (cfg::kGridZ - 1) * cfg::kVoxelsPerMeter;
 		if (farWall)
 			messages.Show("The rock here is warm, and it hums.\nSomething is on the other side.", cfg::kMessageSeconds);
@@ -444,54 +523,242 @@ void UndertimeModule::Swing(Engine& engine)
 	// Bite centred just inside the surface we hit.
 	const XMFLOAT3 center{ target.point.x + dir.x * 0.08f, target.point.y + dir.y * 0.08f, target.point.z + dir.z * 0.08f };
 	const VoxelWorld::CarveResult result = world.Carve(center, cfg::kPickSpeed[pickLevel], target.x, target.y, target.z, ++swingCount);
+	hitFeedback = cfg::kHitFeedbackTime;
+	hitStrength = result.removed > 0 ? 1.0f : (result.cracked.Empty() ? cfg::kHollowHitScale : cfg::kCrackHitScale);
+	if (!result.cracked.Empty())
+	{
+		// Cracked but still standing: just recolour.
+		const std::vector<uint8_t> voxels = world.PaletteVoxels(result.cracked);
+		const VoxelWorld::Box& box = result.cracked;
+		engine.GetRenderer().UpdateVoxelVolume(voxelVolume,
+			{ static_cast<uint32_t>(box.min[0]), static_cast<uint32_t>(box.min[1]), static_cast<uint32_t>(box.min[2]) },
+			{ static_cast<uint32_t>(box.max[0] - box.min[0] + 1), static_cast<uint32_t>(box.max[1] - box.min[1] + 1), static_cast<uint32_t>(box.max[2] - box.min[2] + 1) },
+			voxels.data());
+	}
+	if (result.removed == 0 && result.cracked.Empty()) return;
+	hitStop = cfg::kHitStop;
 	if (result.removed == 0) return;
 	voxelsMined += result.removed;
 
-	SpawnDebris(engine, result);
+	SpawnChips(engine, result.voxels, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0, 1 }, { 0, 0, 0 },
+		{ static_cast<float>(target.normal[0]), static_cast<float>(target.normal[1]), static_cast<float>(target.normal[2]) }, target.point);
+	BreakOutVein(engine, result, center);
 	ApplyWorldChange(engine, result.dirty, true);
 
 	// Ore collection, bag and selling arrive in milestone 2.
 }
 
-void UndertimeModule::SpawnDebris(Engine& engine, const VoxelWorld::CarveResult& carve)
+void UndertimeModule::SpawnChips(Engine& engine, const std::vector<VoxelWorld::RemovedVoxel>& voxels, const XMINT3& gridOrigin,
+	const XMFLOAT3& gridPosition, const XMFLOAT4& gridRotation, const XMFLOAT3& baseVelocity, const XMFLOAT3& out, const XMFLOAT3& facePoint)
 {
-	// A few small clusters of the voxels the bite removed fly out as tumbling chunks;
-	// the rest is dust.
+	// Ore comes out as nuggets (every ore voxel); stone as a bigger chunk plus a scatter of
+	// chips that roll down and crumble away (the rest of the stone is dust).
 	std::mt19937 rng(swingCount * 7919u + 17u);
 	std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
-	const int count = static_cast<int>(carve.voxels.size());
+	const int count = static_cast<int>(voxels.size());
 	std::vector<uint8_t> used(count, 0);
+	const float s = cfg::kVoxelSize;
+	const XMMATRIX grid = XMMatrixRotationQuaternion(XMLoadFloat4(&gridRotation)) * XMMatrixTranslation(gridPosition.x, gridPosition.y, gridPosition.z);
+	auto isOre = [](Block b) { return b != Block::Stone && b != Block::Bedrock && b != Block::Air; };
 
-	const XMFLOAT3 out{ static_cast<float>(target.normal[0]), static_cast<float>(target.normal[1]), static_cast<float>(target.normal[2]) };
-	for (int spawned = 0, attempt = 0; spawned < cfg::kDebrisPerSwing && attempt < cfg::kDebrisPerSwing * 4 && count > 0; ++attempt)
+	// The player's box: pieces that would start inside it are left as dust.
+	const float pr = cfg::kBodyWidth * 0.5f + 0.05f;
+	const XMFLOAT3 pMin{ player.position.x - pr, player.position.y, player.position.z - pr };
+	const XMFLOAT3 pMax{ player.position.x + pr, player.position.y + cfg::kBodyHeight, player.position.z + pr };
+
+	// Gathers the unused voxels (of the wanted sort) in a size^3 box at `seed` into one piece.
+	auto gather = [&](int seed, int size, bool ore, FragmentVoxels& fragment)
 	{
-		const int seed = static_cast<int>(rng() % static_cast<uint32_t>(count));
-		if (used[seed]) continue;
-		const int size = 1 + static_cast<int>(rng() % static_cast<uint32_t>(cfg::kDebrisMaxSize));
-		const VoxelWorld::RemovedVoxel& origin = carve.voxels[seed];
-
-		FragmentVoxels fragment;
+		const VoxelWorld::RemovedVoxel& origin = voxels[seed];
 		fragment.size = { size, size, size };
-		fragment.worldOrigin = { origin.x, origin.y, origin.z };
+		fragment.worldOrigin = { gridOrigin.x + origin.x, gridOrigin.y + origin.y, gridOrigin.z + origin.z };
 		fragment.voxels.assign(static_cast<size_t>(size) * size * size, Block::Air);
 		for (int i = 0; i < count; ++i)
 		{
-			const VoxelWorld::RemovedVoxel& v = carve.voxels[i];
+			const VoxelWorld::RemovedVoxel& v = voxels[i];
 			const int lx = v.x - origin.x, ly = v.y - origin.y, lz = v.z - origin.z;
-			if (used[i] || lx < 0 || ly < 0 || lz < 0 || lx >= size || ly >= size || lz >= size) continue;
+			if (used[i] || isOre(v.block) != ore || lx < 0 || ly < 0 || lz < 0 || lx >= size || ly >= size || lz >= size) continue;
 			fragment.voxels[lx + size * (ly + size * lz)] = v.block;
 			used[i] = 1;
 		}
-
-		const float s = cfg::kVoxelSize;
-		const XMFLOAT3 position{ origin.x * s, origin.y * s, origin.z * s };
+	};
+	auto launch = [&](const VoxelWorld::RemovedVoxel& origin, FragmentVoxels&& fragment, FragmentKind kind, float speed)
+	{
+		// Where the piece was, then slid out along the face normal until it's in front of the
+		// original surface: starting inside the bite it would just jam against the hole's sides.
+		XMFLOAT3 position;
+		XMStoreFloat3(&position, XMVector3TransformCoord(XMVectorSet(origin.x * s, origin.y * s, origin.z * s, 1.0f), grid));
+		const float half = fragment.size.x * s * 0.5f;
+		XMFLOAT3 center;
+		XMStoreFloat3(&center, XMVector3TransformCoord(XMVectorSet(half, half, half, 1.0f), XMMatrixRotationQuaternion(XMLoadFloat4(&gridRotation))
+			* XMMatrixTranslation(position.x, position.y, position.z)));
+		const float depth = (center.x - facePoint.x) * out.x + (center.y - facePoint.y) * out.y + (center.z - facePoint.z) * out.z;
+		const float need = half * 1.75f + cfg::kDebrisSpawnOffset;   // half the diagonal, so any rotation clears
+		if (depth < need)
+		{
+			const float push = need - depth;
+			position = { position.x + out.x * push, position.y + out.y * push, position.z + out.z * push };
+			center = { center.x + out.x * push, center.y + out.y * push, center.z + out.z * push };
+		}
+		if (center.x + half > pMin.x && center.x - half < pMax.x && center.y + half > pMin.y && center.y - half < pMax.y
+			&& center.z + half > pMin.z && center.z - half < pMax.z)
+		{
+			return false;   // would start inside the player
+		}
+		// Out of the face and a sideways scatter; gravity rolls them down the wall.
+		XMFLOAT3 side{ unit(rng), unit(rng) * 0.3f, unit(rng) };
+		const float along = side.x * out.x + side.y * out.y + side.z * out.z;
+		side = { side.x - out.x * along, side.y - out.y * along, side.z - out.z * along };
 		const XMFLOAT3 velocity{
-			(out.x + 0.6f * unit(rng)) * cfg::kDebrisSpeed,
-			(out.y + 0.6f * unit(rng)) * cfg::kDebrisSpeed + 1.0f,
-			(out.z + 0.6f * unit(rng)) * cfg::kDebrisSpeed };
+			baseVelocity.x + out.x * speed + side.x * cfg::kDebrisScatter,
+			baseVelocity.y + out.y * speed + side.y * cfg::kDebrisScatter,
+			baseVelocity.z + out.z * speed + side.z * cfg::kDebrisScatter };
 		const XMFLOAT3 spin{ unit(rng) * 6.0f, unit(rng) * 6.0f, unit(rng) * 6.0f };
-		if (fragments.Spawn(engine, std::move(fragment), position, velocity, spin)) ++spawned;
+		return fragments.Spawn(engine, std::move(fragment), position, velocity, spin, kind, gridRotation);
+	};
+
+	// Every ore voxel leaves as part of a nugget.
+	for (int i = 0; i < count; ++i)
+	{
+		if (used[i] || !isOre(voxels[i].block)) continue;
+		FragmentVoxels nugget;
+		gather(i, cfg::kNuggetMaxSize, true, nugget);
+		launch(voxels[i], std::move(nugget), FragmentKind::Nugget, cfg::kDebrisSpeed * 1.5f);
 	}
+
+	// A few stone pieces as rubble.
+	for (int spawned = 0, attempt = 0; spawned < cfg::kDebrisPerSwing && attempt < cfg::kDebrisPerSwing * 4 && count > 0; ++attempt)
+	{
+		const int seed = static_cast<int>(rng() % static_cast<uint32_t>(count));
+		if (used[seed] || isOre(voxels[seed].block)) continue;
+		const int size = spawned == 0 ? cfg::kDebrisBigSize : 1 + static_cast<int>(rng() % static_cast<uint32_t>(cfg::kDebrisMaxSize));
+		FragmentVoxels chip;
+		gather(seed, size, false, chip);
+		if (launch(voxels[seed], std::move(chip), FragmentKind::Rubble, cfg::kDebrisSpeed)) ++spawned;
+	}
+}
+
+void UndertimeModule::BreakOutVein(Engine& engine, const VoxelWorld::CarveResult& carve, const XMFLOAT3& center)
+{
+	const float s = cfg::kVoxelSize;
+	auto isOre = [](Block b) { return b != Block::Air && b != Block::Stone && b != Block::Bedrock; };
+
+	// Seeds: standing ore next to the ore this bite removed.
+	std::vector<XMINT3> stack;
+	std::unordered_set<int> seen;
+	for (const VoxelWorld::RemovedVoxel& v : carve.voxels)
+	{
+		if (!isOre(v.block)) continue;
+		const int n[6][3] = { { v.x - 1, v.y, v.z }, { v.x + 1, v.y, v.z }, { v.x, v.y - 1, v.z }, { v.x, v.y + 1, v.z }, { v.x, v.y, v.z - 1 }, { v.x, v.y, v.z + 1 } };
+		for (const auto& q : n)
+		{
+			if (!isOre(world.Get(q[0], q[1], q[2]))) continue;
+			if (seen.insert(VoxelWorld::Index(q[0], q[1], q[2])).second) stack.push_back({ q[0], q[1], q[2] });
+		}
+	}
+	if (stack.empty()) return;
+
+	// All the rock (ore and stone) connected to it within the radius: a solid lump of wall
+	// with the vein in it, which slides out of its socket instead of interlocking with it.
+	std::vector<XMINT3> chunk;
+	int ore = 0;
+	const float r2 = cfg::kVeinChunkRadius * cfg::kVeinChunkRadius;
+	while (!stack.empty() && static_cast<int>(chunk.size()) < cfg::kVeinChunkMaxVoxels)
+	{
+		const XMINT3 c = stack.back();
+		stack.pop_back();
+		chunk.push_back(c);
+		if (isOre(world.Get(c.x, c.y, c.z))) ++ore;
+		const int n[6][3] = { { c.x - 1, c.y, c.z }, { c.x + 1, c.y, c.z }, { c.x, c.y - 1, c.z }, { c.x, c.y + 1, c.z }, { c.x, c.y, c.z - 1 }, { c.x, c.y, c.z + 1 } };
+		for (const auto& q : n)
+		{
+			if (!VoxelWorld::InGrid(q[0], q[1], q[2])) continue;
+			const Block b = world.Get(q[0], q[1], q[2]);
+			if (b == Block::Air || b == Block::Bedrock) continue;
+			const float dx = (q[0] + 0.5f) * s - center.x, dy = (q[1] + 0.5f) * s - center.y, dz = (q[2] + 0.5f) * s - center.z;
+			if (dx * dx + dy * dy + dz * dz > r2) continue;
+			if (seen.insert(VoxelWorld::Index(q[0], q[1], q[2])).second) stack.push_back({ q[0], q[1], q[2] });
+		}
+	}
+	if (ore < cfg::kVeinChunkMinOre) return;
+
+	// Cut it out of the world.
+	VoxelWorld::Box box;
+	box.min[0] = box.min[1] = box.min[2] = INT_MAX;
+	box.max[0] = box.max[1] = box.max[2] = INT_MIN;
+	for (const XMINT3& c : chunk)
+	{
+		box.min[0] = std::min(box.min[0], c.x); box.max[0] = std::max(box.max[0], c.x);
+		box.min[1] = std::min(box.min[1], c.y); box.max[1] = std::max(box.max[1], c.y);
+		box.min[2] = std::min(box.min[2], c.z); box.max[2] = std::max(box.max[2], c.z);
+	}
+	FragmentVoxels fragment;
+	fragment.size = { box.max[0] - box.min[0] + 1, box.max[1] - box.min[1] + 1, box.max[2] - box.min[2] + 1 };
+	fragment.worldOrigin = { box.min[0], box.min[1], box.min[2] };
+	fragment.voxels.assign(static_cast<size_t>(fragment.size.x) * fragment.size.y * fragment.size.z, Block::Air);
+	std::vector<VoxelWorld::RemovedVoxel> removed;
+	for (const XMINT3& c : chunk)
+	{
+		const Block b = world.Get(c.x, c.y, c.z);
+		fragment.voxels[(c.x - box.min[0]) + fragment.size.x * ((c.y - box.min[1]) + fragment.size.y * (c.z - box.min[2]))] = b;
+		removed.push_back({ c.x, c.y, c.z, b });
+		world.Set(c.x, c.y, c.z, Block::Air);
+	}
+	ApplyWorldChange(engine, box, true);
+
+	// Slide it out along the face normal until its collision boxes are clear of the wall and
+	// the player; spawning it overlapping rock makes the physics fling it.
+	const XMFLOAT3 out{ static_cast<float>(target.normal[0]), static_cast<float>(target.normal[1]), static_cast<float>(target.normal[2]) };
+	const std::vector<PhysicsBox> boxes = DecomposeIntoBoxes(fragment, cfg::kMaxFragmentBoxes);
+	const float pr = cfg::kBodyWidth * 0.5f + 0.05f;
+	const XMFLOAT3 pMin{ player.position.x - pr, player.position.y - 0.05f, player.position.z - pr };
+	const XMFLOAT3 pMax{ player.position.x + pr, player.position.y + cfg::kBodyHeight + 0.05f, player.position.z + pr };
+	const float shrink = 0.02f;
+	float slide = -1.0f;
+	for (float d = 0.0f; d <= cfg::kVeinChunkMaxSlide + 1e-3f; d += 0.05f)
+	{
+		bool clear = true;
+		for (const PhysicsBox& pb : boxes)
+		{
+			const XMFLOAT3 c{ box.min[0] * s + pb.center.x + out.x * d, box.min[1] * s + pb.center.y + out.y * d, box.min[2] * s + pb.center.z + out.z * d };
+			const XMFLOAT3 mn{ c.x - pb.halfExtents.x + shrink, c.y - pb.halfExtents.y + shrink, c.z - pb.halfExtents.z + shrink };
+			const XMFLOAT3 mx{ c.x + pb.halfExtents.x - shrink, c.y + pb.halfExtents.y - shrink, c.z + pb.halfExtents.z - shrink };
+			const bool hitsPlayer = mx.x > pMin.x && mn.x < pMax.x && mx.y > pMin.y && mn.y < pMax.y && mx.z > pMin.z && mn.z < pMax.z;
+			if (hitsPlayer || world.BoxOverlapsSolid(mn, mx)) { clear = false; break; }
+		}
+		if (clear) { slide = d; break; }
+	}
+
+	if (slide < 0.0f)
+	{
+		// No clean way out (a tight spot): it shatters into nuggets and rubble instead.
+		SpawnChips(engine, removed, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0, 1 }, { 0, 0, 0 }, out, target.point);
+		messages.Show("The vein shatters!", 1.4f);
+		CHERRY_LOG("Vein chunk shattered: %d voxels (%d ore), no room to fall out", static_cast<int>(chunk.size()), ore);
+		return;
+	}
+	const XMFLOAT3 position{ box.min[0] * s + out.x * slide, box.min[1] * s + out.y * slide, box.min[2] * s + out.z * slide };
+	const float speed = cfg::kVeinChunkSpeed;
+	fragments.Spawn(engine, std::move(fragment), position, { out.x * speed, out.y * speed, out.z * speed }, { 0.3f, 0.0f, -0.2f });
+	messages.Show("The vein breaks loose!", 1.4f);
+	CHERRY_LOG("Vein chunk broke loose: %d voxels (%d ore), slid %.2f m", static_cast<int>(chunk.size()), ore, slide);
+}
+
+void UndertimeModule::UpdatePickups(Engine& engine, float dt)
+{
+	std::array<int, static_cast<int>(Block::Count)> got{};
+	const XMFLOAT3 chest{ player.position.x, player.position.y + cfg::kBodyHeight * 0.6f, player.position.z };
+	if (fragments.CollectNuggets(engine, chest, dt, got) > 0)
+	{
+		if (pickupToast <= 0.0f) recentPickup.fill(0);
+		for (size_t b = 0; b < got.size(); ++b)
+		{
+			collected[b] += got[b];
+			recentPickup[b] += got[b];
+		}
+		pickupToast = cfg::kPickupToastTime;
+	}
+	pickupToast = std::max(pickupToast - dt, 0.0f);
 }
 
 void UndertimeModule::ApplyWorldChange(Engine& engine, const VoxelWorld::Box& box, bool checkSupport)
@@ -554,16 +821,22 @@ void UndertimeModule::DebugTeleportToNextZone(Engine& engine)
 
 void UndertimeModule::DebugDropRock(Engine& engine)
 {
-	// A 1.5 m block of stone dropped two metres in front of the player.
-	const int n = 6;
+	// A 2 m boulder of stone with copper and silver flecks, dropped in front of the player.
+	const int n = 8;
 	FragmentVoxels fragment;
 	fragment.size = { n, n, n };
 	const XMFLOAT3 eye = player.EyePosition();
 	const XMFLOAT3 dir = player.LookDirection();
 	const float s = cfg::kVoxelSize;
-	const XMFLOAT3 position{ eye.x + dir.x * 2.0f - n * s * 0.5f, eye.y + 0.8f, eye.z + dir.z * 2.0f - n * s * 0.5f };
+	const XMFLOAT3 position{ eye.x + dir.x * 2.6f - n * s * 0.5f, eye.y + 0.8f, eye.z + dir.z * 2.6f - n * s * 0.5f };
 	fragment.worldOrigin = { static_cast<int>(position.x / s), static_cast<int>(position.y / s), static_cast<int>(position.z / s) };
 	fragment.voxels.assign(static_cast<size_t>(n) * n * n, Block::Stone);
+	for (int i = 0; i < n * n * n; ++i)
+	{
+		const float h = color::Hash01(i, 7, 3, swingCount);
+		if (h < 0.10f) fragment.voxels[i] = Block::Copper;
+		else if (h < 0.14f) fragment.voxels[i] = Block::Silver;
+	}
 	fragments.Spawn(engine, std::move(fragment), position, { 0, 0, 0 }, { 0.8f, 0.0f, 0.5f });
 	messages.Show("Debug: dropped a test rock", 1.5f);
 }
@@ -609,7 +882,20 @@ void UndertimeModule::UpdateCamera(Engine& engine)
 	const Entity cameraEntity = engine.MainCamera();
 	Transform& transform = scene.Get<Transform>(cameraEntity);
 	transform.position = player.EyePosition();
-	XMStoreFloat4(&transform.rotation, player.Rotation());
+	XMVECTOR rotation = player.Rotation();
+
+	// Pick impact: a quick upward jolt and shake that settle over kHitFeedbackTime.
+	if (hitFeedback > 0.0f)
+	{
+		const float k = hitFeedback / cfg::kHitFeedbackTime;
+		const float amount = k * k * hitStrength;
+		rotation = XMQuaternionMultiply(XMQuaternionRotationRollPitchYaw(-cfg::kHitKick * amount, 0.0f, 0.0f), rotation);
+		const float shake = cfg::kHitShake * amount;
+		transform.position.x += shake * std::sin(time * 91.0f);
+		transform.position.y += shake * std::sin(time * 77.0f + 1.3f);
+		transform.position.z += shake * std::sin(time * 83.0f + 2.1f);
+	}
+	XMStoreFloat4(&transform.rotation, rotation);
 
 	// Horizontal FOV from the config, converted to the vertical FOV the camera uses.
 	const ViewRect view = engine.GameViewRect();
@@ -651,6 +937,9 @@ void UndertimeModule::UpdateViewModels(Engine& engine, float dt)
 		const float u = (t - 0.6f) / 0.4f;
 		swing = -0.75f + (0.6f + 0.75f) * (u * u);                       // accelerate into the rock
 	}
+	// Bounces back off the rock on impact.
+	const float k = hitFeedback / cfg::kHitFeedbackTime;
+	swing -= cfg::kPickRecoil * hitStrength * k * k;
 	const XMVECTOR pickRotation = XMQuaternionRotationRollPitchYaw(0.55f + swingAmount * swing, 0.15f, -0.25f);
 	const XMFLOAT3 pickOffset{ cfg::kPickOffset[0], cfg::kPickOffset[1] + bob, cfg::kPickOffset[2] };
 	place(pickEntity, pickOffset, pickRotation, cfg::kPickScale);
@@ -723,6 +1012,8 @@ void UndertimeModule::OnImGui(Engine& engine)
 				"Hold left mouse  mine        Esc  pause",
 				"",
 				seedLine,
+				"",
+				buildStamp,
 			},
 			"Click to begin");
 		hud::End(frame);
@@ -760,7 +1051,30 @@ void UndertimeModule::OnImGui(Engine& engine)
 		std::snprintf(depthLine, sizeof(depthLine), "Outside");
 	char renderLine[64];
 	std::snprintf(renderLine, sizeof(renderLine), "%s  (V)", worldRenderer == WorldRenderer::RayMarched ? "Ray-marched voxels" : "Voxel meshes");
-	hud::Panel(frame, 0, { "UNDERTIME", depthLine, renderLine });
+	hud::Panel(frame, 0, { "UNDERTIME  " + buildStamp, depthLine, renderLine });
+
+	// Collected ore, with what you just picked up on top.
+	std::vector<std::string> bag;
+	if (pickupToast > 0.0f)
+	{
+		std::string line;
+		for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+		{
+			if (recentPickup[b] == 0) continue;
+			char part[48];
+			std::snprintf(part, sizeof(part), "%s+%d %s", line.empty() ? "" : "   ", recentPickup[b], cfg::Info(static_cast<Block>(b)).name);
+			line += part;
+		}
+		bag.push_back(line);
+	}
+	for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+	{
+		if (collected[b] == 0) continue;
+		char line[48];
+		std::snprintf(line, sizeof(line), "%-14s %d", cfg::Info(static_cast<Block>(b)).name, collected[b]);
+		bag.push_back(line);
+	}
+	if (!bag.empty()) hud::Panel(frame, 1, bag);
 
 	messages.Draw(frame);
 	if (mapOpen)
