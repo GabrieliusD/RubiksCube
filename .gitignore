@@ -364,4 +364,6 @@ FodyWeavers.xsd
 # vcpkg manifest-mode output and ImGui window layout (both generated)
 vcpkg_installed/
 imgui.ini
+# Per-project editor state (window layout, loaded module copies)
+Saved/
 

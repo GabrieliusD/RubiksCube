@@ -1,21 +1,33 @@
-// CherryLaunch: starts the engine with a game module.
+// CherryLaunch: starts the engine on a project.
 //
-// Modular build:    loads the game DLL (default CHERRY_ACTIVE_GAME_MODULE, or the
-//                   first command-line argument) and calls its CreateGameModule().
+// Modular build (the editor):
+//   CherryLaunch.exe                          reopen the last project, or show the project picker
+//   CherryLaunch.exe Undertime/Undertime.cherryproject [--play]
+//   CherryLaunch.exe UndertimeGame.dll        legacy: that module's project, playing at once
+// The engine loads (a copy of) the project's game DLL itself, so it can rebuild and reload it.
+//
 // Monolithic build: the game is statically linked; CreateGameModule() is called directly.
 #include <Core/Engine.h>
 #include <Game/GameModule.h>
-#include <Core/Log.h>
 #include <memory>
+#include <string>
 
 #if CHERRY_MONOLITHIC
 extern "C" IGameModule* CreateGameModule();
-#else
-#include <windows.h>
-#ifndef CHERRY_ACTIVE_GAME_MODULE
-#define CHERRY_ACTIVE_GAME_MODULE "RubikGame.dll"
 #endif
-#endif
+
+namespace
+{
+	bool EndsWith(const std::string& text, const std::string& suffix)
+	{
+		if (text.size() < suffix.size()) return false;
+		for (size_t i = 0; i < suffix.size(); ++i)
+		{
+			if (std::tolower(static_cast<unsigned char>(text[text.size() - suffix.size() + i])) != suffix[i]) return false;
+		}
+		return true;
+	}
+}
 
 int main(int argc, char** argv)
 {
@@ -26,35 +38,15 @@ int main(int argc, char** argv)
 	Engine engine;
 	return engine.Run(*game);
 #else
-	const char* moduleName = (argc > 1) ? argv[1] : CHERRY_ACTIVE_GAME_MODULE;
-
-	HMODULE gameModule = LoadLibraryA(moduleName);
-	if (!gameModule)
+	LaunchOptions options;
+	for (int i = 1; i < argc; ++i)
 	{
-		CHERRY_ERROR("Failed to load game module: %s (error %lu)", moduleName, GetLastError());
-		return -1;
+		const std::string arg = argv[i];
+		if (arg == "--play") options.play = true;
+		else if (EndsWith(arg, ".dll")) options.moduleName = arg;
+		else options.projectFile = arg;
 	}
-
-	auto createGameModule = reinterpret_cast<CreateGameModuleFn>(GetProcAddress(gameModule, "CreateGameModule"));
-	if (!createGameModule)
-	{
-		CHERRY_ERROR("CreateGameModule not exported by %s", moduleName);
-		FreeLibrary(gameModule);
-		return -2;
-	}
-
-	int result = -3;
-	{
-		std::unique_ptr<IGameModule> game(createGameModule());
-		if (game)
-		{
-			Engine engine;
-			result = engine.Run(*game);
-		}
-		// Engine and game are destroyed here, before the module is unloaded.
-	}
-
-	FreeLibrary(gameModule);
-	return result;
+	Engine engine;
+	return engine.Run(options);
 #endif
 }

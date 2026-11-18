@@ -102,7 +102,7 @@ void RubikModule::OnStartup(Engine& engine)
 	settings.sunDirection = { -0.4f, -0.8f, 0.45f };
 	settings.clearColor = { 0.20f, 0.26f, 0.38f, 1.0f };
 
-	mStickerTexture = renderer.LoadTexture(L"Content/Textures/rubicPallet.dds");
+	mStickerTexture = renderer.LoadTexture(engine.ContentPath(L"Textures/rubicPallet.dds"));
 
 	MaterialDesc material;
 	material.albedoTexture = mStickerTexture;

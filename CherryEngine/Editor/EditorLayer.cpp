@@ -1,8 +1,11 @@
 #include "Editor/EditorLayer.h"
 #include "Core/Engine.h"
+#include "Core/Project.h"
 #include "Game/GameModule.h"
 #include "imgui.h"
 #include "imgui_internal.h"
+#include <windows.h>
+#include <commdlg.h>
 #include <cmath>
 #include <algorithm>
 
@@ -13,6 +16,8 @@ namespace
 	const char* kViewportWindow = "Viewport";
 	const char* kStatsWindow = "Stats";
 	const char* kGameWindow = "Game";
+	const char* kOutputWindow = "Output";
+	constexpr size_t kMaxLogLines = 4000;
 
 	// Procedural 64^3 test volume: a hollow, banded sphere with a few cut-outs,
 	// so the DDA, normals and depth intersection with meshes are easy to inspect.
@@ -54,10 +59,84 @@ namespace
 	}
 }
 
-void EditorLayer::Draw(Engine& engine, IGameModule& game, bool editorMode, bool gameOverlayWindow, float frameMs)
+void EditorLayer::Draw(Engine& engine, IGameModule* game, bool editorMode, bool gameOverlayWindow, float frameMs)
 {
 	mFrameMsSmoothed = mFrameMsSmoothed * 0.95f + frameMs * 0.05f;
 
+	// Keep the log history even while the Output panel is hidden.
+	std::vector<cherry::LogEntry> fresh;
+	cherry::ReadLog(mLogSequence, fresh);
+	for (cherry::LogEntry& entry : fresh)
+	{
+		mLogSequence = entry.sequence;
+		mLog.push_back(std::move(entry));
+		mLogScrollToBottom = true;
+	}
+	while (mLog.size() > kMaxLogLines) mLog.pop_front();
+
+	HandleHotkeys(engine);
+	if (mPhysicsDebug)
+	{
+		engine.GetPhysics().DrawBounds(engine.GetRenderer().Debug());
+	}
+
+	if (!editorMode)
+	{
+		viewportHovered = viewportFocused = false;
+		if (!game) return;
+		if (!gameOverlayWindow)
+		{
+			game->OnImGui(engine);   // the game draws its own HUD
+			return;
+		}
+		ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowBgAlpha(0.85f);
+		// A separate window from the editor's docked "Game" panel, so switching modes
+		// doesn't undock that panel.
+		ImGui::Begin("Game##Overlay", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking);
+		game->OnImGui(engine);
+		ImGui::TextDisabled("F1: editor  F2: voxel test  F3: bounds");
+		ImGui::End();
+		return;
+	}
+
+	DrawMenuBar(engine);
+	DrawDockspace();
+	DrawViewport(engine);
+	DrawStats(engine, frameMs);
+	DrawOutput();
+
+	ImGui::Begin(kGameWindow);
+	if (game)
+	{
+		game->OnImGui(engine);
+	}
+	else
+	{
+		const ModuleStatus status = engine.GetModuleStatus();
+		if (!status.hasProject) ImGui::TextDisabled("No project open.");
+		else if (!status.loaded) ImGui::TextDisabled("The game module isn't loaded. Compile it (Ctrl+Shift+B).");
+		else ImGui::TextDisabled("Press Play (F5) to run the game.");
+	}
+	ImGui::End();
+
+	if (!engine.Project().IsValid())
+	{
+		DrawProjectPicker(engine);
+	}
+}
+
+void EditorLayer::OnWorldChanging(Engine& engine)
+{
+	// The test volume belongs to the world it was made in.
+	if (mVoxelTest)
+	{
+		SetVoxelTest(engine, false);
+	}
+}
+
+void EditorLayer::HandleHotkeys(Engine& engine)
+{
 	// Engine debug hotkeys (work in both modes).
 	if (ImGui::IsKeyPressed(ImGuiKey_F2, false))
 	{
@@ -71,36 +150,179 @@ void EditorLayer::Draw(Engine& engine, IGameModule& game, bool editorMode, bool 
 	{
 		mPhysicsDebug = !mPhysicsDebug;
 	}
-	if (mPhysicsDebug)
-	{
-		engine.GetPhysics().DrawBounds(engine.GetRenderer().Debug());
-	}
 
-	if (!editorMode)
+	// Play controls.
+	const ImGuiIO& io = ImGui::GetIO();
+	if (ImGui::IsKeyPressed(ImGuiKey_F5, false))
 	{
-		viewportHovered = viewportFocused = false;
-		if (!gameOverlayWindow)
+		if (engine.GetPlayState() == PlayState::Edit) engine.Play();
+		else engine.Stop();
+	}
+	if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_B, false))
+	{
+		engine.CompileModule();
+	}
+}
+
+void EditorLayer::DrawMenuBar(Engine& engine)
+{
+	if (!ImGui::BeginMainMenuBar()) return;
+
+	const ModuleStatus status = engine.GetModuleStatus();
+	if (ImGui::BeginMenu("File"))
+	{
+		if (ImGui::MenuItem("Open Project...")) BrowseForProject(engine);
+		if (ImGui::BeginMenu("Recent Projects"))
 		{
-			game.OnImGui(engine);   // the game draws its own HUD
-			return;
+			const std::vector<std::filesystem::path> recent = cherry::LoadRecentProjects();
+			if (recent.empty()) ImGui::TextDisabled("(none)");
+			for (const std::filesystem::path& file : recent)
+			{
+				if (ImGui::MenuItem(file.string().c_str())) engine.OpenProject(file);
+			}
+			ImGui::EndMenu();
 		}
-		ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowBgAlpha(0.85f);
-		// A separate window from the editor's docked "Game" panel, so switching modes
-		// doesn't undock that panel.
-		ImGui::Begin("Game##Overlay", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking);
-		game.OnImGui(engine);
-		ImGui::TextDisabled("F1: editor  F2: voxel test  F3: bounds");
-		ImGui::End();
-		return;
+		if (ImGui::BeginMenu("Projects in Source Tree"))
+		{
+			const std::vector<ProjectDesc> known = cherry::FindKnownProjects();
+			if (known.empty()) ImGui::TextDisabled("(none)");
+			for (const ProjectDesc& project : known)
+			{
+				if (ImGui::MenuItem(project.name.c_str(), project.file.filename().string().c_str())) engine.OpenProject(project.file);
+			}
+			ImGui::EndMenu();
+		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Exit")) engine.RequestQuit();
+		ImGui::EndMenu();
 	}
 
-	DrawDockspace();
-	DrawViewport(engine);
-	DrawStats(engine, frameMs);
+	if (status.hasProject)
+	{
+		ImGui::Separator();
+		ImGui::TextUnformatted(engine.Project().name.c_str());
+		ImGui::Separator();
 
-	ImGui::Begin(kGameWindow);
-	game.OnImGui(engine);
+		// Play controls.
+		const PlayState state = engine.GetPlayState();
+		ImGui::BeginDisabled(!status.loaded && state == PlayState::Edit);
+		if (state == PlayState::Edit)
+		{
+			if (ImGui::Button("Play")) engine.Play();
+			ImGui::SetItemTooltip("Run the game in a fresh play world (F5)");
+		}
+		else
+		{
+			if (ImGui::Button("Stop")) engine.Stop();
+			ImGui::SetItemTooltip("Stop and return to the editor (F5)");
+		}
+		ImGui::EndDisabled();
+		ImGui::BeginDisabled(state == PlayState::Edit);
+		bool paused = state == PlayState::Paused;
+		if (ImGui::Checkbox("Pause", &paused)) engine.SetPaused(paused);
+		ImGui::EndDisabled();
+
+		// Module controls.
+		if (!status.isStatic)
+		{
+			ImGui::Separator();
+			ImGui::BeginDisabled(status.compiling);
+			if (ImGui::Button(status.compiling ? "Compiling..." : "Compile")) engine.CompileModule();
+			ImGui::SetItemTooltip("Build %s with CMake; it reloads when the build finishes (Ctrl+Shift+B)", status.moduleFile.c_str());
+			if (ImGui::Button("Reload")) engine.ReloadModule();
+			ImGui::SetItemTooltip("Load %s again from disk", status.moduleFile.c_str());
+			ImGui::EndDisabled();
+
+			if (status.compiling)            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1), "building %s", status.moduleFile.c_str());
+			else if (status.lastBuildFailed) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1), "build failed (see Output)");
+			else if (!status.loaded)         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1), "%s", status.error.c_str());
+			else                             ImGui::TextDisabled("%s loaded%s", status.moduleFile.c_str(), status.reloads ? " (reloaded)" : "");
+		}
+
+		const char* stateText = state == PlayState::Playing ? "PLAYING" : state == PlayState::Paused ? "PAUSED" : "";
+		if (*stateText)
+		{
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "%s", stateText);
+		}
+	}
+	ImGui::EndMainMenuBar();
+}
+
+void EditorLayer::DrawProjectPicker(Engine& engine)
+{
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 32.0f, 0), ImGuiCond_Always);
+	ImGui::Begin("Open a project", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
+		| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+
+	ImGui::SeparatorText("Projects in the source tree");
+	const std::vector<ProjectDesc> known = cherry::FindKnownProjects();
+	if (known.empty()) ImGui::TextDisabled("(none found)");
+	for (const ProjectDesc& project : known)
+	{
+		ImGui::PushID(project.file.string().c_str());
+		if (ImGui::Button(project.name.c_str(), ImVec2(-FLT_MIN, 0))) engine.OpenProject(project.file);
+		ImGui::SetItemTooltip("%s", project.file.string().c_str());
+		ImGui::PopID();
+	}
+
+	const std::vector<std::filesystem::path> recent = cherry::LoadRecentProjects();
+	if (!recent.empty())
+	{
+		ImGui::SeparatorText("Recent");
+		for (const std::filesystem::path& file : recent)
+		{
+			if (ImGui::Selectable(file.string().c_str())) engine.OpenProject(file);
+		}
+	}
+
+	ImGui::Separator();
+	if (ImGui::Button("Browse...")) BrowseForProject(engine);
+	ImGui::End();
+}
+
+void EditorLayer::BrowseForProject(Engine& engine)
+{
+	wchar_t file[MAX_PATH] = L"";
+	OPENFILENAMEW dialog{};
+	dialog.lStructSize = sizeof(dialog);
+	dialog.hwndOwner = engine.GetWindow().Handle();
+	dialog.lpstrFilter = L"Cherry project (*.cherryproject)\0*.cherryproject\0";
+	dialog.lpstrFile = file;
+	dialog.nMaxFile = MAX_PATH;
+	dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+	if (GetOpenFileNameW(&dialog))
+	{
+		engine.OpenProject(file);
+	}
+}
+
+void EditorLayer::DrawOutput()
+{
+	ImGui::Begin(kOutputWindow);
+	if (ImGui::SmallButton("Clear")) mLog.clear();
+	ImGui::SameLine();
+	ImGui::Checkbox("Info", &mLogShowInfo);
+	ImGui::SameLine();
+	ImGui::Checkbox("Build", &mLogShowBuild);
+	ImGui::Separator();
+
+	ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+	const bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
+	for (const cherry::LogEntry& entry : mLog)
+	{
+		const bool isBuild = entry.text.rfind("[build]", 0) == 0;
+		if (isBuild && !mLogShowBuild) continue;
+		if (!isBuild && entry.level == cherry::LogLevel::Info && !mLogShowInfo) continue;
+		if (entry.level == cherry::LogLevel::Error)        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s", entry.text.c_str());
+		else if (entry.level == cherry::LogLevel::Warning) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "%s", entry.text.c_str());
+		else                                               ImGui::TextUnformatted(entry.text.c_str());
+	}
+	if (mLogScrollToBottom && atBottom) ImGui::SetScrollHereY(1.0f);
+	mLogScrollToBottom = false;
+	ImGui::EndChild();
 	ImGui::End();
 }
 
@@ -108,7 +330,7 @@ void EditorLayer::DrawDockspace()
 {
 	const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
-	// First run (no imgui.ini layout yet): viewport left, stats + game panels right.
+	// First run (no imgui.ini layout yet): viewport left over the output log, stats + game panels right.
 	if (!mLayoutBuilt)
 	{
 		mLayoutBuilt = true;
@@ -120,6 +342,7 @@ void EditorLayer::DrawDockspace()
 			ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->Size);
 			ImGuiID center = 0;
 			ImGuiID right = ImGui::DockBuilderSplitNode(dockspace, ImGuiDir_Right, 0.26f, nullptr, &center);
+			ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22f, nullptr, &center);
 			// The viewport is the central node, so it absorbs window resizes and the side panels keep their width.
 			if (ImGuiDockNode* centerNode = ImGui::DockBuilderGetNode(center))
 			{
@@ -127,6 +350,7 @@ void EditorLayer::DrawDockspace()
 			}
 			ImGuiID rightBottom = 0;
 			ImGuiID rightTop = ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.6f, nullptr, &rightBottom);
+			ImGui::DockBuilderDockWindow(kOutputWindow, bottom);
 			ImGui::DockBuilderDockWindow(kViewportWindow, center);
 			ImGui::DockBuilderDockWindow(kStatsWindow, rightTop);
 			ImGui::DockBuilderDockWindow(kGameWindow, rightBottom);

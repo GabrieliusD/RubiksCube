@@ -10,6 +10,9 @@ endif()
 set(ENGINE_HEADERS
   CherryAPI.h
   Core/Engine.h
+  Core/Project.h
+  Core/ModuleHost.h
+  Core/BuildProcess.h
   Core/Input.h
   Core/Log.h
   Core/Window.h
@@ -42,6 +45,9 @@ set(ENGINE_HEADERS
 
 set(ENGINE_SOURCES
   Core/Engine.cpp
+  Core/Project.cpp
+  Core/ModuleHost.cpp
+  Core/BuildProcess.cpp
   Core/Input.cpp
   Core/Log.cpp
   Core/Window.cpp
@@ -160,12 +166,19 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${ENGINE_SOURCES} ${ENGINE_H
 source_group("ThirdParty\\imgui" FILES ${IMGUI_SOURCES})
 
 # Jolt Physics stays private to the engine: games use PhysicsWorld's handle-based API.
-target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid Jolt::Jolt)
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt nlohmann_json::nlohmann_json)
 
 target_compile_definitions(CherryEngine
   PUBLIC _UNICODE UNICODE NOMINMAX
   # Debug builds compile shaders straight from the source tree so edits hot-reload.
-  PRIVATE CHERRY_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Shaders")
+  PRIVATE CHERRY_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Shaders"
+  # The editor finds projects in the source tree and rebuilds game modules with this
+  # CMake, build folder and configuration.
+  PRIVATE CHERRY_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+          CHERRY_CMAKE_COMMAND="${CMAKE_COMMAND}"
+          CHERRY_BUILD_DIR="${CMAKE_BINARY_DIR}"
+          CHERRY_BUILD_CONFIG="$<CONFIG>")
 
 if(MSVC)
   target_compile_options(CherryEngine PRIVATE /MP /W3 /utf-8)

@@ -2,7 +2,9 @@
 
 A small DirectX 12 engine (**CherryEngine**) and a Rubik's cube game built on it.
 Like Unreal, the engine and the game are separate projects: the engine is a DLL,
-each game is a module DLL, and **CherryLaunch** loads a game module and runs it.
+each game is a module DLL, and **CherryLaunch** opens a game project in the editor.
+Each game is a project: a `.cherryproject` file next to its code, naming its module
+and its `Content/` folder.
 
 ```
 CherryLaunch.exe ──loads──▶ RubikGame.dll ──links──▶ CherryEngine.dll
@@ -12,15 +14,16 @@ CherryLaunch.exe ──loads──▶ RubikGame.dll ──links──▶ CherryE
 
 | Folder | What it is |
 |---|---|
-| `CherryEngine/Core` | `Engine` (main loop), `Window`, `Input`, logging, camera controllers |
+| `CherryEngine/Core` | `Engine` (main loop, play mode), projects, the module host (loads and hot-reloads the game DLL), background builds, `Window`, `Input`, logging, camera controllers |
 | `CherryEngine/Game` | `IGameModule`: the interface a game implements |
 | `CherryEngine/Scene` | ECS, `Scene`, built-in components (`Transform`, `MeshRenderer`, `Camera`, `VoxelVolumeRenderer`) |
 | `CherryEngine/RHI` | Thin D3D12 layer: device + frames in flight, bindless descriptor heap, buffers/textures, swap chain, pipeline library with shader hot reload |
 | `CherryEngine/Renderer` | Frame orchestration, GPU scene, passes, asset pools (mesh/material/texture/voxel handles), debug draw |
-| `CherryEngine/Editor` | ImGui editor layer: dockspace, viewport, stats, game panel |
+| `CherryEngine/Editor` | ImGui editor layer: menu bar with play controls, dockspace, viewport, stats, output log, game panel, project picker |
 | `CherryEngine/Shaders` | HLSL (SM 6.6, compiled at runtime by DXC). `Shared/ShaderInterop.h` is used by both C++ and HLSL |
 | `Rubik` | The Rubik's cube game module (`RubikModule`, pure-logic `RubikPuzzle`, tests) |
-| `Rubik/Content` | Game assets, copied next to the launcher on build |
+| `Rubik/Rubik.cherryproject` | The Rubik project file |
+| `Rubik/Content` | Game assets, read from here by the editor (copied next to the exe only in monolithic builds) |
 | `CherryLaunch` | The launcher executable |
 
 ## Renderer
@@ -47,14 +50,28 @@ cmake --preset x64-debug
 cmake --build out/build/x64-debug --config Debug
 ```
 
-Run `out/build/x64-debug/bin/Debug/CherryLaunch.exe`. Shaders, DXC DLLs and game
-content are copied into the same folder on every build.
+Run `out/build/x64-debug/bin/Debug/CherryLaunch.exe`. Shaders and DXC DLLs are copied
+into the same folder on every build.
+
+| Command line | What opens |
+|---|---|
+| *(none)* | The last project, or the project picker |
+| `Rubik/Rubik.cherryproject` | That project in the editor |
+| `Undertime/Undertime.cherryproject --play` | That project, playing at once (quitting the game closes the window) |
+| `UndertimeGame.dll` | Legacy: that module's project, playing at once |
+
+In the editor, **Play** (F5) runs the game in a fresh play world and **Stop** (F5)
+throws it away. **Compile** (Ctrl+Shift+B) builds the project's module with CMake in
+the background; the editor loads a copy of the game DLL, so the build never hits a
+locked file, and any new build (from the editor or from Visual Studio) reloads
+automatically. A reload during play stops, reloads and plays again. Changing engine
+code still needs an editor restart. Each project keeps its editor state in
+`<project>/Saved/` (not checked in).
 
 Build options:
 
 - `-DCHERRY_MONOLITHIC=ON` links the engine and game statically into one executable.
-- `-DCHERRY_ACTIVE_GAME_TARGET=<target>` picks which game module the launcher loads.
-  You can also pass a module DLL path as the launcher's first argument.
+- `-DCHERRY_ACTIVE_GAME_TARGET=<target>` picks the game the monolithic executable runs.
 
 Tests: `ctest --test-dir out/build/x64-debug -C Debug`
 
@@ -71,6 +88,8 @@ and the error is shown in the Stats panel.
 | E / Q | Turn the selected face clockwise / counter-clockwise |
 | R L U D F B | Turn that face (Shift = counter-clockwise) |
 | F1 | Toggle editor / full-window game mode |
+| F5 | Play / Stop |
+| Ctrl+Shift+B | Compile the game module |
 | F2 | Toggle the voxel test volume |
 | F3 | Toggle bounding-box debug lines |
 
@@ -91,5 +110,12 @@ public:
 CHERRY_IMPLEMENT_GAME_MODULE(MyGame)
 ```
 
-Build it as a shared library that links `CherryEngine`, then point
-`CHERRY_ACTIVE_GAME_TARGET` at it.
+Build it as a shared library that links `CherryEngine` and call
+`cherry_register_game_module(<target>)`. Add a project file next to it:
+
+```json
+{ "name": "My Game", "module": "MyGameTarget", "content": "Content" }
+```
+
+Load assets with `engine.ContentPath(L"Textures/foo.dds")`. `OnStartup` runs on every
+Play and `OnShutdown` on every Stop, so a game must free everything it created there.
