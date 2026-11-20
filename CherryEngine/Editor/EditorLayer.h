@@ -96,6 +96,9 @@ private:
 	void PlaceMesh(Engine& engine, const std::string& path, const DirectX::XMFLOAT3& position);
 	void PlacePrefab(Engine& engine, const std::string& path, const DirectX::XMFLOAT3& position);
 	void SaveAsPrefab(Engine& engine, Entity entity);
+	// New Script: writes <project>/Scripts/<name>.h/.cpp from a template and compiles.
+	bool CreateScript(Engine& engine, const std::string& name, bool openSource, std::string& error);
+	void DrawNewScriptPopup(Engine& engine);
 
 	bool mLayoutBuilt = false;
 	bool mVoxelTest = false;
@@ -150,6 +153,10 @@ private:
 	MaterialFile mMaterialEdit;            // material being edited, and its path
 	std::string mMaterialEditPath;
 	bool mMaterialChanged = false;
+	bool mOpenNewScript = false;
+	char mNewScriptName[64] = "";
+	bool mNewScriptOpenSource = true;
+	std::string mNewScriptError;
 
 	// Output panel
 	std::deque<cherry::LogEntry> mLog;

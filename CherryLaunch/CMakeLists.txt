@@ -9,6 +9,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE CherryEngine)
 if(CHERRY_MONOLITHIC)
 	# Engine and game are static libraries linked into this executable.
 	target_link_libraries(${PROJECT_NAME} PRIVATE ${CHERRY_ACTIVE_GAME_TARGET})
+	# Scripts register themselves from static initialisers that nothing references, so the
+	# linker would drop them from a static library: keep the whole game library.
+	if(MSVC)
+		target_link_options(${PROJECT_NAME} PRIVATE "/WHOLEARCHIVE:${CHERRY_ACTIVE_GAME_TARGET}")
+	endif()
 	target_compile_definitions(${PROJECT_NAME} PRIVATE CHERRY_MONOLITHIC=1)
 else()
 	# Modular: the engine loads the open project's game DLL at runtime, so every game

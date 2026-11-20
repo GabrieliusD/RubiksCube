@@ -178,6 +178,19 @@ with `Destroy()` or play stops. Helpers: `GetTransform()`, `Get<T>()`, `Has<T>()
 `Spawn(prefab, position)`, `Destroy()`, `Find(name)`. Built-in scripts: `Spinner`,
 `Spawner` and `Lifetime`.
 
+**New Script** (Content panel) writes `<game>/Scripts/<Name>.h` and `.cpp` from a template,
+compiles and reloads; the script then shows up in Add Component. Files in a game's
+`Scripts/` folder are built automatically (no CMakeLists edit) and register themselves:
+
+```cpp
+CHERRY_SCRIPT(Crystal, "Crystal")      // in Crystal.cpp; include <Game/GameModule.h>
+{
+    script.Field("bobHeight", &Crystal::bobHeight, 0.0f, 2.0f);
+}
+```
+
+**Edit Script** in the inspector opens a self-registered script's source file.
+
 ### Prefabs
 
 A `.prefab` file is an entity and its children, saved from the hierarchy (right-click,

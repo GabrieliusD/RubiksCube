@@ -30,12 +30,15 @@ using namespace DirectX;
 
 namespace
 {
-	// Object layers: static world vs everything that moves.
+	// Object layers: the static world, everything that moves, debris (moves, but passes
+	// through characters) and characters' inner bodies.
 	namespace Layers
 	{
 		constexpr JPH::ObjectLayer kStatic = 0;
 		constexpr JPH::ObjectLayer kMoving = 1;
-		constexpr JPH::uint kCount = 2;
+		constexpr JPH::ObjectLayer kDebris = 2;
+		constexpr JPH::ObjectLayer kCharacter = 3;
+		constexpr JPH::uint kCount = 4;
 	}
 	namespace BroadLayers
 	{
@@ -49,7 +52,9 @@ namespace
 	public:
 		bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override
 		{
-			return a == Layers::kMoving || b == Layers::kMoving;   // static never collides with static
+			if (a == Layers::kStatic && b == Layers::kStatic) return false;
+			const bool debrisAndCharacter = (a == Layers::kDebris && b == Layers::kCharacter) || (a == Layers::kCharacter && b == Layers::kDebris);
+			return !debrisAndCharacter;
 		}
 	};
 
@@ -74,8 +79,15 @@ namespace
 	public:
 		bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broad) const override
 		{
-			return layer == Layers::kMoving || broad == BroadLayers::kMoving;
+			return layer != Layers::kStatic || broad == BroadLayers::kMoving;
 		}
+	};
+
+	// Raycasts with dynamicOnly: every layer but the static world.
+	class NotStaticFilter final : public JPH::ObjectLayerFilter
+	{
+	public:
+		bool ShouldCollide(JPH::ObjectLayer layer) const override { return layer != Layers::kStatic; }
 	};
 
 	JPH::Vec3 ToJolt(const XMFLOAT3& v) { return JPH::Vec3(v.x, v.y, v.z); }
@@ -260,7 +272,7 @@ BodyId PhysicsWorld::CreateStaticBox(const XMFLOAT3& center, const XMFLOAT3& hal
 }
 
 BodyId PhysicsWorld::CreateDynamicBoxes(const std::vector<PhysicsBox>& boxes, float density,
-	const XMFLOAT3& position, const XMFLOAT4& rotation, const XMFLOAT3& linearVelocity, const XMFLOAT3& angularVelocity)
+	const XMFLOAT3& position, const XMFLOAT4& rotation, const XMFLOAT3& linearVelocity, const XMFLOAT3& angularVelocity, bool ignoreCharacters)
 {
 	Impl& p = *mImpl;
 	if (boxes.empty()) return kInvalidBody;
@@ -281,7 +293,7 @@ BodyId PhysicsWorld::CreateDynamicBoxes(const std::vector<PhysicsBox>& boxes, fl
 	}
 
 	JPH::BodyCreationSettings settings(result.Get(), JPH::RVec3(position.x, position.y, position.z), ToJolt(rotation),
-		JPH::EMotionType::Dynamic, Layers::kMoving);
+		JPH::EMotionType::Dynamic, ignoreCharacters ? Layers::kDebris : Layers::kMoving);
 	settings.mLinearVelocity = ToJolt(linearVelocity);
 	settings.mAngularVelocity = ToJolt(angularVelocity);
 	settings.mFriction = 0.7f;
@@ -368,7 +380,7 @@ std::optional<PhysicsRayHit> PhysicsWorld::Raycast(const XMFLOAT3& origin, const
 	const JPH::RRayCast ray{ JPH::RVec3(origin.x, origin.y, origin.z), ToJolt(direction) * maxDistance };
 	JPH::RayCastResult result;
 	const JPH::SpecifiedBroadPhaseLayerFilter movingBroad(BroadLayers::kMoving);
-	const JPH::SpecifiedObjectLayerFilter movingObjects(Layers::kMoving);
+	const NotStaticFilter movingObjects;
 	const JPH::BroadPhaseLayerFilter anyBroad;
 	const JPH::ObjectLayerFilter anyObject;
 	const bool hit = p.system->GetNarrowPhaseQuery().CastRay(ray, result,
@@ -443,7 +455,7 @@ PhysicsCharacter::PhysicsCharacter(PhysicsWorld& world, const Settings& settings
 	JPH::CharacterVirtualSettings cs;
 	cs.mShape = shape;
 	cs.mInnerBodyShape = shape;                 // a real body so falling rock hits the player
-	cs.mInnerBodyLayer = Layers::kMoving;
+	cs.mInnerBodyLayer = Layers::kCharacter;
 	cs.mMaxSlopeAngle = JPH::DegreesToRadians(settings.maxSlopeDegrees);
 	cs.mMass = settings.mass;
 	cs.mMaxStrength = settings.pushStrength;
@@ -487,8 +499,8 @@ void PhysicsCharacter::Update(float dt, const XMFLOAT3& horizontal, bool jump, f
 	update.mWalkStairsStepUp = JPH::Vec3(0.0f, c.settings.stepHeight, 0.0f);
 	update.mStickToFloorStepDown = JPH::Vec3(0.0f, -c.settings.stepHeight, 0.0f);
 	ch.ExtendedUpdate(dt, gravity, update,
-		c.world->system->GetDefaultBroadPhaseLayerFilter(Layers::kMoving),
-		c.world->system->GetDefaultLayerFilter(Layers::kMoving),
+		c.world->system->GetDefaultBroadPhaseLayerFilter(Layers::kCharacter),
+		c.world->system->GetDefaultLayerFilter(Layers::kCharacter),
 		{}, {}, *c.world->tempAllocator);
 }
 

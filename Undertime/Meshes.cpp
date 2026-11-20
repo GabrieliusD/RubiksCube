@@ -163,6 +163,21 @@ namespace meshes
 		return mesh;
 	}
 
+	MeshData Shovel()
+	{
+		MeshData mesh;
+		const XMFLOAT4 wood = color::WithAlpha(color::Linear(0x6b4a2b));
+		const XMFLOAT4 iron = color::WithAlpha(color::Linear(0x7c8288));
+		// Handle along +Y with a grip across the bottom, flat blade at the top.
+		AddBox(mesh, { 0.0f, 0.0f, 0.0f }, { 0.018f, 0.30f, 0.018f }, wood);
+		AddBox(mesh, { 0.0f, -0.30f, 0.0f }, { 0.05f, 0.015f, 0.015f }, wood);
+		AddBox(mesh, { 0.0f, 0.31f, 0.0f }, { 0.03f, 0.03f, 0.012f }, iron);      // socket
+		AddBox(mesh, { 0.0f, 0.42f, 0.01f }, { 0.08f, 0.09f, 0.006f }, iron);     // blade
+		AddBox(mesh, { -0.078f, 0.42f, 0.025f }, { 0.006f, 0.085f, 0.015f }, iron);   // raised sides
+		AddBox(mesh, { 0.078f, 0.42f, 0.025f }, { 0.006f, 0.085f, 0.015f }, iron);
+		return mesh;
+	}
+
 	MeshData Lantern()
 	{
 		MeshData mesh;

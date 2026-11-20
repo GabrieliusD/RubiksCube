@@ -18,5 +18,6 @@ namespace meshes
 
 	// View models in camera-local space (+Z forward, +Y up).
 	MeshData Pick();
+	MeshData Shovel();
 	MeshData Lantern();
 }

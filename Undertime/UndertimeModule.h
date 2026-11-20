@@ -7,6 +7,7 @@
 #include "Hud.h"
 #include "WorldCollision.h"
 #include "Fragments.h"
+#include "LooseBlocks.h"
 #include "CaveGenerator.h"
 #include "CaveMap.h"
 #include "SceneComponents.h"
@@ -35,6 +36,7 @@ public:
 private:
 	enum class State { Title, Playing, Paused };
 	enum class WorldRenderer { RayMarched, Meshes };
+	enum class Tool { Pick, Shovel };
 
 	struct Target
 	{
@@ -63,16 +65,15 @@ private:
 	void UpdateState(Engine& engine);
 	void UpdateMining(Engine& engine, float deltaTime);
 	void Swing(Engine& engine);
-	// Turns voxels knocked out by a swing into flying pieces: ore becomes nuggets that come
-	// to the player, stone becomes rubble that crumbles. `voxels` are in a grid whose (0,0,0)
-	// corner sits at `gridPosition` with `gridRotation`; `gridOrigin` is that corner's world
-	// voxel (for colours). `out` is the direction the pieces are thrown.
-	void SpawnChips(Engine& engine, const std::vector<VoxelWorld::RemovedVoxel>& voxels, const DirectX::XMINT3& gridOrigin,
-		const DirectX::XMFLOAT3& gridPosition, const DirectX::XMFLOAT4& gridRotation, const DirectX::XMFLOAT3& baseVelocity,
-		const DirectX::XMFLOAT3& out, const DirectX::XMFLOAT3& facePoint);
-	void UpdatePickups(Engine& engine, float deltaTime);
-	// After a bite that broke ore: the connected ore around the impact falls out as one chunk.
-	void BreakOutVein(Engine& engine, const VoxelWorld::CarveResult& carve, const DirectX::XMFLOAT3& center);
+	// How far along the view ray it leaves the player's capsule: physics rays start there, or
+	// they hit the player's own body (it is a physics body, so falling boulders hit you).
+	float RayStartOutsidePlayer() const;
+	// Voxels the pick knocked out of the wall: one loose block each, tumbling out of the face.
+	void SpawnBlocksFromFace(Engine& engine, const std::vector<VoxelWorld::RemovedVoxel>& voxels, const Target& hit);
+	// Voxels knocked off (or left of) a boulder: one loose block each, where they were.
+	void SpawnBlocksFromBoulder(Engine& engine, const ChipResult& chip, const DirectX::XMFLOAT3& out);
+	void UpdateShovel(Engine& engine, float deltaTime);
+	int BackpackCount() const;
 	// Pushes a world edit to the GPU volume, the collision slabs and (in mesh mode) the chunk
 	// meshes; with `checkSupport`, rock left hanging free breaks off and falls.
 	void ApplyWorldChange(Engine& engine, const VoxelWorld::Box& box, bool checkSupport);
@@ -105,7 +106,7 @@ private:
 	PlayerController player;
 	WorldCollision collision;
 	FragmentSystem fragments;
-	std::vector<VoxelWorld::Box> changedScratch;
+	LooseBlocks blocks;
 	int detachedCount = 0;
 	int lastSupportVisited = 0;
 	State state = State::Title;
@@ -123,10 +124,12 @@ private:
 	std::vector<Entity> sceneryEntities;
 	Entity mountainEntity = INVALID_ENTITY;
 	Entity pickEntity = INVALID_ENTITY;
+	Entity shovelEntity = INVALID_ENTITY;
 	Entity lanternEntity = INVALID_ENTITY;
-	MeshHandle pickMesh, lanternMesh;
+	MeshHandle pickMesh, shovelMesh, lanternMesh;
 
 	// Mining
+	Tool tool = Tool::Pick;
 	Target target;
 	float swingTimer = 0.0f;        // 0..1 through the current swing; the pick lands at 1
 	bool waitForRelease = false;    // the click that captured the mouse doesn't mine
@@ -138,9 +141,16 @@ private:
 	float hitStrength = 0.0f;       // 1 for a clean bite, less for a hollow hit
 	int voxelsMined = 0;
 
-	// Collected ore (voxels per block type; the bag and selling arrive in milestone 2).
-	std::array<int, static_cast<int>(cfg::Block::Count)> collected{};
-	std::array<int, static_cast<int>(cfg::Block::Count)> recentPickup{};   // shown as "+3 Copper"
+	// Shovel
+	std::vector<BodyId> scoopPreview;   // the loose blocks the next scoop takes
+	float shovelTimer = 0.0f;           // 0..1 through the current scoop; it takes the blocks at 1
+	float shovelDip = 0.0f;             // s left of the scoop animation
+	bool wasShovelling = false;
+	float fullWarning = 0.0f;
+
+	// Backpack: blocks per type (selling arrives in milestone 2).
+	LooseBlocks::Counts backpack{};
+	LooseBlocks::Counts recentPickup{};   // shown as "+3 Copper"
 	float pickupToast = 0.0f;
 
 	// Gear (upgrade levels, 0-based; trading arrives in milestone 2)

@@ -101,9 +101,10 @@ public:
 	static int ChunkCount() { return (cfg::kGridZ + cfg::kChunkDepth - 1) / cfg::kChunkDepth; }
 	static int ChunkOfVoxelZ(int z) { return z / (cfg::kChunkDepth * cfg::kVoxelsPerMeter); }
 	MeshData BuildChunkMesh(int chunk) const;
+	// Linear colour of a voxel of `block` at world voxel (x, y, z), as the mesh renderer draws it.
+	static DirectX::XMFLOAT4 VoxelColor(Block block, int x, int y, int z);
 
 private:
-	DirectX::XMFLOAT4 VoxelColor(Block block, int x, int y, int z) const;
 
 	std::vector<Block> mVoxels;
 	std::unordered_map<uint32_t, float> mDamage;   // accumulated pick damage of standing voxels

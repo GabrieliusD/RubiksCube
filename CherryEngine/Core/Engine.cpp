@@ -187,15 +187,25 @@ ModuleStatus Engine::GetModuleStatus() const
 	return status;
 }
 
-void Engine::CompileModule()
+void Engine::CompileModule(bool reconfigure)
 {
 	Impl& e = *mImpl;
 	if (!e.project.IsValid() || e.staticGame || e.build.IsRunning()) return;
 #if defined(CHERRY_CMAKE_COMMAND) && defined(CHERRY_BUILD_DIR) && defined(CHERRY_BUILD_CONFIG)
 	// /nodeReuse:false: no MSBuild node outlives the build holding our output pipe.
-	const std::wstring command = L"\"" + Widen(CHERRY_CMAKE_COMMAND) + L"\" --build \"" + Widen(CHERRY_BUILD_DIR)
+	// A PDB name of its own for every editor build: a debugger attached to the editor keeps
+	// the loaded module's PDB open, and relinking over it would fail (LNK1201).
+	const std::wstring pdbSuffix = L"-" + std::to_wstring(static_cast<unsigned long long>(
+		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
+	std::wstring command = L"\"" + Widen(CHERRY_CMAKE_COMMAND) + L"\" --build \"" + Widen(CHERRY_BUILD_DIR)
 		+ L"\" --config " + Widen(CHERRY_BUILD_CONFIG) + L" --target " + Widen(e.project.module)
-		+ L" -- /nodeReuse:false /verbosity:minimal /nologo";
+		+ L" -- /nodeReuse:false /verbosity:minimal /nologo /p:CherryPdbSuffix=" + pdbSuffix;
+	if (reconfigure)
+	{
+		// cmd /S /C ""configure" && "build"": configure, and build only if it worked.
+		const std::wstring configure = L"\"" + Widen(CHERRY_CMAKE_COMMAND) + L"\" \"" + Widen(CHERRY_BUILD_DIR) + L"\"";
+		command = L"cmd.exe /S /C \"" + configure + L" && " + command + L"\"";
+	}
 	CHERRY_LOG("[build] %s", fs::path(command).string().c_str());
 	std::string error;
 	if (!e.build.Start(command, error))
@@ -600,11 +610,13 @@ void Engine::Impl::RegisterGameTypes()
 	try
 	{
 		game->RegisterTypes(types);
+		game->RegisterScriptsFromFiles(types);
 	}
 	catch (const std::exception& ex)
 	{
 		CHERRY_ERROR("Game RegisterTypes threw: %s", ex.what());
 	}
+	registry.ResolvePendingBases();
 	registry.SetCurrentOwner("engine");
 	systems = std::move(types.Systems());
 	size_t components = 0;

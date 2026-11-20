@@ -9,6 +9,7 @@
 #include "imgui.h"
 #include <windows.h>
 #include <commdlg.h>
+#include <shellapi.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -771,6 +772,11 @@ void EditorLayer::DrawInspector(Engine& engine)
 				Script& script = *info.asScript(component);
 				if (!ScriptBinding::IsBound(script) || script.GetEntity() != entity) ScriptBinding::Bind(script, &engine, entity);
 				script.OnInspectorGui();
+				if (!info.sourceFile.empty())
+				{
+					if (ImGui::SmallButton("Edit Script")) ShellExecuteW(nullptr, L"open", fs::u8path(info.sourceFile).wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+					ImGui::SetItemTooltip("%s", info.sourceFile.c_str());
+				}
 			}
 		}
 		ImGui::PopID();

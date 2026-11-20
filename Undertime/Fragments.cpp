@@ -1,9 +1,7 @@
 #include "Fragments.h"
 #include "ColorUtil.h"
 #include <algorithm>
-#include <chrono>
 #include <cmath>
-#include <unordered_set>
 
 using namespace DirectX;
 using cfg::Block;
@@ -77,30 +75,6 @@ std::vector<PhysicsBox> DecomposeIntoBoxes(const FragmentVoxels& fragment, int m
 	}
 }
 
-std::vector<BakedVoxel> SnapToGrid(const FragmentVoxels& fragment, const XMFLOAT3& position, const XMFLOAT4& rotation)
-{
-	const float s = cfg::kVoxelSize;
-	const XMMATRIX world = XMMatrixRotationQuaternion(XMLoadFloat4(&rotation)) * XMMatrixTranslation(position.x, position.y, position.z);
-	std::vector<BakedVoxel> out;
-	std::unordered_set<uint64_t> taken;
-	for (int z = 0; z < fragment.size.z; ++z)
-	for (int y = 0; y < fragment.size.y; ++y)
-	for (int x = 0; x < fragment.size.x; ++x)
-	{
-		const Block block = fragment.At(x, y, z);
-		if (block == Block::Air) continue;
-		XMFLOAT3 p;
-		XMStoreFloat3(&p, XMVector3TransformCoord(XMVectorSet((x + 0.5f) * s, (y + 0.5f) * s, (z + 0.5f) * s, 1.0f), world));
-		const int cx = static_cast<int>(std::floor(p.x / s));
-		const int cy = static_cast<int>(std::floor(p.y / s));
-		const int cz = static_cast<int>(std::floor(p.z / s));
-		const uint64_t key = (static_cast<uint64_t>(cx + 4096) << 42) | (static_cast<uint64_t>(cy + 4096) << 21) | static_cast<uint64_t>(cz + 4096);
-		if (!taken.insert(key).second) continue;   // two voxels landed in the same cell
-		out.push_back({ cx, cy, cz, block });
-	}
-	return out;
-}
-
 // =============================================================================
 
 void FragmentSystem::Initialize(VoxelVolumeHandle worldVolume)
@@ -109,7 +83,7 @@ void FragmentSystem::Initialize(VoxelVolumeHandle worldVolume)
 }
 
 bool FragmentSystem::Spawn(Engine& engine, FragmentVoxels&& fragment, const XMFLOAT3& position,
-	const XMFLOAT3& linearVelocity, const XMFLOAT3& angularVelocity, FragmentKind kind, const XMFLOAT4& rotation)
+	const XMFLOAT3& linearVelocity, const XMFLOAT3& angularVelocity, const XMFLOAT4& rotation)
 {
 	if (fragment.SolidCount() == 0) return false;
 	PhysicsWorld& physics = engine.GetPhysics();
@@ -149,158 +123,47 @@ bool FragmentSystem::Spawn(Engine& engine, FragmentVoxels&& fragment, const XMFL
 	scene.Add(f.entity, RigidBody{ body });
 
 	f.voxels = std::move(fragment);
-	f.kind = kind;
 	mFragments.push_back(std::move(f));
-
-	// Over the caps: the oldest rubble crumbles early; the oldest boulder bakes.
-	if (kind == FragmentKind::Rubble && CountKind(FragmentKind::Rubble) > cfg::kMaxRubble)
-	{
-		for (Fragment& old : mFragments)
-		{
-			if (old.kind == FragmentKind::Rubble && old.crumble < 0.0f) { old.crumble = 0.0f; break; }
-		}
-	}
-	if (kind == FragmentKind::Structural && CountKind(FragmentKind::Structural) > cfg::kMaxBoulders)
-	{
-		for (Fragment& old : mFragments)
-		{
-			if (old.kind == FragmentKind::Structural && !old.forceBake) { old.forceBake = true; break; }
-		}
-	}
 	return true;
 }
 
-int FragmentSystem::CountKind(FragmentKind kind) const
-{
-	return static_cast<int>(std::count_if(mFragments.begin(), mFragments.end(), [kind](const Fragment& f) { return f.kind == kind; }));
-}
-
-void FragmentSystem::Update(Engine& engine, VoxelWorld& world, float dt,
-	const XMFLOAT3& keepClearMin, const XMFLOAT3& keepClearMax, std::vector<VoxelWorld::Box>& changed)
+void FragmentSystem::Update(Engine& engine, float dt)
 {
 	PhysicsWorld& physics = engine.GetPhysics();
-	const auto start = std::chrono::steady_clock::now();
-	bool baked = false;
-
 	for (size_t i = 0; i < mFragments.size(); )
 	{
 		Fragment& f = mFragments[i];
 		f.age += dt;
-
 		XMFLOAT3 position;
 		XMFLOAT4 rotation;
 		physics.GetTransform(f.body, position, rotation, false);
-		const XMFLOAT3 v = physics.GetLinearVelocity(f.body);
-		const bool sleeping = physics.IsSleeping(f.body);
-		const bool slow = v.x * v.x + v.y * v.y + v.z * v.z < cfg::kRestSpeed * cfg::kRestSpeed;
-		f.still = (sleeping || slow) ? f.still + dt : 0.0f;
-		const bool settled = sleeping || f.still >= cfg::kRestTime;
-		const bool lost = position.y < -20.0f;
-
-		if (f.kind == FragmentKind::Nugget)
+		if (position.y < cfg::kBlockLostY)
 		{
-			// Collected in CollectNuggets; only lost or forgotten ones end here.
-			if (lost || f.age > cfg::kNuggetMaxLifetime)
-			{
-				Release(engine, f);
-				mFragments.erase(mFragments.begin() + static_cast<std::ptrdiff_t>(i));
-				continue;
-			}
-			++i;
-			continue;
-		}
-
-		if (f.kind == FragmentKind::Rubble)
-		{
-			// Rubble settles, lingers a moment, then shrinks to nothing.
-			if (f.crumble < 0.0f && ((f.age >= cfg::kRubbleMinLifetime && settled) || f.age >= cfg::kRubbleMaxLifetime))
-			{
-				f.crumble = 0.0f;
-			}
-			if (f.crumble >= 0.0f) f.crumble += dt;
-			const float linger = cfg::kRubbleLinger, shrink = cfg::kRubbleShrinkTime;
-			if (f.crumble >= linger + shrink || lost)
-			{
-				Release(engine, f);
-				++mVanishedCount;
-				mFragments.erase(mFragments.begin() + static_cast<std::ptrdiff_t>(i));
-				continue;
-			}
-			if (f.crumble > linger)
-			{
-				const float u = (f.crumble - linger) / shrink;
-				engine.GetScene().Get<VoxelVolumeRenderer>(f.entity).voxelSize = cfg::kVoxelSize * (1.0f - u * u);
-			}
-			++i;
-			continue;
-		}
-
-		// Structural: boulders stay loose (break them with the pick); big slabs, and the
-		// oldest boulders past the cap, bake back into the world once they rest.
-		const bool resting = f.age >= cfg::kFragmentMinLifetime && settled;
-		const bool big = f.voxels.SolidCount() > cfg::kBoulderMaxVoxels;
-		if ((resting && (big || f.forceBake)) || (big && f.age >= cfg::kFragmentMaxLifetime) || lost)
-		{
-			if (!lost) Bake(engine, world, f, keepClearMin, keepClearMax, changed);
 			Release(engine, f);
 			mFragments.erase(mFragments.begin() + static_cast<std::ptrdiff_t>(i));
-			baked = true;
 			continue;
 		}
 		++i;
-	}
-	if (baked)
-	{
-		mLastBakeMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
 	}
 }
 
-int FragmentSystem::CollectNuggets(Engine& engine, const XMFLOAT3& collector, float dt,
-	std::array<int, static_cast<int>(Block::Count)>& collected)
+ChipResult FragmentSystem::ShatterOldestOverCap(Engine& engine)
 {
+	ChipResult result;
+	if (static_cast<int>(mFragments.size()) <= cfg::kMaxBoulders) return result;
+	Fragment& f = mFragments.front();   // spawned first = oldest
 	PhysicsWorld& physics = engine.GetPhysics();
-	const float s = cfg::kVoxelSize;
-	int count = 0;
-	for (size_t i = 0; i < mFragments.size(); )
-	{
-		Fragment& f = mFragments[i];
-		if (f.kind != FragmentKind::Nugget) { ++i; continue; }
-
-		XMFLOAT3 position;
-		XMFLOAT4 rotation;
-		physics.GetTransform(f.body, position, rotation, false);
-		XMFLOAT3 center;
-		const float half = f.voxels.size.x * s * 0.5f;
-		XMStoreFloat3(&center, XMVector3Rotate(XMVectorSet(half, half, half, 0.0f), XMLoadFloat4(&rotation)) + XMLoadFloat3(&position));
-		const XMFLOAT3 to{ collector.x - center.x, collector.y - center.y, collector.z - center.z };
-		const float distance = std::sqrt(to.x * to.x + to.y * to.y + to.z * to.z);
-
-		if (f.pull < 0.0f && f.age >= cfg::kNuggetPickupDelay && distance < cfg::kNuggetPullRadius) f.pull = 0.0f;
-		if (f.pull >= 0.0f) f.pull += dt;
-
-		if (f.pull >= 0.0f && (distance < cfg::kNuggetCollectRadius || f.pull >= cfg::kNuggetPullTimeout))
-		{
-			for (Block b : f.voxels.voxels)
-				if (b != Block::Air) ++collected[static_cast<int>(b)];
-			Release(engine, f);
-			mFragments.erase(mFragments.begin() + static_cast<std::ptrdiff_t>(i));
-			++count;
-			continue;
-		}
-
-		if (f.pull >= 0.0f && distance > 1e-3f)
-		{
-			// Steer its velocity towards the player: impulse = mass * velocity change.
-			const float mass = f.voxels.SolidCount() * s * s * s * cfg::kRockDensity;
-			const float speed = cfg::kNuggetPullSpeed * std::min(1.0f, f.pull / 0.15f);
-			const XMFLOAT3 v = physics.GetLinearVelocity(f.body);
-			const XMFLOAT3 want{ to.x / distance * speed, to.y / distance * speed + 0.6f, to.z / distance * speed };
-			const float k = std::min(1.0f, cfg::kNuggetPullResponse * dt);
-			physics.AddImpulse(f.body, { (want.x - v.x) * k * mass, (want.y - v.y) * k * mass, (want.z - v.z) * k * mass }, center);
-		}
-		++i;
-	}
-	return count;
+	physics.GetTransform(f.body, result.position, result.rotation, false);
+	result.velocity = physics.GetLinearVelocity(f.body);
+	result.worldOrigin = f.voxels.worldOrigin;
+	for (int z = 0; z < f.voxels.size.z; ++z)
+		for (int y = 0; y < f.voxels.size.y; ++y)
+			for (int x = 0; x < f.voxels.size.x; ++x)
+				if (f.voxels.At(x, y, z) != Block::Air) result.voxels.push_back({ x, y, z, f.voxels.At(x, y, z) });
+	result.hit = !result.voxels.empty();
+	Release(engine, f);
+	mFragments.erase(mFragments.begin());
+	return result;
 }
 
 ChipResult FragmentSystem::Chip(Engine& engine, BodyId body, const XMFLOAT3& point, float pickFactor, uint32_t salt)
@@ -421,52 +284,9 @@ ChipResult FragmentSystem::Chip(Engine& engine, BodyId body, const XMFLOAT3& poi
 		}
 		XMFLOAT3 piecePosition;
 		XMStoreFloat3(&piecePosition, XMVector3TransformCoord(XMVectorSet(lo[0] * s, lo[1] * s, lo[2] * s, 1.0f), world));
-		Spawn(engine, std::move(out), piecePosition, velocity, { 0, 0, 0 }, FragmentKind::Structural, rotation);
+		Spawn(engine, std::move(out), piecePosition, velocity, { 0, 0, 0 }, rotation);
 	}
 	return result;
-}
-
-void FragmentSystem::Bake(Engine& engine, VoxelWorld& world, Fragment& f,
-	const XMFLOAT3& clearMin, const XMFLOAT3& clearMax, std::vector<VoxelWorld::Box>& changed)
-{
-	if (f.voxels.SolidCount() < cfg::kMinBakeVoxels)
-	{
-		++mVanishedCount;   // dust
-		return;
-	}
-
-	XMFLOAT3 position;
-	XMFLOAT4 rotation;
-	engine.GetPhysics().GetTransform(f.body, position, rotation, false);
-
-	const float s = cfg::kVoxelSize;
-	VoxelWorld::Box box;
-	for (const BakedVoxel& v : SnapToGrid(f.voxels, position, rotation))
-	{
-		if (!VoxelWorld::InGrid(v.x, v.y, v.z) || world.Get(v.x, v.y, v.z) != Block::Air) continue;
-		// Never bake rock into the player.
-		const bool overlapsPlayer = (v.x + 1) * s > clearMin.x && v.x * s < clearMax.x
-			&& (v.y + 1) * s > clearMin.y && v.y * s < clearMax.y
-			&& (v.z + 1) * s > clearMin.z && v.z * s < clearMax.z;
-		if (overlapsPlayer) continue;
-
-		world.Set(v.x, v.y, v.z, v.block);
-		if (box.Empty())
-		{
-			box.min[0] = box.max[0] = v.x; box.min[1] = box.max[1] = v.y; box.min[2] = box.max[2] = v.z;
-		}
-		else
-		{
-			box.min[0] = std::min(box.min[0], v.x); box.max[0] = std::max(box.max[0], v.x);
-			box.min[1] = std::min(box.min[1], v.y); box.max[1] = std::max(box.max[1], v.y);
-			box.min[2] = std::min(box.min[2], v.z); box.max[2] = std::max(box.max[2], v.z);
-		}
-	}
-	if (!box.Empty())
-	{
-		changed.push_back(box);
-		++mBakedCount;
-	}
 }
 
 void FragmentSystem::Release(Engine& engine, Fragment& f)
@@ -478,7 +298,7 @@ void FragmentSystem::Release(Engine& engine, Fragment& f)
 
 bool FragmentSystem::Owns(BodyId body) const
 {
-	return std::any_of(mFragments.begin(), mFragments.end(), [body](const Fragment& f) { return f.body == body && f.kind == FragmentKind::Structural; });
+	return std::any_of(mFragments.begin(), mFragments.end(), [body](const Fragment& f) { return f.body == body; });
 }
 
 void FragmentSystem::Clear(Engine& engine)

@@ -424,7 +424,7 @@ std::vector<uint8_t> VoxelWorld::PaletteVoxels(const Box& box) const
 
 // ---- Mesh renderer ------------------------------------------------------------
 
-XMFLOAT4 VoxelWorld::VoxelColor(Block block, int x, int y, int z) const
+XMFLOAT4 VoxelWorld::VoxelColor(Block block, int x, int y, int z)
 {
 	const float depth = static_cast<float>(z) / (cfg::kVoxZ - 1);
 	const float jitter = color::Hash01(x, y, z) * 2.0f - 1.0f;

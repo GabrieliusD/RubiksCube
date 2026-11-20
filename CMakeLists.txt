@@ -37,11 +37,27 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 # copies the active game's Content/ next to the executable.
 function(cherry_register_game_module target_name)
   set_property(GLOBAL APPEND PROPERTY CHERRY_GAME_MODULES ${target_name})
+  # Scripts made with the editor's New Script land in <game>/Scripts/ and register
+  # themselves (CHERRY_SCRIPT). CONFIGURE_DEPENDS: a build notices new files on its own.
+  file(GLOB_RECURSE _cherry_scripts CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/Scripts/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/Scripts/*.h")
+  if(_cherry_scripts)
+    target_sources(${target_name} PRIVATE ${_cherry_scripts})
+    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${_cherry_scripts})
+  endif()
   if(MSVC AND NOT CHERRY_MONOLITHIC)
-    # Embed only the PDB's file name: the editor loads a copy of the DLL with a copy of
-    # its PDB, and the debugger then finds that copy instead of locking the original.
-    # (Not %_PDB%: the Visual Studio generator escapes the percent signs.)
-    target_link_options(${target_name} PRIVATE "/PDBALTPATH:${target_name}.pdb")
+    if(CMAKE_GENERATOR MATCHES "Visual Studio")
+      # Hot reload under a debugger: Visual Studio keeps the PDB of the loaded module
+      # open (it finds it next to the exe), so relinking with the same PDB name fails
+      # (LNK1201). The editor's Compile passes /p:CherryPdbSuffix=-<n>, giving every
+      # build its own PDB (as Unreal does); plain Visual Studio builds have no suffix.
+      set_target_properties(${target_name} PROPERTIES PDB_NAME "${target_name}$(CherryPdbSuffix)")
+      # Embed only the PDB's file name, so the debugger also finds the copy the editor
+      # loads. (Not %_PDB%: the Visual Studio generator escapes the percent signs.)
+      target_link_options(${target_name} PRIVATE "/PDBALTPATH:${target_name}$(CherryPdbSuffix).pdb")
+    else()
+      target_link_options(${target_name} PRIVATE "/PDBALTPATH:${target_name}.pdb")
+    endif()
   endif()
 endfunction()
 

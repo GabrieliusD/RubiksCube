@@ -13,6 +13,8 @@ set(UndertimeSrc
     WorldCollision.cpp
     Fragments.h
     Fragments.cpp
+    LooseBlocks.h
+    LooseBlocks.cpp
     Structure.h
     Structure.cpp
     Noise.h
@@ -46,6 +48,6 @@ if(MSVC)
 endif()
 
 # Pure voxel/physics helper tests: ctest -C Debug
-add_executable(UndertimeTests Tests/UndertimeTests.cpp VoxelWorld.cpp Fragments.cpp Structure.cpp CaveGenerator.cpp)
+add_executable(UndertimeTests Tests/UndertimeTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp)
 target_link_libraries(UndertimeTests PRIVATE CherryEngine)
 add_test(NAME UndertimeTests COMMAND UndertimeTests)

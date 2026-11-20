@@ -3,11 +3,13 @@
 #include "../Fragments.h"
 #include "../Structure.h"
 #include "../CaveGenerator.h"
+#include "../LooseBlocks.h"
 #include <queue>
 #include <climits>
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <unordered_set>
 
 using namespace DirectX;
 using cfg::Block;
@@ -366,18 +368,36 @@ int main()
 		Check(DecomposeIntoBoxes(f, 8).size() <= 8, "the box cap coarsens the shape until it fits");
 	}
 	{
-		FragmentVoxels f;
-		f.size = { 2, 1, 1 };
-		f.voxels = { Block::Stone, Block::Gold };
+		// A real bite out of a flat wall (rock at z >= 40, air in front): every mined voxel
+		// becomes one block, all in the air in front of the face and none on top of another.
+		VoxelWorld world;
+		world.GenerateBasic();
+		for (int z = 20; z < 60; ++z)
+			for (int y = 4; y < 40; ++y)
+				for (int x = 4; x < 40; ++x) world.Set(x, y, z, z < 40 ? Block::Air : Block::Stone);
 		const float s = cfg::kVoxelSize;
-		auto baked = SnapToGrid(f, { 10 * s, 20 * s, 30 * s }, { 0, 0, 0, 1 });
-		Check(baked.size() == 2 && baked[0].x == 10 && baked[0].y == 20 && baked[0].z == 30 && baked[1].x == 11 && baked[1].block == Block::Gold,
-			"snap to grid: unrotated fragment lands on its cells and keeps ore");
+		const XMFLOAT3 center{ 20.5f * s, 20.5f * s, 40.0f * s + 0.08f };
+		const VoxelWorld::CarveResult bite = world.Carve(center, 50.0f, 20, 20, 40, 1);   // a strong pick: breaks the whole bite
+		auto isFree = [&](int x, int y, int z) { return world.Get(x, y, z) == Block::Air; };
+		const std::vector<XMINT3> cells = MirrorOutOfFace(bite.voxels, 2, -1, 40, isFree);
+		std::unordered_set<int> distinct;
+		bool inFront = true;
+		for (const XMINT3& c : cells)
+		{
+			distinct.insert(VoxelWorld::Index(c.x, c.y, c.z));
+			inFront = inFront && c.z < 40;
+		}
+		char text[160];
+		std::snprintf(text, sizeof(text), "loose blocks: a %d-voxel bite becomes %d blocks, all in front of the face, none overlapping",
+			static_cast<int>(bite.voxels.size()), static_cast<int>(cells.size()));
+		Check(bite.voxels.size() > 10 && cells.size() == bite.voxels.size() && distinct.size() == cells.size() && inFront, text);
 
-		XMFLOAT4 q;
-		XMStoreFloat4(&q, XMQuaternionRotationAxis(XMVectorSet(0, 1, 0, 0), XM_PIDIV2));
-		baked = SnapToGrid(f, { 10 * s, 20 * s, 30 * s }, q);
-		Check(baked.size() == 2 && baked[0].z != baked[1].z && baked[0].x == baked[1].x, "snap to grid: 90 degree turn maps x onto z");
+		// In a corner (rock in front too) the blocks that can't mirror stay in their own cells.
+		auto never = [](int, int, int) { return false; };
+		const std::vector<XMINT3> stay = MirrorOutOfFace(bite.voxels, 2, -1, 40, never);
+		bool same = true;
+		for (size_t i = 0; i < stay.size(); ++i) same = same && stay[i].x == bite.voxels[i].x && stay[i].y == bite.voxels[i].y && stay[i].z == bite.voxels[i].z;
+		Check(same, "loose blocks: with no room in front, a block falls out of its own (now empty) cell");
 	}
 	{
 		VoxelWorld world;

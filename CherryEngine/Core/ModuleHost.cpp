@@ -17,6 +17,43 @@ namespace
 		return !ec;
 	}
 
+	// <dir>/<stem>.pdb or <dir>/<stem>-<n>.pdb, whichever was written last.
+	fs::path NewestPdb(const fs::path& dll)
+	{
+		const std::wstring stem = dll.stem().wstring();
+		fs::path newest;
+		fs::file_time_type newestTime{};
+		std::error_code ec;
+		for (const fs::directory_entry& entry : fs::directory_iterator(dll.parent_path(), ec))
+		{
+			const fs::path& file = entry.path();
+			if (file.extension() != L".pdb") continue;
+			const std::wstring name = file.stem().wstring();
+			if (name != stem && name.rfind(stem + L"-", 0) != 0) continue;
+			const fs::file_time_type time = entry.last_write_time(ec);
+			if (!ec && (newest.empty() || time > newestTime))
+			{
+				newest = file;
+				newestTime = time;
+			}
+		}
+		return newest;
+	}
+
+	// Earlier editor builds' PDBs (<stem>-<n>.pdb); ones a debugger still holds stay.
+	void RemoveOldPdbs(const fs::path& dll, const fs::path& keep)
+	{
+		const std::wstring prefix = dll.stem().wstring() + L"-";
+		std::error_code ec;
+		for (const fs::directory_entry& entry : fs::directory_iterator(dll.parent_path(), ec))
+		{
+			const fs::path& file = entry.path();
+			if (file == keep || file.extension() != L".pdb" || file.stem().wstring().rfind(prefix, 0) != 0) continue;
+			std::error_code removeError;
+			fs::remove(file, removeError);
+		}
+	}
+
 	// The linker holds the DLL open for writing until it's done.
 	bool IsFinishedWriting(const fs::path& path)
 	{
@@ -82,13 +119,14 @@ bool ModuleHost::Load(const fs::path& sourceDll, const fs::path& shadowRoot, std
 		error = "Can't copy " + sourceDll.filename().string() + ": " + ec.message();
 		return false;
 	}
-	fs::path pdb = sourceDll;
-	pdb.replace_extension(".pdb");
-	if (fs::exists(pdb, ec))
+	// The PDB of this build: editor builds name it <module>-<n>.pdb (see CherryPdbSuffix in
+	// the top CMakeLists.txt), Visual Studio builds <module>.pdb. The newest one belongs to
+	// the DLL just built; the copy keeps its name, which is the name the DLL refers to.
+	const fs::path pdb = NewestPdb(sourceDll);
+	if (!pdb.empty())
 	{
-		fs::path pdbCopy = copy;
-		pdbCopy.replace_extension(".pdb");
-		fs::copy_file(pdb, pdbCopy, fs::copy_options::overwrite_existing, ec);   // optional: debugging only
+		fs::copy_file(pdb, m.copyDir / pdb.filename(), fs::copy_options::overwrite_existing, ec);   // optional: debugging only
+		RemoveOldPdbs(sourceDll, pdb);
 	}
 
 	m.module = LoadLibraryW(copy.c_str());

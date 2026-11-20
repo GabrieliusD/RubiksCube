@@ -107,7 +107,9 @@ public:
 	const std::vector<std::unique_ptr<ISystem>>& GameSystems() const;
 	// Builds the project's game module with CMake in the background; a successful build
 	// is reloaded automatically (also when the build comes from Visual Studio).
-	void CompileModule();
+	// `reconfigure`: run CMake's configure step first, needed after adding source files
+	// (a build regenerates the projects, but only the next build would compile them).
+	void CompileModule(bool reconfigure = false);
 	void ReloadModule();
 	// Restarts the editor on another project (asks about unsaved scene changes first).
 	void OpenProject(const std::filesystem::path& projectFile);

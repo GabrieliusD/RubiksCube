@@ -7,7 +7,7 @@ namespace cfg
 	// ---- Version ----------------------------------------------------------------
 	// Bump when a change is worth telling apart in play. The HUD also shows when the game
 	// module was built, so a stale build is obvious.
-	constexpr const char* kGameVersion = "0.5 (rolling rubble, clean veins)";
+	constexpr const char* kGameVersion = "0.6 (loose blocks, shovel, backpack)";
 
 	// ---- World grid ---------------------------------------------------------
 	// Cell (x, y, z) occupies [x, x+1] x [y, y+1] x [z, z+1] in world space.
@@ -92,40 +92,21 @@ namespace cfg
 	constexpr float kCharacterPushStrength = 600.0f;   // newtons the player pushes loose rock with
 	constexpr float kCharacterMaxSlope = 50.0f;   // degrees
 	constexpr float kRockDensity = 2600.0f;       // kg/m^3
-	// Pick rubble: chips knocked out of the face fall, settle, then crumble away (they never
-	// bake back into the world, so they can't refill the hole you're digging).
-	constexpr int kDebrisPerSwing = 7;            // chips thrown per pick swing
-	constexpr int kDebrisMaxSize = 2;             // voxels per side of a chip (the first one is kDebrisBigSize)
-	constexpr int kDebrisBigSize = 3;             // one bigger chunk per swing
-	constexpr float kDebrisSpeed = 1.1f;          // m/s out of the rock face (then they drop and roll)
-	constexpr float kDebrisScatter = 0.9f;        // m/s of random sideways spread
-	constexpr float kDebrisSpawnOffset = 0.04f;   // m clear of the original rock face: chips start outside the bite, not in it
-	constexpr int kMaxRubble = 60;                // more than this: the oldest crumble early
-	constexpr float kRubbleMinLifetime = 1.2f;    // s before resting rubble may start crumbling
-	constexpr float kRubbleMaxLifetime = 6.0f;    // s before rubble crumbles even if still moving
-	constexpr float kRubbleLinger = 1.5f;         // s a settled chip stays visible
-	constexpr float kRubbleShrinkTime = 0.4f;     // s to shrink away
-	constexpr float kRestSpeed = 0.12f;           // m/s: slower than this counts as settled...
-	constexpr float kRestTime = 0.35f;            // ...after this long (or when physics puts it to sleep)
-	// Loose boulders (rock that broke off): stay loose until the pick breaks them up.
-	constexpr int kMaxBoulders = 40;              // more than this: the oldest bakes back into the world
-	constexpr int kBoulderMaxVoxels = 1500;       // bigger slabs bake back into the world when they rest
-	constexpr int kMinBoulderVoxels = 6;          // pieces smaller than this after a hit go out with the bite
+	// Loose blocks: every voxel the pick knocks out becomes one block with its own body. Blocks
+	// tumble out of the face, pile up against the rock, boulders and each other, pass through
+	// the player, and never go back into the world: the shovel scoops them into the backpack.
+	constexpr float kBlockGap = 0.04f;            // blocks are this fraction smaller than a voxel, so piles read as blocks
+	constexpr float kBlockSpeed = 0.8f;           // m/s out of the rock face (then they drop and tumble)
+	constexpr float kBlockScatter = 0.5f;         // m/s of random sideways spread
+	constexpr float kBlockSpin = 4.0f;            // rad/s of random tumble
+	constexpr int kMaxLooseBlocks = 3000;         // more than this lying around: the oldest crumble away
+	constexpr float kBlockCrumbleTime = 0.5f;     // s to shrink away (only over the cap)
+	constexpr float kBlockLostY = -20.0f;         // blocks and boulders falling below this are gone
+	// Loose boulders (rock that broke off in a cave-in): stay loose until the pick breaks them up.
+	constexpr int kMaxBoulders = 60;              // more than this: the oldest comes apart into blocks
+	constexpr int kMinBoulderVoxels = 6;          // pieces smaller than this after a hit come apart into blocks
 	constexpr float kLooseRockBonus = 1.6f;       // loose rock breaks this much more easily (bite strength)
-	constexpr int kMaxFragmentBoxes = 48;         // collision boxes per fragment before coarsening
-	constexpr int kMinBakeVoxels = 8;             // smaller fragments vanish instead of baking
-	constexpr float kFragmentMaxLifetime = 8.0f;  // seconds before a big slab bakes regardless
-	constexpr float kFragmentMinLifetime = 0.6f;  // don't bake before this, even if asleep
-	// Ore nuggets: knocked out with the bite, then pulled to the player and collected.
-	constexpr int kNuggetMaxSize = 2;             // voxels per side
-	constexpr float kNuggetPickupDelay = 0.35f;   // s of tumbling before the pull starts
-	constexpr float kNuggetPullRadius = 3.5f;     // m from the player's chest
-	constexpr float kNuggetPullSpeed = 7.0f;      // m/s towards the player
-	constexpr float kNuggetPullResponse = 12.0f;  // 1/s, how hard it steers
-	constexpr float kNuggetCollectRadius = 0.55f; // m: collected this close to the chest
-	constexpr float kNuggetPullTimeout = 1.2f;    // s of pulling before it's collected anyway (stuck behind a lip)
-	constexpr float kNuggetMaxLifetime = 60.0f;   // s before an uncollected nugget disappears
-	constexpr float kPickupToastTime = 1.6f;      // s the "+3 Copper" line stays up
+	constexpr int kMaxFragmentBoxes = 48;         // collision boxes per boulder before coarsening
 	constexpr int kSupportSearchBudget = 20000;   // voxels; regions larger than this count as anchored
 
 	// Pre-carved openings for the basic (test) layout; generated worlds keep the entrance.
@@ -191,15 +172,17 @@ namespace cfg
 	constexpr float kBiteFalloff = 2.2f;          // full damage inside (1 - 1/this) of the radius
 	constexpr float kCrackShade[2] = { 0.74f, 0.52f };   // brightness of lightly / badly cracked voxels
 	constexpr float kCrackHitScale = 0.7f;        // jolt on a hit that only cracked the rock
-	// Breaking into an ore vein loosens the part of it around the hit: it falls out of the wall
-	// as one chunk, which the pick then breaks into nuggets.
-	// The loose chunk is all the rock (ore and stone) within the radius, so it's solid and
-	// slides out of its socket cleanly.
-	constexpr float kVeinChunkRadius = 0.75f;     // m around the impact that comes loose
-	constexpr int kVeinChunkMinOre = 8;           // ore voxels needed; less and the ore just comes out as nuggets
-	constexpr int kVeinChunkMaxVoxels = 500;
-	constexpr float kVeinChunkSpeed = 0.5f;       // m/s out of the face (gravity does the rest)
-	constexpr float kVeinChunkMaxSlide = 0.6f;    // m it may be moved out to clear the wall; else it shatters into chips
+
+	// ---- Shovel and backpack ------------------------------------------------------
+	// 1 = pick, 2 = shovel (or the mouse wheel). Holding left mouse with the shovel scoops the
+	// loose blocks around where you aim into the backpack.
+	constexpr float kShovelReach = 3.5f;          // m
+	constexpr float kShovelRadius = 0.45f;        // m around the aim point that one scoop takes from
+	constexpr int kShovelScoop = 12;              // blocks per scoop at most
+	constexpr float kShovelPeriod = 0.38f;        // s per scoop while the button is held
+	constexpr float kScoopFlyTime = 0.18f;        // s for a scooped block to fly into the backpack
+	constexpr int kBackpackCapacity = 400;        // blocks
+	constexpr float kPickupToastTime = 1.6f;      // s the "+3 Copper" line stays up
 
 	// Upgrade levels (index 0 = starting gear).
 	constexpr float kPickSpeed[4] = { 1.5f, 2.6f, 4.2f, 7.0f };

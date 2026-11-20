@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cstring>
 #include <optional>
+#include <cctype>
+#include <fstream>
 
 using namespace DirectX;
 namespace fs = std::filesystem;
@@ -125,6 +127,13 @@ void EditorLayer::DrawContentBrowser(Engine& engine)
 			mContentScanTimer = 0.0f;
 		}
 	}
+	ImGui::SameLine();
+	const ModuleStatus moduleStatus = engine.GetModuleStatus();
+	ImGui::BeginDisabled(moduleStatus.isStatic);
+	if (ImGui::SmallButton("New Script...")) mOpenNewScript = true;
+	ImGui::EndDisabled();
+	ImGui::SetItemTooltip("Create a C++ script class in %s/Scripts and compile it", engine.Project().root.filename().u8string().c_str());
+	DrawNewScriptPopup(engine);
 	ImGui::SameLine();
 	if (ImGui::SmallButton("Open Folder"))
 	{
@@ -366,4 +375,145 @@ void EditorLayer::HandleViewportDrop(Engine& engine)
 		}
 	}
 	ImGui::EndDragDropTarget();
+}
+
+// =============================================================================
+// New Script
+// =============================================================================
+
+namespace
+{
+	bool IsIdentifier(const std::string& name)
+	{
+		if (name.empty() || name.size() > 60 || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_')) return false;
+		return std::all_of(name.begin(), name.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; });
+	}
+
+	bool WriteText(const fs::path& file, const std::string& text)
+	{
+		std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+		stream << text;
+		return static_cast<bool>(stream);
+	}
+
+	// <dir>/<name>.h and .cpp from the script template.
+	bool CreateScriptFiles(const fs::path& dir, const std::string& name, std::string& error)
+	{
+		std::error_code ec;
+		fs::create_directories(dir, ec);
+		const fs::path header = dir / (name + ".h");
+		const fs::path source = dir / (name + ".cpp");
+		if (fs::exists(header) || fs::exists(source))
+		{
+			error = name + ".h or " + name + ".cpp already exists in " + dir.u8string();
+			return false;
+		}
+		const std::string h =
+			"#pragma once\n"
+			"#include <Game/Script.h>\n"
+			"\n"
+			"// " + name + ": describe what it does.\n"
+			"class " + name + " : public Script\n"
+			"{\n"
+			"public:\n"
+			"\t// Fields registered in " + name + ".cpp are edited in the inspector and saved with the scene.\n"
+			"\tfloat speed = 1.0f;\n"
+			"\n"
+			"\tvoid OnStart() override;\n"
+			"\tvoid OnUpdate(float deltaTime) override;\n"
+			"\n"
+			"private:\n"
+			"\t// Runtime state: not saved, reset on every Play.\n"
+			"\tfloat mTime = 0.0f;\n"
+			"};\n";
+		const std::string cpp =
+			"#include \"" + name + ".h\"\n"
+			"#include <Core/Engine.h>\n"
+			"#include <Game/GameModule.h>   // CHERRY_SCRIPT\n"
+			"\n"
+			"// Registers the script when the game module loads (no line in RegisterTypes needed).\n"
+			"CHERRY_SCRIPT(" + name + ", \"" + name + "\")\n"
+			"{\n"
+			"\tscript.Field(\"speed\", &" + name + "::speed, 0.0f, 10.0f);\n"
+			"}\n"
+			"\n"
+			"void " + name + "::OnStart()\n"
+			"{\n"
+			"\t// Runs once, on the first frame of play (also for entities spawned later).\n"
+			"}\n"
+			"\n"
+			"void " + name + "::OnUpdate(float deltaTime)\n"
+			"{\n"
+			"\tmTime += deltaTime;\n"
+			"\t// Every frame while playing. Helpers: GetTransform(), Get<T>(), Has<T>(),\n"
+			"\t// Spawn(\"Prefabs/x.prefab\", position), Destroy(), Find(\"name\"), GetScene(), GetEngine().\n"
+			"}\n";
+		if (!WriteText(header, h) || !WriteText(source, cpp))
+		{
+			error = "can't write the files in " + dir.u8string();
+			return false;
+		}
+		return true;
+	}
+}
+
+bool EditorLayer::CreateScript(Engine& engine, const std::string& name, bool openSource, std::string& error)
+{
+	if (!IsIdentifier(name))
+	{
+		error = "Use a C++ class name: letters, digits and _, not starting with a digit.";
+		return false;
+	}
+	if (TypeRegistry::Get().Find(name))
+	{
+		error = "A component or script called " + name + " already exists.";
+		return false;
+	}
+	const ModuleStatus status = engine.GetModuleStatus();
+	if (status.isStatic || !engine.Project().IsValid())
+	{
+		error = "New scripts need a project with a game module to compile.";
+		return false;
+	}
+	// The project folder is the game module's source folder (next to its CMakeLists.txt).
+	const fs::path dir = engine.Project().root / "Scripts";
+	if (!CreateScriptFiles(dir, name, error)) return false;
+
+	CHERRY_LOG("Created script %s in %s; compiling", name.c_str(), dir.u8string().c_str());
+	engine.CompileModule(true);   // configure picks up the new files (Scripts/ is globbed), then build and reload
+	if (openSource) ShellExecuteW(nullptr, L"open", (dir / (name + ".cpp")).wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+	return true;
+}
+
+void EditorLayer::DrawNewScriptPopup(Engine& engine)
+{
+	if (mOpenNewScript)
+	{
+		ImGui::OpenPopup("New Script");
+		mOpenNewScript = false;
+		mNewScriptError.clear();
+	}
+	if (!ImGui::BeginPopupModal("New Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+	ImGui::TextUnformatted("Class name:");
+	ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
+	if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+	const bool enter = ImGui::InputText("##scriptName", mNewScriptName, sizeof(mNewScriptName), ImGuiInputTextFlags_EnterReturnsTrue);
+	ImGui::Checkbox("Open the .cpp file afterwards", &mNewScriptOpenSource);
+	ImGui::TextDisabled("Writes Scripts/%s.h and .cpp in %s,\nthen compiles. It appears in Add Component when the module reloads.",
+		mNewScriptName[0] ? mNewScriptName : "<Name>", engine.Project().root.filename().u8string().c_str());
+	if (!mNewScriptError.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s", mNewScriptError.c_str());
+
+	if (ImGui::Button("Create") || enter)
+	{
+		if (CreateScript(engine, mNewScriptName, mNewScriptOpenSource, mNewScriptError))
+		{
+			mNewScriptName[0] = '\0';
+			mContentScanTimer = 0.0f;
+			ImGui::CloseCurrentPopup();
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
 }

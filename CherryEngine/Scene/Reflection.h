@@ -77,6 +77,9 @@ struct CHERRY_API ComponentInfo
 	std::function<void(Scene&, Entity, const void*)> addCopy;   // copies a component of this type
 	std::function<void(Scene&, Entity)> remove;
 	std::function<Script*(void*)> asScript;                     // Component_Script only: the component as a Script
+	std::string sourceFile;                                     // where it is defined (CHERRY_SCRIPT), for "Edit Script"
+	// Base<B>() calls whose base wasn't registered yet; TypeRegistry::ResolvePendingBases runs them.
+	std::vector<std::function<bool()>> pendingBases;
 
 	const FieldInfo* FindField(const std::string& fieldName) const;
 	bool Is(uint32_t flag) const { return (flags & flag) != 0; }
@@ -221,6 +224,9 @@ public:
 	// Registrations from now on belong to `owner` ("engine" by default).
 	void SetCurrentOwner(const std::string& owner) { mCurrentOwner = owner; }
 	void Unregister(const std::string& owner);
+	// Finishes Base<B>() calls made before B was registered (self-registered scripts register
+	// in no particular order). Call after a module has registered everything.
+	void ResolvePendingBases();
 	// Increments on every change; lets scenes notice new component types.
 	uint32_t Version() const { return mVersion; }
 
@@ -245,17 +251,23 @@ template <typename B>
 ComponentBuilder<C>& ComponentBuilder<C>::Base()
 {
 	static_assert(std::is_base_of_v<B, C>, "Base<B>() needs B to be a base class of the component");
-	const ComponentInfo* base = TypeRegistry::Get().Find<B>();
-	if (!base) return *this;
-	// Insert the base's fields first, so the inspector lists them above the subclass's own.
-	std::vector<FieldInfo> inherited;
-	for (const FieldInfo& field : base->fields)
+	ComponentInfo* info = &mInfo;   // stable: the registry owns it through a unique_ptr
+	auto inherit = [info]() -> bool
 	{
-		FieldInfo copy = field;
-		const auto baseAccess = field.access;
-		copy.access = [baseAccess](void* component) -> void* { return baseAccess(static_cast<B*>(static_cast<C*>(component))); };
-		inherited.push_back(std::move(copy));
-	}
-	mInfo.fields.insert(mInfo.fields.begin(), inherited.begin(), inherited.end());
+		const ComponentInfo* base = TypeRegistry::Get().Find<B>();
+		if (!base) return false;
+		// Insert the base's fields first, so the inspector lists them above the subclass's own.
+		std::vector<FieldInfo> inherited;
+		for (const FieldInfo& field : base->fields)
+		{
+			FieldInfo copy = field;
+			const auto baseAccess = field.access;
+			copy.access = [baseAccess](void* component) -> void* { return baseAccess(static_cast<B*>(static_cast<C*>(component))); };
+			inherited.push_back(std::move(copy));
+		}
+		info->fields.insert(info->fields.begin(), inherited.begin(), inherited.end());
+		return true;
+	};
+	if (!inherit()) mInfo.pendingBases.push_back(inherit);   // the base registers later
 	return *this;
 }

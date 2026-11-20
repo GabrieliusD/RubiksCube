@@ -80,6 +80,42 @@ private:
 	std::vector<std::unique_ptr<ISystem>> mSystems;
 };
 
+// ---- Self-registering scripts ---------------------------------------------------------------
+// In a script's .cpp file:
+//
+//   CHERRY_SCRIPT(Crystal, "Crystal")
+//   {
+//       script.Field("bobHeight", &Crystal::bobHeight, 0.0f, 2.0f);
+//   }
+//
+// registers Crystal when the game module loads, with no line in RegisterTypes. The list
+// lives in each module (an inline function's static is per DLL on Windows), and the
+// engine reaches the game module's own copy through IGameModule::RegisterScriptsFromFiles.
+namespace cherry_detail
+{
+	using ScriptRegistrar = void (*)(GameTypes&);
+	inline std::vector<ScriptRegistrar>& AutoScripts()
+	{
+		static std::vector<ScriptRegistrar> registrars;
+		return registrars;
+	}
+	inline bool AddAutoScript(ScriptRegistrar registrar)
+	{
+		AutoScripts().push_back(registrar);
+		return true;
+	}
+}
+
+#define CHERRY_SCRIPT(Type, Name) \
+	static void CherryDescribeScript_##Type(ComponentBuilder<Type>& script); \
+	static const bool CherryScriptRegistered_##Type = ::cherry_detail::AddAutoScript([](GameTypes& types) \
+	{ \
+		ComponentBuilder<Type> builder = types.Script<Type>(Name); \
+		builder.Info().sourceFile = __FILE__; \
+		CherryDescribeScript_##Type(builder); \
+	}); \
+	static void CherryDescribeScript_##Type(ComponentBuilder<Type>& script)
+
 // The contract between the engine and a game, Unreal-style: the engine owns
 // the window, loop, renderer and scene; a game is a separate module (DLL, or a
 // static library in monolithic builds) that implements this interface.
@@ -96,6 +132,13 @@ public:
 	// Component types and systems. Called once each time the module is loaded, before
 	// any scene is loaded.
 	virtual void RegisterTypes(GameTypes& /*types*/) {}
+
+	// Registers the CHERRY_SCRIPT scripts of this module. Defined here (inline) so it runs
+	// in the game module and sees that module's list: don't override it.
+	virtual void RegisterScriptsFromFiles(GameTypes& types)
+	{
+		for (cherry_detail::ScriptRegistrar registrar : cherry_detail::AutoScripts()) registrar(types);
+	}
 
 	// Create resources and entities. The renderer and the play scene are ready.
 	virtual void OnStartup(Engine& engine) = 0;

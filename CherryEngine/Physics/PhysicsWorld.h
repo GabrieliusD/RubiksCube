@@ -52,9 +52,12 @@ public:
 	BodyId CreateStaticMesh(const std::vector<DirectX::XMFLOAT3>& vertices);
 	BodyId CreateStaticBox(const DirectX::XMFLOAT3& center, const DirectX::XMFLOAT3& halfExtents);
 	// Dynamic body made of boxes in local space; `position`/`rotation` place the local origin.
+	// `ignoreCharacters`: debris that collides with the world and other bodies but passes
+	// through PhysicsCharacters (they neither push it nor stand on it).
 	BodyId CreateDynamicBoxes(const std::vector<PhysicsBox>& boxes, float density,
 		const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT4& rotation,
-		const DirectX::XMFLOAT3& linearVelocity, const DirectX::XMFLOAT3& angularVelocity);
+		const DirectX::XMFLOAT3& linearVelocity, const DirectX::XMFLOAT3& angularVelocity,
+		bool ignoreCharacters = false);
 	void RemoveBody(BodyId body);
 
 	bool IsValid(BodyId body) const;
@@ -65,6 +68,7 @@ public:
 	DirectX::XMFLOAT3 GetLinearVelocity(BodyId body) const;
 	void AddImpulse(BodyId body, const DirectX::XMFLOAT3& impulse, const DirectX::XMFLOAT3& worldPoint);
 
+	// `dynamicOnly`: skip the static world (still hits characters' inner bodies and debris).
 	std::optional<PhysicsRayHit> Raycast(const DirectX::XMFLOAT3& origin, const DirectX::XMFLOAT3& direction, float maxDistance, bool dynamicOnly = false) const;
 
 	// ---- Simulation -------------------------------------------------------------

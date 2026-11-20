@@ -1,5 +1,6 @@
 #include "Scene/Reflection.h"
 #include "Scene/Scene.h"
+#include "Core/Log.h"
 #include "Game/BuiltinScripts.h"
 #include <algorithm>
 
@@ -119,6 +120,30 @@ const ComponentInfo* TypeRegistry::FindByTypeKey(const std::string& typeKey) con
 		if (info->typeKey == typeKey) return info.get();
 	}
 	return nullptr;
+}
+
+void TypeRegistry::ResolvePendingBases()
+{
+	// A base may itself wait for its own base: repeat while anything resolves.
+	for (bool progress = true; progress;)
+	{
+		progress = false;
+		for (auto& info : mComponents)
+		{
+			auto& pending = info->pendingBases;
+			for (auto it = pending.begin(); it != pending.end();)
+			{
+				if ((*it)()) { it = pending.erase(it); progress = true; }
+				else ++it;
+			}
+		}
+	}
+	for (auto& info : mComponents)
+	{
+		if (!info->pendingBases.empty()) CHERRY_WARN("%s: its Base<>() class was never registered", info->name.c_str());
+		info->pendingBases.clear();
+	}
+	++mVersion;
 }
 
 void TypeRegistry::Unregister(const std::string& owner)

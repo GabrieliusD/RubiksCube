@@ -281,6 +281,23 @@ int main()
 		registry.Unregister("tests");
 	}
 
+
+	// ---- Base<>() before the base is registered (self-registered scripts) ---------------------------
+	{
+		struct LateBase : public Script { float health = 10.0f; };
+		struct EarlyChild : public LateBase { float wings = 2.0f; };
+		TypeRegistry& registry = TypeRegistry::Get();
+		registry.SetCurrentOwner("tests");
+		RegisterScript<EarlyChild>(registry, "EarlyChild").Base<LateBase>().Field("wings", &EarlyChild::wings);
+		const bool waited = registry.Find("EarlyChild")->fields.size() == 1;
+		RegisterScript<LateBase>(registry, "LateBase").Field("health", &LateBase::health);
+		registry.ResolvePendingBases();
+		registry.SetCurrentOwner("engine");
+		const ComponentInfo* child = registry.Find("EarlyChild");
+		Check(waited && child && child->fields.size() == 2 && child->fields[0].name == "health", "Base<>() works when the base registers later");
+		registry.Unregister("tests");
+	}
+
 	std::printf("\n%s (%d failure%s)\n", gFailures == 0 ? "All engine tests passed" : "ENGINE TESTS FAILED", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures == 0 ? 0 : 1;
 }
