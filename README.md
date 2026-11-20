@@ -207,7 +207,9 @@ hot reload restarts the game; `SaveState` / `LoadState` let it keep what matters
 
 ## Materials, surface shaders and shader graphs
 
-Lighting is physically based (GGX, metallic/roughness). What a material looks like at each
+Lighting is physically based (GGX, metallic/roughness): the sun, two fill lights, point
+lights and a sky/ground ambient (`Environment.ambientContrast`: brighter from above, darker
+from below) that shiny surfaces also reflect. What a material looks like at each
 pixel is decided by its **surface shader**: an HLSL function the engine wraps with the
 vertex shader, lighting and fog.
 
@@ -237,7 +239,12 @@ The graph editor recompiles a moment after each edit, and every material using t
 updates at once. It also shows errors on the nodes, a live preview (drag to turn it) and
 the generated HLSL (also written to `Saved/ShaderCache/`). Ctrl+S saves, Ctrl+Z / Ctrl+Y undo
 and redo, Ctrl+D duplicates the selection. A shader that stops compiling keeps its last
-working version. One that never compiled draws as a magenta checker.
+working version. One that never compiled draws as a magenta checker. Surface shaders compile
+on worker threads, so editing a graph doesn't stall the editor. While a shader's first build
+runs, meshes using it draw with the built-in shader.
+
+Texture Sample nodes read normal maps in either convention: "+Y" (glTF, Blender, OpenGL) or
+"-Y" (DirectX, Unreal). If bumps light up like dents from one side, switch the kind.
 
 The compiler walks back from the Surface Output, so nodes that don't reach it cost nothing.
 Identical expressions are computed once, and subgraphs are inlined. A `float` converts to any

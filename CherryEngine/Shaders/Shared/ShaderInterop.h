@@ -49,7 +49,8 @@ struct FrameConstants
 	uint  frameNumber;
 	uint  numDirLights;
 
-	float4 ambientLight;
+	float4 ambientLight;           // from above
+	float4 ambientGround;          // from below
 	Light lights[CHERRY_MAX_LIGHTS];
 
 	// Distance fog (linear, view distance). Disabled when fogEnd <= fogStart.

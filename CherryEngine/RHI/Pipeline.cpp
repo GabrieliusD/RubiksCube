@@ -2,6 +2,7 @@
 #include "RHI/Device.h"
 #include "Core/Log.h"
 #include <windows.h>
+#include <algorithm>
 
 namespace rhi
 {
@@ -85,6 +86,7 @@ namespace rhi
 
 	void PipelineLibrary::Shutdown()
 	{
+		StopWorkers();
 		mEntries.clear();
 	}
 
@@ -142,9 +144,8 @@ namespace rhi
 		return it != mEntries.end() ? it->second.error : mNoError;
 	}
 
-	bool PipelineLibrary::Build(const std::string& name, Entry& entry)
+	bool PipelineLibrary::CreatePso(ShaderCompiler& compiler, const std::string& name, const Entry& entry, ComPtr<ID3D12PipelineState>& out, std::string& error) const
 	{
-		entry.error.clear();
 		ID3D12Device* d3d = mDevice->D3D();
 		auto compile = [&](const std::string& file, const std::string& entryPoint, ShaderType type, const std::vector<std::string>& defines, CompiledShader& out)
 		{
@@ -155,12 +156,10 @@ namespace rhi
 			sd.source = entry.compute ? std::string() : entry.graphics.source;
 			sd.defines = defines;
 			sd.includeDirs.push_back(mShaderRoot);
-			out = mCompiler.Compile(sd);
+			out = compiler.Compile(sd);
 			if (!out.success)
 			{
-				mLastError = "[" + name + "] " + file + " (" + entryPoint + "):\n" + out.errors;
-				entry.error = out.errors.empty() ? mLastError : out.errors;
-				CHERRY_ERROR("Shader compile failed: %s", mLastError.c_str());
+				error = out.errors.empty() ? file + " (" + entryPoint + "): no output from the compiler" : out.errors;
 				return false;
 			}
 			return true;
@@ -179,8 +178,7 @@ namespace rhi
 			HRESULT hr = d3d->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&pso));
 			if (FAILED(hr))
 			{
-				mLastError = "[" + name + "] CreateComputePipelineState failed: " + HResultToString(hr);
-				entry.error = mLastError;
+				error = "CreateComputePipelineState failed: " + HResultToString(hr);
 				return false;
 			}
 		}
@@ -244,22 +242,151 @@ namespace rhi
 			HRESULT hr = d3d->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pso));
 			if (FAILED(hr))
 			{
-				mLastError = "[" + name + "] CreateGraphicsPipelineState failed: " + HResultToString(hr);
-				entry.error = mLastError;
-				CHERRY_ERROR("%s", mLastError.c_str());
+				error = "CreateGraphicsPipelineState failed: " + HResultToString(hr);
 				return false;
 			}
 		}
 
 		SetDebugName(pso.Get(), name.c_str());
-		if (entry.pso)
-		{
-			// The old PSO may still be referenced by in-flight frames.
-			mDevice->DeferRelease(entry.pso);
-		}
-		entry.pso = pso;
+		out = pso;
 		return true;
 	}
+
+	bool PipelineLibrary::Build(const std::string& name, Entry& entry)
+	{
+		ComPtr<ID3D12PipelineState> pso;
+		std::string error;
+		if (!CreatePso(mCompiler, name, entry, pso, error))
+		{
+			entry.error = error;
+			mLastError = "[" + name + "] " + error;
+			CHERRY_ERROR("Shader compile failed: %s", mLastError.c_str());
+			return false;
+		}
+		Adopt(entry, pso);
+		return true;
+	}
+
+	void PipelineLibrary::Adopt(Entry& entry, ComPtr<ID3D12PipelineState> pso)
+	{
+		entry.error.clear();
+		// The old PSO may still be referenced by in-flight frames.
+		if (entry.pso) mDevice->DeferRelease(entry.pso);
+		entry.pso = std::move(pso);
+	}
+
+	// ---- Background builds ---------------------------------------------------------------
+
+	void PipelineLibrary::SetGraphicsAsync(const std::string& name, const GraphicsPipelineDesc& desc, std::function<void(bool)> done)
+	{
+		Entry& entry = mEntries[name];
+		entry.compute = false;
+		entry.graphics = desc;
+		entry.async = true;
+		entry.pending = true;
+		const uint64_t generation = ++entry.generation;
+
+		StartWorkers();
+		Job job;
+		job.name = name;
+		job.generation = generation;
+		job.entry.graphics = desc;
+		job.done = std::move(done);
+		{
+			std::lock_guard lock(mJobMutex);
+			// A queued build of the same pipeline is out of date: drop it.
+			mJobs.erase(std::remove_if(mJobs.begin(), mJobs.end(), [&](const Job& queued) { return queued.name == name; }), mJobs.end());
+			mJobs.push_back(std::move(job));
+		}
+		mJobReady.notify_one();
+	}
+
+	bool PipelineLibrary::IsPending(const std::string& name) const
+	{
+		auto it = mEntries.find(name);
+		return it != mEntries.end() && it->second.pending;
+	}
+
+	void PipelineLibrary::StartWorkers()
+	{
+		if (!mWorkers.empty()) return;
+		const unsigned cores = std::max(2u, std::thread::hardware_concurrency());
+		const unsigned count = std::clamp(cores / 4u, 1u, 4u);
+		mStopping = false;
+		for (unsigned i = 0; i < count; ++i)
+		{
+			mWorkers.emplace_back([this]
+			{
+				ShaderCompiler compiler;   // DXC objects aren't shared between threads
+				compiler.Initialize();
+				for (;;)
+				{
+					Job job;
+					{
+						std::unique_lock lock(mJobMutex);
+						mJobReady.wait(lock, [this] { return mStopping || !mJobs.empty(); });
+						if (mStopping) return;
+						job = std::move(mJobs.front());
+						mJobs.pop_front();
+					}
+					Result result;
+					result.name = std::move(job.name);
+					result.generation = job.generation;
+					result.done = std::move(job.done);
+					result.ok = CreatePso(compiler, result.name, job.entry, result.pso, result.error);
+					std::lock_guard lock(mJobMutex);
+					mResults.push_back(std::move(result));
+				}
+			});
+		}
+	}
+
+	void PipelineLibrary::StopWorkers()
+	{
+		{
+			std::lock_guard lock(mJobMutex);
+			mStopping = true;
+			mJobs.clear();
+		}
+		mJobReady.notify_all();
+		for (std::thread& worker : mWorkers) worker.join();
+		mWorkers.clear();
+		mResults.clear();
+	}
+
+	void PipelineLibrary::PumpAsync()
+	{
+		std::vector<Result> results;
+		{
+			std::lock_guard lock(mJobMutex);
+			results.swap(mResults);
+		}
+		for (Result& result : results)
+		{
+			auto it = mEntries.find(result.name);
+			if (it == mEntries.end() || it->second.generation != result.generation)
+			{
+				// Removed, or a newer build is on its way: this one is out of date.
+				if (result.pso) mDevice->DeferRelease(result.pso);
+				continue;
+			}
+			Entry& entry = it->second;
+			entry.pending = false;
+			if (result.ok)
+			{
+				Adopt(entry, result.pso);
+			}
+			else
+			{
+				entry.error = result.error;
+				mLastError = "[" + result.name + "] " + result.error;
+				CHERRY_ERROR("Shader compile failed: %s", mLastError.c_str());
+			}
+			if (result.done) result.done(result.ok);
+		}
+	}
+
+
 
 	uint64_t PipelineLibrary::ShaderTreeSignature() const
 	{
@@ -307,10 +434,21 @@ namespace rhi
 	{
 		mLastError.clear();
 		uint32_t failed = 0;
+		uint32_t queued = 0;
 		for (auto& [name, entry] : mEntries)
 		{
-			if (!Build(name, entry)) ++failed;
+			if (entry.async)
+			{
+				// Runtime-made pipelines (surface shaders) rebuild in the background.
+				SetGraphicsAsync(name, entry.graphics, {});
+				++queued;
+			}
+			else if (!Build(name, entry))
+			{
+				++failed;
+			}
 		}
+		if (queued) CHERRY_LOG("Rebuilding %u surface shader pipeline(s) in the background", queued);
 		++mReloadCount;
 		if (failed == 0)
 		{

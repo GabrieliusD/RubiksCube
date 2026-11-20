@@ -51,6 +51,7 @@ namespace
 		registry.Component<Environment>("Environment")
 			.Field("skyColor", &Environment::skyColor, Field_Color)
 			.Field("ambient", &Environment::ambient, Field_Color)
+			.Field("ambientContrast", &Environment::ambientContrast, 0.0f, 1.0f).Speed(0.01f)
 			.Field("sunDirection", &Environment::sunDirection, Field_Direction).Speed(0.01f)
 			.Field("sunColor", &Environment::sunColor, Field_Color)
 			.Field("fillLightScale", &Environment::fillLightScale, 0.0f, 4.0f)

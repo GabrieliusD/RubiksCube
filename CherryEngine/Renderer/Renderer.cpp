@@ -424,7 +424,9 @@ ID3D12PipelineState* Renderer::Impl::SurfacePipeline(uint32_t pipeline)
 	{
 		const SurfaceShaderResource* shader = surfaceShaders.AtSlot(pipeline - 1);
 		ID3D12PipelineState* pso = shader ? pipelines.Get(shader->pipeline) : nullptr;
-		return pso ? pso : pipelines.Get("mesh_error");
+		if (pso) return pso;
+		// Never built: the built-in surface while the first build runs, the checker if it failed.
+		return shader && pipelines.IsPending(shader->pipeline) ? pipelines.Get("mesh") : pipelines.Get("mesh_error");
 	}
 	return pipelines.Get("mesh");
 }
@@ -787,22 +789,24 @@ void Renderer::DestroyMaterial(MaterialHandle material)
 	}
 }
 
-SurfaceShaderHandle Renderer::CreateSurfaceShader(const std::string& name, const std::string& source, const SurfaceShaderOptions& options)
+SurfaceShaderHandle Renderer::CreateSurfaceShader(const std::string& name, const std::string& source, const SurfaceShaderOptions& options,
+	std::function<void(bool)> done)
 {
 	Impl& r = *mImpl;
 	SurfaceShaderResource shader;
 	shader.name = name;
 	shader.pipeline = "surface:" + std::to_string(r.nextSurfacePipeline++) + ":" + name;
 	const SurfaceShaderHandle handle = r.surfaceShaders.Add(std::move(shader));
-	SetSurfaceShaderSource(handle, source, options);
+	SetSurfaceShaderSource(handle, source, options, std::move(done));
 	return handle;
 }
 
-bool Renderer::SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::string& source, const SurfaceShaderOptions& options)
+void Renderer::SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::string& source, const SurfaceShaderOptions& options,
+	std::function<void(bool)> done)
 {
 	Impl& r = *mImpl;
 	SurfaceShaderResource* resource = r.surfaceShaders.Get(shader);
-	if (!resource) return false;
+	if (!resource) return;
 	rhi::GraphicsPipelineDesc desc = r.meshPipelineDesc;
 	desc.shaderFile = resource->name;
 	desc.source = WrapSurfaceSource(resource->name, source);
@@ -811,10 +815,19 @@ bool Renderer::SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::str
 		desc.alphaBlend = true;
 		desc.depthWrite = false;
 	}
-	const bool ok = r.pipelines.SetGraphics(resource->pipeline, desc);
-	// Options follow the source that's running: a failed build keeps the old pipeline.
-	if (ok || !r.pipelines.Get(resource->pipeline)) resource->options = options;
-	return ok;
+	r.pipelines.SetGraphicsAsync(resource->pipeline, desc, [&r, shader, options, done = std::move(done)](bool ok)
+	{
+		// Options follow the source that's running: a failed build keeps the old pipeline.
+		SurfaceShaderResource* built = r.surfaceShaders.Get(shader);
+		if (built && (ok || !r.pipelines.Get(built->pipeline))) built->options = options;
+		if (done) done(ok);
+	});
+}
+
+bool Renderer::IsSurfaceShaderCompiling(SurfaceShaderHandle shader) const
+{
+	const SurfaceShaderResource* resource = mImpl->surfaceShaders.Get(shader);
+	return resource && mImpl->pipelines.IsPending(resource->pipeline);
 }
 
 bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source, const std::filesystem::path& shaderRoot, std::string& errors)
@@ -1087,6 +1100,7 @@ void Renderer::BeginFrame(float totalTime, float deltaTime)
 	{
 		r.stats.shaderReloads = r.pipelines.ReloadCount();
 	}
+	r.pipelines.PumpAsync();   // background pipeline builds that finished
 
 	r.device.BeginFrame();
 	r.gpuTimer.Collect(r.device.FrameIndex(), r.stats);   // this slot's previous frame is complete now
@@ -1114,7 +1128,10 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants()
 	frame.time = totalTime;
 	frame.deltaTime = deltaTime;
 	frame.frameNumber = static_cast<uint32_t>(device.FrameNumber());
-	frame.ambientLight = { settings.ambient.x, settings.ambient.y, settings.ambient.z, 1.0f };
+	const float up = 1.0f + std::clamp(settings.ambientContrast, 0.0f, 1.0f);
+	const float down = 1.0f - std::clamp(settings.ambientContrast, 0.0f, 1.0f);
+	frame.ambientLight = { settings.ambient.x * up, settings.ambient.y * up, settings.ambient.z * up, 1.0f };
+	frame.ambientGround = { settings.ambient.x * down, settings.ambient.y * down, settings.ambient.z * down, 1.0f };
 
 	XMVECTOR sun = XMVector3Normalize(XMLoadFloat3(&settings.sunDirection));
 	XMStoreFloat3(&frame.lights[0].Direction, sun);

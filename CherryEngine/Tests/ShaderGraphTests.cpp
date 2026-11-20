@@ -312,6 +312,24 @@ int RunShaderGraphTests()
 		Check(!pixelOnly.ok && HasErrorOn(pixelOnly, screen), "a pixel-only node in World Position Offset is an error on it");
 	}
 
+	// ---- Normal maps: +Y (glTF) as stored, -Y (DirectX) with green flipped ----------------------
+	{
+		Graph graph;
+		const uint32_t output = Add(graph, "Output");
+		const uint32_t texture = Add(graph, "TextureSample");
+		const uint32_t normal = Add(graph, "NormalMap");
+		graph.Connect(texture, 1, normal, 0);
+		graph.Connect(normal, 0, output, Normal);
+		graph.Find(texture)->option2 = 1;
+		const CompiledGraph gl = CompileGraph(graph, noLoader);
+		graph.Find(texture)->option2 = 3;
+		const CompiledGraph dx = CompileGraph(graph, noLoader);
+		Check(gl.ok && dx.ok && gl.hlsl.find("float3(1.0, -1.0, 1.0)") == std::string::npos && dx.hlsl.find("float3(1.0, -1.0, 1.0)") != std::string::npos,
+			"a DirectX normal map flips green, a glTF one doesn't");
+		Check(dx.parameters.size() == 1 && dx.parameters[0].linearTexture, "  ...and both sample without sRGB decoding");
+		Check(CompilesWithDxc("NormalDx.shadergraph", dx), "  ...and its HLSL compiles with DXC");
+	}
+
 	// ---- Every node type produces code DXC accepts ---------------------------------------------
 	{
 		int compiledTypes = 0, failedTypes = 0;

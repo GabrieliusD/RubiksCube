@@ -546,8 +546,9 @@ void ShaderGraphEditor::DrawToolbar(Engine& engine)
 	ImGui::SameLine();
 	ImGui::TextDisabled("|");
 	ImGui::SameLine();
-	const std::string& dxcError = engine.GetRenderer().SurfaceShaderError(engine.GetAssets().GetSurfaceShader(mPath));
-	if (mRecompileIn >= 0.0f) ImGui::TextDisabled("Compiling...");
+	const SurfaceShaderHandle shader = engine.GetAssets().GetSurfaceShader(mPath);
+	const std::string& dxcError = engine.GetRenderer().SurfaceShaderError(shader);
+	if (mRecompileIn >= 0.0f || (mCompiled.errors.empty() && engine.GetRenderer().IsSurfaceShaderCompiling(shader))) ImGui::TextDisabled("Compiling...");
 	else if (!mCompiled.errors.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%zu error%s", mCompiled.errors.size(), mCompiled.errors.size() == 1 ? "" : "s");
 	else if (!dxcError.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "HLSL error (see Details)");
 	else ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1), "Compiled");
@@ -1046,9 +1047,13 @@ void ShaderGraphEditor::DrawNodeSettings(Engine& engine, Node& node)
 	}
 	if (settings & Setting_TextureKind)
 	{
-		int kind = std::clamp(node.option2, 0, 2);
-		if (ImGui::Combo("Kind", &kind, kTextureKindNames, 3)) { node.option2 = kind; Edited(); }
-		ImGui::SetItemTooltip("Color: sRGB texture (albedo).\nNormal map: linear, RGB unpacked to -1..1; feed it to a Normal Map node.\nData: linear (masks, roughness).");
+		int kind = std::clamp(node.option2, 0, kTextureKindCount - 1);
+		if (ImGui::Combo("Kind", &kind, kTextureKindNames, kTextureKindCount)) { node.option2 = kind; Edited(); }
+		ImGui::SetItemTooltip("Color: sRGB texture (albedo).\n"
+			"Normal map: linear, RGB unpacked to -1..1; feed it to a Normal Map node.\n"
+			"  +Y: glTF, Blender, Substance 'OpenGL' (green = up in the image).\n"
+			"  -Y: DirectX, Unreal (green = down); pick this if bumps look like dents from one side.\n"
+			"Data: linear (masks, roughness).");
 	}
 	if (settings & Setting_Width)
 	{

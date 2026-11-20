@@ -398,14 +398,17 @@ struct AssetManager::Impl
 			fs::create_directories(cache.parent_path(), ec);
 			std::ofstream(cache, std::ios::binary) << compiled.hlsl;
 
-			const bool built = entry.handle.IsValid()
-				? renderer->SetSurfaceShaderSource(entry.handle, compiled.hlsl, options)
-				: (entry.handle = renderer->CreateSurfaceShader(path, compiled.hlsl, options), renderer->SurfaceShaderError(entry.handle).empty());
-			if (built)
+			// The parameter layout goes with the code: materials switch to it once the build of
+			// this version is done (until then the previous version runs, with its layout).
+			auto adopt = [this, path, parameters = compiled.parameters](bool ok)
 			{
-				entry.parameters = compiled.parameters;
+				auto built = shaders.find(path);
+				if (!ok || built == shaders.end()) return;
+				built->second.parameters = parameters;
 				ReapplyMaterials([&](const MaterialFile& file) { return file.shader == path; });
-			}
+			};
+			if (entry.handle.IsValid()) renderer->SetSurfaceShaderSource(entry.handle, compiled.hlsl, options, adopt);
+			else entry.handle = renderer->CreateSurfaceShader(path, compiled.hlsl, options, adopt);
 		}
 		else if (!entry.handle.IsValid())
 		{
@@ -814,7 +817,7 @@ void AssetManager::PollChanges(std::vector<std::pair<MeshHandle, MeshHandle>>& r
 			auto entry = a.shaders.find(file);
 			if (entry != a.shaders.end() && entry->second.graph && !a.previewGraphs.count(file))
 			{
-				if (a.BuildGraphShader(file, entry->second).ok) CHERRY_LOG("Shader graph %s compiled", file.c_str());
+				if (a.BuildGraphShader(file, entry->second).ok) CHERRY_LOG("Shader graph %s reloaded", file.c_str());
 			}
 			a.RebuildDependents(file);
 		}
@@ -822,9 +825,12 @@ void AssetManager::PollChanges(std::vector<std::pair<MeshHandle, MeshHandle>>& r
 		if (shader != a.shaders.end() && !shader->second.graph && shader->second.handle.IsValid())
 		{
 			std::string source;
-			if (a.ReadText(file, source) && a.renderer->SetSurfaceShaderSource(shader->second.handle, source))
+			if (a.ReadText(file, source))
 			{
-				CHERRY_LOG("Surface shader %s compiled", file.c_str());
+				a.renderer->SetSurfaceShaderSource(shader->second.handle, source, {}, [file](bool ok)
+				{
+					if (ok) CHERRY_LOG("Surface shader %s compiled", file.c_str());
+				});
 			}
 		}
 		// Meshes: new handles.

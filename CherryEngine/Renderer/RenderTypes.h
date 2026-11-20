@@ -127,6 +127,9 @@ struct RenderSettings
 {
 	DirectX::XMFLOAT4 clearColor{ 0.35f, 0.48f, 0.75f, 1.0f };   // linear HDR; this is also the sky colour
 	DirectX::XMFLOAT3 ambient{ 0.25f, 0.25f, 0.32f };
+	// Ambient from above is ambient x (1 + contrast), from below ambient x (1 - contrast);
+	// a surface facing sideways gets `ambient`. Shiny surfaces reflect the same up/down split.
+	float ambientContrast = 0.35f;
 	DirectX::XMFLOAT3 sunDirection{ 0.57735f, -0.57735f, 0.57735f };
 	DirectX::XMFLOAT3 sunColor{ 1.0f, 0.97f, 0.9f };              // set to 0 to switch the sun off
 	float fillLightScale = 1.0f;                                  // the two fixed fill lights (0 = off)

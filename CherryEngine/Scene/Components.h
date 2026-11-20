@@ -129,6 +129,7 @@ struct Environment
 {
 	DirectX::XMFLOAT4 skyColor{ 0.35f, 0.48f, 0.75f, 1.0f };   // linear HDR clear colour
 	DirectX::XMFLOAT3 ambient{ 0.25f, 0.25f, 0.32f };
+	float ambientContrast = 0.35f;   // RenderSettings::ambientContrast
 	DirectX::XMFLOAT3 sunDirection{ 0.57735f, -0.57735f, 0.57735f };
 	DirectX::XMFLOAT3 sunColor{ 1.0f, 0.97f, 0.9f };
 	float fillLightScale = 1.0f;

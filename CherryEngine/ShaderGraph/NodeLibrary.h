@@ -90,7 +90,11 @@ namespace sg
 	};
 
 	extern const char* const kSamplerNames[6];      // UI names, Node::option of Texture Sample
-	extern const char* const kTextureKindNames[3];  // Node::option2 of Texture Sample
+	// Node::option2 of Texture Sample: 0 colour (sRGB), 1 normal map with +Y green (glTF, OpenGL,
+	// Blender), 2 linear data, 3 normal map with -Y green (DirectX, Unreal). Normal maps come out
+	// as tangent-space normals in -1..1 for the Normal Map node.
+	constexpr int kTextureKindCount = 4;
+	extern const char* const kTextureKindNames[kTextureKindCount];
 
 	CHERRY_API const std::vector<NodeDef>& NodeDefs();
 	CHERRY_API const NodeDef* FindNodeDef(const std::string& type);

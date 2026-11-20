@@ -105,9 +105,17 @@ float3 ShadeSurface(PbrSurface s, float3 positionW, float3 N, float3 V)
 		color += ShadeLight(s, N, V, toLight / max(d, 1e-4), light.Strength * falloff * falloff);
 	}
 
-	// Ambient: flat light from every direction, diffuse plus the matching specular share.
+	// Ambient: a sky/ground hemisphere (brighter from above). Diffuse sees it through the
+	// normal; specular reflects it, with a horizon that blurs as the surface gets rougher.
+	float3 sky = gFrame.ambientLight.rgb;
+	float3 ground = gFrame.ambientGround.rgb;
+	float3 irradiance = lerp(ground, sky, saturate(N.y * 0.5 + 0.5));
+	float3 R = reflect(-V, N);
+	float horizon = 0.03 + s.roughness;
+	float3 reflected = lerp(ground, sky, smoothstep(-horizon, horizon, R.y));
+	reflected = lerp(reflected, irradiance, s.roughness * s.roughness);
 	float NoV = max(dot(N, V), 1e-4);
-	color += gFrame.ambientLight.rgb * (s.diffuseColor + EnvBRDFApprox(s.f0, s.roughness, NoV));
+	color += irradiance * s.diffuseColor + reflected * EnvBRDFApprox(s.f0, s.roughness, NoV);
 	return color;
 }
 

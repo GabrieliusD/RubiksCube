@@ -4,6 +4,7 @@
 #include "Renderer/DebugDraw.h"
 #include <windows.h>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -60,11 +61,19 @@ public:
 	// Surface shaders: HLSL defining `SurfaceOutput EvaluateSurface(SurfaceInput input)`
 	// (see Shaders/Surface.hlsli), compiled into a mesh-pass pipeline of its own and used by
 	// materials whose MaterialDesc::shader is set. `name` labels compiler errors (e.g. an
-	// asset path). The handle is valid even if the first compile fails: meshes using it draw
-	// as a magenta checker until a compile succeeds. Engine shader edits rebuild them too.
-	SurfaceShaderHandle CreateSurfaceShader(const std::string& name, const std::string& source, const SurfaceShaderOptions& options = {});
-	// Recompiles. On failure the last version that compiled stays in use; returns false.
-	bool SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::string& source, const SurfaceShaderOptions& options = {});
+	// asset path). Engine shader edits rebuild them too.
+	//
+	// Builds run on worker threads: the handle is usable at once, and `done` runs on the main
+	// thread (in BeginFrame) with whether the build worked. Until a first build works, meshes
+	// using it draw with the built-in surface shader while it compiles, and as a magenta
+	// checker if it failed. A failed rebuild keeps the last version that compiled. A newer
+	// SetSurfaceShaderSource makes a pending one moot (its `done` never runs).
+	SurfaceShaderHandle CreateSurfaceShader(const std::string& name, const std::string& source, const SurfaceShaderOptions& options = {},
+		std::function<void(bool ok)> done = {});
+	void SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::string& source, const SurfaceShaderOptions& options = {},
+		std::function<void(bool ok)> done = {});
+	// A build of this shader is still running.
+	bool IsSurfaceShaderCompiling(SurfaceShaderHandle shader) const;
 	void DestroySurfaceShader(SurfaceShaderHandle shader);
 	// Compiler output of the last build ("" when it compiled).
 	const std::string& SurfaceShaderError(SurfaceShaderHandle shader) const;

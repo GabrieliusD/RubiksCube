@@ -6,7 +6,7 @@
 namespace sg
 {
 	const char* const kSamplerNames[6] = { "Point, wrap", "Point, clamp", "Linear, wrap", "Linear, clamp", "Anisotropic, wrap", "Anisotropic, clamp" };
-	const char* const kTextureKindNames[3] = { "Color (sRGB)", "Normal map", "Data (linear)" };
+	const char* const kTextureKindNames[kTextureKindCount] = { "Color (sRGB)", "Normal map (OpenGL / glTF, +Y)", "Data (linear)", "Normal map (DirectX, -Y)" };
 
 	namespace
 	{
@@ -172,7 +172,8 @@ namespace sg
 					[](EmitContext& c)
 				{
 					const int sampler = std::clamp(c.node->option, 0, 5);
-					const bool normalMap = c.node->option2 == 1;
+					const bool normalMap = c.node->option2 == 1 || c.node->option2 == 3;
+					const bool flipGreen = c.node->option2 == 3;
 					const std::string fallback = normalMap ? "float4(0.5, 0.5, 1.0, 1.0)" : "float4(1.0, 1.0, 1.0, 1.0)";
 					const std::string slot = c.param(ParamKind::Texture);
 					std::string sample = c.vertexStage
@@ -180,7 +181,7 @@ namespace sg
 						: "SampleParamTexture(input, " + slot + ", " + kSamplerHlsl[sampler] + ", " + c.in[0] + ", " + fallback + ")";
 					const std::string v = c.temp(4, sample);
 					c.out[0] = v;
-					c.out[1] = normalMap ? "(" + v + ".rgb * 2.0 - 1.0)" : v + ".rgb";
+					c.out[1] = !normalMap ? v + ".rgb" : flipGreen ? "((" + v + ".rgb * 2.0 - 1.0) * float3(1.0, -1.0, 1.0))" : "(" + v + ".rgb * 2.0 - 1.0)";
 					c.out[2] = v + ".r";
 					c.out[3] = v + ".g";
 					c.out[4] = v + ".b";

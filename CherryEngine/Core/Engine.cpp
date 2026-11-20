@@ -400,6 +400,7 @@ void Engine::Impl::ApplyEnvironment(Scene& scene)
 		RenderSettings& settings = renderer.Settings();
 		settings.clearColor = environment->skyColor;
 		settings.ambient = environment->ambient;
+		settings.ambientContrast = environment->ambientContrast;
 		settings.sunDirection = environment->sunDirection;
 		settings.sunColor = environment->sunColor;
 		settings.fillLightScale = environment->fillLightScale;
