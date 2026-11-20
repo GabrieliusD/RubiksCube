@@ -3,6 +3,7 @@
 #include "Renderer/RenderTypes.h"
 #include "Renderer/DebugDraw.h"
 #include <windows.h>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -56,6 +57,18 @@ public:
 	const MaterialDesc* GetMaterial(MaterialHandle material) const;
 	void DestroyMaterial(MaterialHandle material);
 
+	// Surface shaders: HLSL defining `SurfaceOutput EvaluateSurface(SurfaceInput input)`
+	// (see Shaders/Surface.hlsli), compiled into a mesh-pass pipeline of its own and used by
+	// materials whose MaterialDesc::shader is set. `name` labels compiler errors (e.g. an
+	// asset path). The handle is valid even if the first compile fails: meshes using it draw
+	// as a magenta checker until a compile succeeds. Engine shader edits rebuild them too.
+	SurfaceShaderHandle CreateSurfaceShader(const std::string& name, const std::string& source, const SurfaceShaderOptions& options = {});
+	// Recompiles. On failure the last version that compiled stays in use; returns false.
+	bool SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::string& source, const SurfaceShaderOptions& options = {});
+	void DestroySurfaceShader(SurfaceShaderHandle shader);
+	// Compiler output of the last build ("" when it compiled).
+	const std::string& SurfaceShaderError(SurfaceShaderHandle shader) const;
+
 	VoxelVolumeHandle CreateVoxelVolume(const VoxelVolumeDesc& desc);
 	// Overwrites a box of voxels (palette indices, x fastest, then y, then z).
 	// Synchronous; meant for edits such as mining, not for streaming whole volumes.
@@ -81,6 +94,12 @@ public:
 	// ImTextureID of the final (LDR) view, for showing it in an ImGui window.
 	unsigned long long ViewTextureId() const;
 
+	// Renders one mesh with one material into a square offscreen image (the material preview
+	// of the shader graph editor): lit by the sun, fill lights and ambient of Settings(), no
+	// point lights or fog, the camera orbiting the mesh (yaw/pitch in radians). Call after
+	// BeginFrame, once per frame at most. Returns an ImTextureID, or 0.
+	unsigned long long RenderPreview(MeshHandle mesh, MaterialHandle material, uint32_t size, float yaw, float pitch);
+
 	// Starts the GPU frame and the ImGui frame.
 	void BeginFrame(float totalTime, float deltaTime);
 	void RenderScene(Scene& scene, const RenderView& view);
@@ -92,3 +111,8 @@ private:
 	struct Impl;
 	std::unique_ptr<Impl> mImpl;
 };
+
+// Compiles a surface shader the way CreateSurfaceShader does (vertex and pixel shader), with
+// DXC only: no device needed. For tests and tools. `shaderRoot` is the engine's Shaders folder.
+CHERRY_API bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source,
+	const std::filesystem::path& shaderRoot, std::string& errors);

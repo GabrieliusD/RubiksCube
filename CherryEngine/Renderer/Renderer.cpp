@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 
 using namespace DirectX;
 
@@ -126,9 +127,29 @@ namespace
 	struct DrawItem
 	{
 		uint32_t layer;          // RenderLayer
+		uint32_t translucent;    // 1: drawn after opaque surfaces, back to front
+		uint32_t pipeline;       // 0 = built-in surface, otherwise surface shader slot + 1
 		uint32_t meshSlot;
 		uint32_t instanceIndex;
+		float distanceSq;        // from the camera (translucent sorting)
 	};
+
+	// A surface shader: its pipeline in the PipelineLibrary, built from generated source.
+	struct SurfaceShaderResource
+	{
+		std::string name;        // for diagnostics (e.g. the asset path)
+		std::string pipeline;    // PipelineLibrary name
+		SurfaceShaderOptions options;
+	};
+
+	// Wraps a surface shader's EvaluateSurface into a whole mesh-pass shader. #line keeps
+	// compiler errors pointing at the surface shader's own lines.
+	std::string WrapSurfaceSource(const std::string& name, const std::string& source)
+	{
+		std::string escaped;
+		for (char c : name) escaped += (c == '"' || c == '\\') ? '/' : c;
+		return "#include \"Surface.hlsli\"\n#line 1 \"" + escaped + "\"\n" + source + "\n#include \"MeshPass.hlsli\"\n";
+	}
 
 	// GPU timestamp markers written each frame (see GpuTimer).
 	// Order matches the frame: world meshes, voxels, debug lines + view models, tonemap, UI.
@@ -230,11 +251,15 @@ struct Renderer::Impl
 	ResourcePool<TextureResource, TextureHandle> textures;
 	ResourcePool<MaterialDesc, MaterialHandle> materials;
 	ResourcePool<VoxelResource, VoxelVolumeHandle> voxelVolumes;
+	ResourcePool<SurfaceShaderResource, SurfaceShaderHandle> surfaceShaders;
+	uint32_t nextSurfacePipeline = 0;
+	rhi::GraphicsPipelineDesc meshPipelineDesc;   // what surface shader pipelines are built from
 	MaterialHandle defaultMaterial;
 	GpuTimer gpuTimer;
 
 	DynamicStructuredBuffer instanceBuffer{ "InstanceBuffer", sizeof(gpu::InstanceData) };
 	DynamicStructuredBuffer materialBuffer{ "MaterialBuffer", sizeof(gpu::MaterialData) };
+	DynamicStructuredBuffer materialParamBuffer{ "MaterialParamBuffer", sizeof(uint32_t) };
 	DynamicStructuredBuffer voxelBuffer{ "VoxelVolumeBuffer", sizeof(gpu::VoxelVolumeData) };
 	DynamicStructuredBuffer debugVertexBuffer{ "DebugVertexBuffer", sizeof(gpu::DebugVertex) };
 
@@ -259,11 +284,14 @@ struct Renderer::Impl
 
 	std::vector<gpu::InstanceData> instanceScratch;
 	std::vector<gpu::MaterialData> materialScratch;
+	std::vector<uint32_t> materialParamScratch;
 	std::vector<gpu::VoxelVolumeData> voxelScratch;
 	std::vector<DrawItem> drawScratch;
 	std::vector<uint32_t> voxelDrawScratch;
 
 	void CreatePipelines();
+	// The PSO for DrawItem::pipeline (the error stand-in for surface shaders that never compiled).
+	ID3D12PipelineState* SurfacePipeline(uint32_t pipeline);
 	void CreateViewTargets(uint32_t width, uint32_t height);
 	void InitImGui();
 	void ShutdownImGui();
@@ -272,6 +300,20 @@ struct Renderer::Impl
 	gpu::FrameConstants BuildFrameConstants();
 	std::vector<PointLight> sceneLights;   // PointLight components of the scene being rendered
 	void ClearView(ID3D12GraphicsCommandList4* cmd);
+	// Fills materialScratch / materialParamScratch from the material pool: one GPU entry per
+	// pool slot, plus its parameter block.
+	void BuildMaterialScratch();
+
+	// Material preview (RenderPreview): its own targets and per-frame buffers, so it doesn't
+	// disturb the scene's (RenderScene writes those later in the frame).
+	std::unique_ptr<rhi::Texture> previewHdr;
+	std::unique_ptr<rhi::Texture> previewDepth;
+	std::unique_ptr<rhi::Texture> previewLdr;
+	uint32_t previewSize = 0;
+	DynamicStructuredBuffer previewInstanceBuffer{ "PreviewInstanceBuffer", sizeof(gpu::InstanceData) };
+	DynamicStructuredBuffer previewMaterialBuffer{ "PreviewMaterialBuffer", sizeof(gpu::MaterialData) };
+	DynamicStructuredBuffer previewParamBuffer{ "PreviewMaterialParamBuffer", sizeof(uint32_t) };
+	void CreatePreviewTargets(uint32_t size);
 };
 
 // =============================================================================
@@ -335,6 +377,11 @@ void Renderer::Impl::CreatePipelines()
 	mesh.dsvFormat = kDepthFormat;
 	mesh.cullMode = D3D12_CULL_MODE_NONE;   // game meshes aren't guaranteed to have consistent winding yet
 	pipelines.AddGraphics("mesh", mesh);
+	meshPipelineDesc = mesh;
+
+	rhi::GraphicsPipelineDesc meshError = mesh;
+	meshError.defines = { "CHERRY_ERROR_SURFACE" };
+	pipelines.AddGraphics("mesh_error", meshError);
 
 	rhi::GraphicsPipelineDesc voxel;
 	voxel.shaderFile = "VoxelRaymarch.hlsl";
@@ -369,6 +416,17 @@ void Renderer::Impl::CreatePipelines()
 	blit.depthWrite = false;
 	blit.cullMode = D3D12_CULL_MODE_NONE;
 	pipelines.AddGraphics("blit", blit);
+}
+
+ID3D12PipelineState* Renderer::Impl::SurfacePipeline(uint32_t pipeline)
+{
+	if (pipeline > 0)
+	{
+		const SurfaceShaderResource* shader = surfaceShaders.AtSlot(pipeline - 1);
+		ID3D12PipelineState* pso = shader ? pipelines.Get(shader->pipeline) : nullptr;
+		return pso ? pso : pipelines.Get("mesh_error");
+	}
+	return pipelines.Get("mesh");
 }
 
 void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
@@ -411,6 +469,79 @@ void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
 
 	viewWidth = width;
 	viewHeight = height;
+}
+
+void Renderer::Impl::CreatePreviewTargets(uint32_t size)
+{
+	rhi::TextureDesc hdrDesc;
+	hdrDesc.width = hdrDesc.height = size;
+	hdrDesc.format = kHdrFormat;
+	hdrDesc.usage = rhi::TextureUsage_RenderTarget | rhi::TextureUsage_ShaderResource;
+	hdrDesc.clearColor[0] = 0.08f;
+	hdrDesc.clearColor[1] = 0.08f;
+	hdrDesc.clearColor[2] = 0.09f;
+	hdrDesc.clearColor[3] = 1.0f;
+	hdrDesc.initialState = D3D12_RESOURCE_STATE_RENDER_TARGET;
+	hdrDesc.name = "PreviewHDR";
+	previewHdr = rhi::Texture::Create(device, hdrDesc);
+
+	rhi::TextureDesc depthDesc;
+	depthDesc.width = depthDesc.height = size;
+	depthDesc.format = kDepthResourceFormat;
+	depthDesc.dsvFormat = kDepthFormat;
+	depthDesc.srvFormat = kDepthSrvFormat;
+	depthDesc.usage = rhi::TextureUsage_DepthStencil | rhi::TextureUsage_ShaderResource;
+	depthDesc.initialState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+	depthDesc.name = "PreviewDepth";
+	previewDepth = rhi::Texture::Create(device, depthDesc);
+
+	rhi::TextureDesc ldrDesc;
+	ldrDesc.width = ldrDesc.height = size;
+	ldrDesc.format = kLdrFormat;
+	ldrDesc.usage = rhi::TextureUsage_RenderTarget | rhi::TextureUsage_ShaderResource | rhi::TextureUsage_UnorderedAccess;
+	ldrDesc.initialState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+	ldrDesc.name = "PreviewLDR";
+	previewLdr = rhi::Texture::Create(device, ldrDesc);
+	previewSize = size;
+}
+
+void Renderer::Impl::BuildMaterialScratch()
+{
+	materialScratch.resize(materials.SlotCount());
+	materialParamScratch.clear();
+	for (uint32_t slot = 0; slot < materials.SlotCount(); ++slot)
+	{
+		gpu::MaterialData& gpuMaterial = materialScratch[slot];
+		gpuMaterial = {};
+		gpuMaterial.albedoTextureIndex = CHERRY_INVALID_INDEX;
+		if (const MaterialDesc* desc = materials.AtSlot(slot))
+		{
+			gpuMaterial.baseColor = desc->baseColor;
+			gpuMaterial.fresnelR0 = desc->fresnelR0;
+			gpuMaterial.roughness = desc->roughness;
+			gpuMaterial.metallic = desc->metallic;
+			if (const TextureResource* texture = textures.Get(desc->albedoTexture))
+			{
+				gpuMaterial.albedoTextureIndex = texture->texture->SrvIndex();
+			}
+
+			gpuMaterial.paramOffset = static_cast<uint32_t>(materialParamScratch.size());
+			gpuMaterial.paramCount = static_cast<uint32_t>(desc->params.size());
+			for (float value : desc->params)
+			{
+				uint32_t bits;
+				std::memcpy(&bits, &value, sizeof(bits));
+				materialParamScratch.push_back(bits);
+			}
+			gpuMaterial.textureOffset = static_cast<uint32_t>(materialParamScratch.size());
+			gpuMaterial.textureCount = static_cast<uint32_t>(desc->textures.size());
+			for (TextureHandle handle : desc->textures)
+			{
+				const TextureResource* texture = textures.Get(handle);
+				materialParamScratch.push_back(texture ? texture->texture->SrvIndex() : CHERRY_INVALID_INDEX);
+			}
+		}
+	}
 }
 
 void Renderer::Impl::InitImGui()
@@ -477,12 +608,20 @@ void Renderer::Shutdown()
 	r.ldr.reset();
 	r.instanceBuffer.Reset();
 	r.materialBuffer.Reset();
+	r.materialParamBuffer.Reset();
 	r.voxelBuffer.Reset();
 	r.debugVertexBuffer.Reset();
+	r.previewHdr.reset();
+	r.previewDepth.reset();
+	r.previewLdr.reset();
+	r.previewInstanceBuffer.Reset();
+	r.previewMaterialBuffer.Reset();
+	r.previewParamBuffer.Reset();
 	r.meshes.Clear();
 	r.textures.Clear();
 	r.materials.Clear();
 	r.voxelVolumes.Clear();
+	r.surfaceShaders.Clear();
 	r.pipelines.Shutdown();
 	r.rootSignature.Reset();
 	r.uploadRing.Shutdown();
@@ -648,6 +787,75 @@ void Renderer::DestroyMaterial(MaterialHandle material)
 	}
 }
 
+SurfaceShaderHandle Renderer::CreateSurfaceShader(const std::string& name, const std::string& source, const SurfaceShaderOptions& options)
+{
+	Impl& r = *mImpl;
+	SurfaceShaderResource shader;
+	shader.name = name;
+	shader.pipeline = "surface:" + std::to_string(r.nextSurfacePipeline++) + ":" + name;
+	const SurfaceShaderHandle handle = r.surfaceShaders.Add(std::move(shader));
+	SetSurfaceShaderSource(handle, source, options);
+	return handle;
+}
+
+bool Renderer::SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::string& source, const SurfaceShaderOptions& options)
+{
+	Impl& r = *mImpl;
+	SurfaceShaderResource* resource = r.surfaceShaders.Get(shader);
+	if (!resource) return false;
+	rhi::GraphicsPipelineDesc desc = r.meshPipelineDesc;
+	desc.shaderFile = resource->name;
+	desc.source = WrapSurfaceSource(resource->name, source);
+	if (options.translucent)
+	{
+		desc.alphaBlend = true;
+		desc.depthWrite = false;
+	}
+	const bool ok = r.pipelines.SetGraphics(resource->pipeline, desc);
+	// Options follow the source that's running: a failed build keeps the old pipeline.
+	if (ok || !r.pipelines.Get(resource->pipeline)) resource->options = options;
+	return ok;
+}
+
+bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source, const std::filesystem::path& shaderRoot, std::string& errors)
+{
+	ShaderCompiler compiler;
+	compiler.Initialize();
+	ShaderDesc desc;
+	desc.filePath = shaderRoot / name;
+	desc.source = WrapSurfaceSource(name, source);
+	desc.includeDirs.push_back(shaderRoot);
+	errors.clear();
+	for (ShaderType type : { ShaderType::Vertex, ShaderType::Pixel })
+	{
+		desc.type = type;
+		desc.entryPoint = type == ShaderType::Vertex ? "VSMain" : "PSMain";
+		const CompiledShader result = compiler.Compile(desc);
+		if (!result.success)
+		{
+			errors = std::string(type == ShaderType::Vertex ? "VSMain: " : "PSMain: ") + result.errors;
+			return false;
+		}
+	}
+	return true;
+}
+
+void Renderer::DestroySurfaceShader(SurfaceShaderHandle shader)
+{
+	Impl& r = *mImpl;
+	if (const SurfaceShaderResource* resource = r.surfaceShaders.Get(shader))
+	{
+		r.pipelines.Remove(resource->pipeline);
+		r.surfaceShaders.Remove(shader);
+	}
+}
+
+const std::string& Renderer::SurfaceShaderError(SurfaceShaderHandle shader) const
+{
+	const SurfaceShaderResource* resource = mImpl->surfaceShaders.Get(shader);
+	return resource ? mImpl->pipelines.Error(resource->pipeline) : mImpl->emptyString;
+}
+
 VoxelVolumeHandle Renderer::CreateVoxelVolume(const VoxelVolumeDesc& desc)
 {
 	Impl& r = *mImpl;
@@ -757,6 +965,93 @@ uint32_t Renderer::ViewHeight() const { return mImpl->viewHeight; }
 unsigned long long Renderer::ViewTextureId() const
 {
 	return mImpl->ldr ? static_cast<unsigned long long>(mImpl->ldr->SrvGpu().ptr) : 0;
+}
+
+unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle materialHandle, uint32_t size, float yaw, float pitch)
+{
+	Impl& r = *mImpl;
+	const MeshResource* mesh = r.meshes.Get(meshHandle);
+	if (!r.frameActive || !mesh) return 0;
+	size = std::clamp(size, 16u, 1024u);
+	if (r.previewSize != size) r.CreatePreviewTargets(size);   // old targets are released once unused
+	ID3D12GraphicsCommandList4* cmd = r.device.CmdList();
+	const uint32_t frameIndex = r.device.FrameIndex();
+
+	// Camera: orbits the mesh's bounds, framing them.
+	const float fovY = XMConvertToRadians(35.0f);
+	const XMVECTOR center = XMLoadFloat3(&mesh->bounds.Center);
+	const float radius = std::max(XMVectorGetX(XMVector3Length(XMLoadFloat3(&mesh->bounds.Extents))), 0.01f);
+	const float distance = radius / std::sin(fovY * 0.5f) * 1.05f;
+	const XMVECTOR offset = XMVectorSet(std::cos(pitch) * std::sin(yaw), std::sin(pitch), -std::cos(pitch) * std::cos(yaw), 0.0f);
+	const XMVECTOR eye = XMVectorAdd(center, XMVectorScale(offset, distance));
+	const XMMATRIX view = XMMatrixLookAtLH(eye, center, XMVectorSet(0, 1, 0, 0));
+	const XMMATRIX proj = XMMatrixPerspectiveFovLH(fovY, 1.0f, std::max(distance - radius * 2.0f, distance * 0.01f), distance + radius * 2.0f);
+	const XMMATRIX viewProj = view * proj;
+
+	// Per-frame data in the preview's own buffers.
+	r.BuildMaterialScratch();
+	gpu::FrameConstants frame = r.BuildFrameConstants();
+	frame.numPointLights = 0;
+	frame.fogStart = frame.fogEnd = 0.0f;
+	frame.materialBufferIndex = r.previewMaterialBuffer.Write(r.device, frameIndex, r.materialScratch.data(), static_cast<uint32_t>(r.materialScratch.size()));
+	frame.materialParamBufferIndex = r.previewParamBuffer.Write(r.device, frameIndex, r.materialParamScratch.data(), static_cast<uint32_t>(r.materialParamScratch.size()));
+	const MaterialHandle material = r.materials.IsValid(materialHandle) ? materialHandle : r.defaultMaterial;
+	gpu::InstanceData instance{};
+	XMStoreFloat4x4(&instance.world, XMMatrixIdentity());
+	XMStoreFloat4x4(&instance.normalMatrix, XMMatrixIdentity());
+	instance.materialIndex = material.index;
+	frame.instanceBufferIndex = r.previewInstanceBuffer.Write(r.device, frameIndex, &instance, 1);
+
+	gpu::ViewConstants viewConstants{};
+	XMStoreFloat4x4(&viewConstants.view, view);
+	XMStoreFloat4x4(&viewConstants.invView, XMMatrixInverse(nullptr, view));
+	XMStoreFloat4x4(&viewConstants.proj, proj);
+	XMStoreFloat4x4(&viewConstants.invProj, XMMatrixInverse(nullptr, proj));
+	XMStoreFloat4x4(&viewConstants.viewProj, viewProj);
+	XMStoreFloat4x4(&viewConstants.invViewProj, XMMatrixInverse(nullptr, viewProj));
+	XMStoreFloat3(&viewConstants.eyePosW, eye);
+	viewConstants.renderTargetSize = { static_cast<float>(size), static_cast<float>(size) };
+	viewConstants.invRenderTargetSize = { 1.0f / size, 1.0f / size };
+	viewConstants.exposure = r.settings.exposure;
+	const D3D12_GPU_VIRTUAL_ADDRESS frameCb = r.uploadRing.PushConstants(frame);
+	const D3D12_GPU_VIRTUAL_ADDRESS viewCb = r.uploadRing.PushConstants(viewConstants);
+	cmd->SetGraphicsRootConstantBufferView(rhi::RootSlot_ViewConstants, viewCb);
+	cmd->SetGraphicsRootConstantBufferView(rhi::RootSlot_FrameConstants, frameCb);
+	cmd->SetComputeRootConstantBufferView(rhi::RootSlot_ViewConstants, viewCb);
+	cmd->SetComputeRootConstantBufferView(rhi::RootSlot_FrameConstants, frameCb);
+
+	// Draw.
+	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	r.previewDepth->Transition(cmd, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+	const float background[4] = { 0.08f, 0.08f, 0.09f, 1.0f };
+	const D3D12_CPU_DESCRIPTOR_HANDLE rtv = r.previewHdr->Rtv();
+	const D3D12_CPU_DESCRIPTOR_HANDLE dsv = r.previewDepth->Dsv();
+	cmd->ClearRenderTargetView(rtv, background, 0, nullptr);
+	cmd->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+	cmd->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+	r.SetViewport(cmd, size, size);
+
+	const MaterialDesc* desc = r.materials.Get(material);
+	const uint32_t pipeline = desc && r.surfaceShaders.IsValid(desc->shader) ? desc->shader.index + 1 : 0;
+	cmd->SetPipelineState(r.SurfacePipeline(pipeline));
+	cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	const D3D12_VERTEX_BUFFER_VIEW vbv = mesh->vertexBuffer->VertexView(sizeof(Vertex));
+	const D3D12_INDEX_BUFFER_VIEW ibv = mesh->indexBuffer->IndexView(DXGI_FORMAT_R32_UINT);
+	cmd->IASetVertexBuffers(0, 1, &vbv);
+	cmd->IASetIndexBuffer(&ibv);
+	gpu::MeshDrawConstants constants{ 0 };
+	cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
+	cmd->DrawIndexedInstanced(mesh->indexCount, 1, 0, 0, 0);
+
+	// Tonemap.
+	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
+	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size };
+	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, 4, &tonemap, 0);
+	cmd->Dispatch((size + 7) / 8, (size + 7) / 8, 1);
+	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	return static_cast<unsigned long long>(r.previewLdr->SrvGpu().ptr);
 }
 
 void Renderer::Impl::SetViewport(ID3D12GraphicsCommandList* cmd, uint32_t width, uint32_t height)
@@ -875,24 +1170,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	BoundingFrustum frustum(proj);
 	frustum.Transform(frustum, invView);
 
-	// ---- Materials: one GPU entry per pool slot ---------------------------
-	r.materialScratch.resize(r.materials.SlotCount());
-	for (uint32_t slot = 0; slot < r.materials.SlotCount(); ++slot)
-	{
-		gpu::MaterialData& gpuMaterial = r.materialScratch[slot];
-		gpuMaterial = {};
-		gpuMaterial.albedoTextureIndex = CHERRY_INVALID_INDEX;
-		if (const MaterialDesc* desc = r.materials.AtSlot(slot))
-		{
-			gpuMaterial.baseColor = desc->baseColor;
-			gpuMaterial.fresnelR0 = desc->fresnelR0;
-			gpuMaterial.roughness = desc->roughness;
-			if (const TextureResource* texture = r.textures.Get(desc->albedoTexture))
-			{
-				gpuMaterial.albedoTextureIndex = texture->texture->SrvIndex();
-			}
-		}
-	}
+	r.BuildMaterialScratch();
 
 	// ---- Mesh instances (CPU frustum culling) ------------------------------
 	r.instanceScratch.clear();
@@ -907,8 +1185,16 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 
 		const XMMATRIX world = scene.WorldMatrix(entity);
 		const bool viewModel = renderer.layer == RenderLayer::ViewModel;
+		const MaterialHandle materialHandle = r.materials.IsValid(renderer.material) ? renderer.material : r.defaultMaterial;
+		const MaterialDesc* material = r.materials.Get(materialHandle);
+		const SurfaceShaderResource* surface = material ? r.surfaceShaders.Get(material->shader) : nullptr;
 		BoundingBox worldBounds;
 		mesh->bounds.Transform(worldBounds, world);
+		if (surface && surface->options.boundsPadding > 0.0f)
+		{
+			const float pad = surface->options.boundsPadding;
+			worldBounds.Extents = { worldBounds.Extents.x + pad, worldBounds.Extents.y + pad, worldBounds.Extents.z + pad };
+		}
 		if (!viewModel && r.settings.cullingEnabled && !frustum.Intersects(worldBounds))
 		{
 			++stats.instancesCulled;
@@ -922,18 +1208,30 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		gpu::InstanceData instance{};
 		XMStoreFloat4x4(&instance.world, world);
 		XMStoreFloat4x4(&instance.normalMatrix, XMMatrixTranspose(XMMatrixInverse(nullptr, world)));
-		instance.materialIndex = r.materials.IsValid(renderer.material) ? renderer.material.index : r.defaultMaterial.index;
+		instance.materialIndex = materialHandle.index;
+		const uint32_t pipeline = surface ? material->shader.index + 1 : 0;
+		const uint32_t translucent = surface && surface->options.translucent ? 1u : 0u;
+		const XMVECTOR toCamera = XMVectorSubtract(XMLoadFloat3(&worldBounds.Center), XMLoadFloat3(&renderView.position));
 
-		r.drawScratch.push_back({ static_cast<uint32_t>(renderer.layer), renderer.mesh.index, static_cast<uint32_t>(r.instanceScratch.size()) });
+		r.drawScratch.push_back({ static_cast<uint32_t>(renderer.layer), translucent, pipeline, renderer.mesh.index,
+			static_cast<uint32_t>(r.instanceScratch.size()), XMVectorGetX(XMVector3LengthSq(toCamera)) });
 		r.instanceScratch.push_back(instance);
 	}
-	// Layer first (world before view models), then by mesh so vertex/index buffers change rarely.
+	// Layer first (world before view models), opaque before translucent; opaque by pipeline
+	// (surface shader), then by mesh so pipelines and vertex/index buffers change rarely;
+	// translucent back to front so blending comes out right.
 	std::sort(r.drawScratch.begin(), r.drawScratch.end(), [](const DrawItem& a, const DrawItem& b)
 	{
-		return a.layer != b.layer ? a.layer < b.layer : a.meshSlot < b.meshSlot;
+		if (a.layer != b.layer) return a.layer < b.layer;
+		if (a.translucent != b.translucent) return a.translucent < b.translucent;
+		if (a.translucent) return a.distanceSq > b.distanceSq;
+		if (a.pipeline != b.pipeline) return a.pipeline < b.pipeline;
+		return a.meshSlot < b.meshSlot;
 	});
 	const auto firstViewModel = std::find_if(r.drawScratch.begin(), r.drawScratch.end(),
 		[](const DrawItem& item) { return item.layer == static_cast<uint32_t>(RenderLayer::ViewModel); });
+	const auto firstWorldTranslucent = std::find_if(r.drawScratch.begin(), firstViewModel,
+		[](const DrawItem& item) { return item.translucent != 0; });
 
 	// ---- Voxel volumes ------------------------------------------------------
 	r.voxelScratch.clear();
@@ -984,6 +1282,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	// ---- Upload per-frame data ---------------------------------------------
 	gpu::FrameConstants frame = r.BuildFrameConstants();
 	frame.materialBufferIndex = r.materialBuffer.Write(r.device, frameIndex, r.materialScratch.data(), static_cast<uint32_t>(r.materialScratch.size()));
+	frame.materialParamBufferIndex = r.materialParamBuffer.Write(r.device, frameIndex, r.materialParamScratch.data(), static_cast<uint32_t>(r.materialParamScratch.size()));
 	frame.instanceBufferIndex = r.instanceBuffer.Write(r.device, frameIndex, r.instanceScratch.data(), static_cast<uint32_t>(r.instanceScratch.size()));
 	frame.voxelVolumeBufferIndex = r.voxelBuffer.Write(r.device, frameIndex, r.voxelScratch.data(), static_cast<uint32_t>(r.voxelScratch.size()));
 	const auto& lines = r.debugDraw.Vertices();
@@ -1023,12 +1322,17 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 
 	auto drawMeshes = [&](std::vector<DrawItem>::const_iterator begin, std::vector<DrawItem>::const_iterator end)
 	{
-		cmd->SetPipelineState(r.pipelines.Get("mesh"));
 		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		uint32_t boundPipeline = UINT32_MAX;
 		uint32_t boundMesh = UINT32_MAX;
 		const MeshResource* currentMesh = nullptr;
 		for (auto it = begin; it != end; ++it)
 		{
+			if (it->pipeline != boundPipeline)
+			{
+				cmd->SetPipelineState(r.SurfacePipeline(it->pipeline));
+				boundPipeline = it->pipeline;
+			}
 			if (it->meshSlot != boundMesh)
 			{
 				currentMesh = r.meshes.AtSlot(it->meshSlot);
@@ -1045,8 +1349,8 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		}
 	};
 
-	// World meshes.
-	drawMeshes(r.drawScratch.cbegin(), firstViewModel);
+	// Opaque world meshes.
+	drawMeshes(r.drawScratch.cbegin(), firstWorldTranslucent);
 	stats.instancesSubmitted = static_cast<uint32_t>(r.drawScratch.size());
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_MeshEnd);
 
@@ -1062,6 +1366,11 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 			++stats.drawCalls;
 		}
 		stats.voxelVolumes = static_cast<uint32_t>(r.voxelScratch.size());
+	}
+	// ---- Translucent world meshes (over opaque meshes and voxels, back to front) --
+	if (firstWorldTranslucent != firstViewModel)
+	{
+		drawMeshes(firstWorldTranslucent, firstViewModel);
 	}
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_VoxelEnd);
 

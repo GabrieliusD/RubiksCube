@@ -24,10 +24,12 @@ struct MeshTag {};
 struct MaterialTag {};
 struct TextureTag {};
 struct VoxelVolumeTag {};
+struct SurfaceShaderTag {};
 using MeshHandle = Handle<MeshTag>;
 using MaterialHandle = Handle<MaterialTag>;
 using TextureHandle = Handle<TextureTag>;
 using VoxelVolumeHandle = Handle<VoxelVolumeTag>;
+using SurfaceShaderHandle = Handle<SurfaceShaderTag>;
 
 // Engine vertex format (matches VertexLayout::Mesh in RHI/Pipeline.cpp).
 struct Vertex
@@ -44,12 +46,29 @@ struct MeshData
 	std::vector<uint32_t> indices;
 };
 
+// How a surface shader is drawn (Renderer::CreateSurfaceShader).
+struct SurfaceShaderOptions
+{
+	bool translucent = false;      // blended by the surface's alpha, drawn after opaque surfaces, back to front
+	float boundsPadding = 0.0f;    // metres added to mesh bounds for culling (vertex offsets move vertices)
+};
+
+// A material: PBR metallic/roughness. Without a surface shader, the built-in one shows
+// baseColor x vertex colour x albedoTexture.
 struct MaterialDesc
 {
 	DirectX::XMFLOAT4 baseColor{ 1, 1, 1, 1 };     // linear
-	DirectX::XMFLOAT3 fresnelR0{ 0.04f, 0.04f, 0.04f };
-	float roughness = 0.5f;
+	DirectX::XMFLOAT3 fresnelR0{ 0.04f, 0.04f, 0.04f };   // reflectance of the non-metal part (4% typical)
+	float roughness = 0.5f;                         // perceptual, 0..1
+	float metallic = 0.0f;                          // 0 = dielectric, 1 = metal tinted by baseColor
 	TextureHandle albedoTexture;                    // optional
+
+	// Optional surface shader (Renderer::CreateSurfaceShader) and the parameter block it
+	// reads: 32-bit values (ParamFloat* in Shaders/Surface.hlsli) and texture slots
+	// (SampleParamTexture). Materials that share a shader share one pipeline.
+	SurfaceShaderHandle shader;
+	std::vector<float> params;
+	std::vector<TextureHandle> textures;
 };
 
 // A voxel volume: `size.x * size.y * size.z` palette indices, x fastest.

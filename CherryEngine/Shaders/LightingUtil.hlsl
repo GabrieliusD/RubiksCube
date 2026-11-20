@@ -1,100 +1,123 @@
-//***************************************************************************************
-// LightingUtil.hlsl, based on Frank Luna's (C) 2015 lighting helpers.
-// Light comes from Shared/ShaderInterop.h; directional lights are counted at runtime.
-//***************************************************************************************
+// LightingUtil.hlsl
+// Physically based shading (metallic/roughness, GGX), used by the mesh and voxel passes.
+//
+// Light units: a light's Strength is the light arriving on a surface facing it, so a white
+// matte surface under a light of Strength 1 shows its albedo (Lambert without the 1/pi).
+// The specular term is scaled to match.
 #ifndef CHERRY_LIGHTING_UTIL_HLSL
 #define CHERRY_LIGHTING_UTIL_HLSL
 
-#include "Shared/ShaderInterop.h"
+#include "Common.hlsli"
 
-struct Material
+static const float CHERRY_PI = 3.14159265;
+
+// What the lighting needs to know about a surface point.
+struct PbrSurface
 {
-    float4 DiffuseAlbedo;
-    float3 FresnelR0;
-    float Shininess;
+	float3 diffuseColor;   // baseColor * (1 - metallic)
+	float3 f0;             // specular reflectance at normal incidence
+	float  alpha;          // GGX roughness (perceptual roughness squared)
+	float  roughness;      // perceptual roughness
 };
 
-// Schlick gives an approximation to Fresnel reflectance (see pg. 233 "Real-Time Rendering 3rd Ed.").
-// R0 = ( (n-1)/(n+1) )^2, where n is the index of refraction.
-float3 SchlickFresnel(float3 R0, float3 normal, float3 lightVec)
+// baseColor linear, metallic 0..1, roughness 0..1 (perceptual),
+// dielectricF0: the non-metal reflectance (0.04 for most materials).
+PbrSurface MakePbrSurface(float3 baseColor, float metallic, float roughness, float3 dielectricF0)
 {
-    float cosIncidentAngle = saturate(dot(normal, lightVec));
-
-    float f0 = 1.0f - cosIncidentAngle;
-    float3 reflectPercent = R0 + (1.0f - R0)*(f0*f0*f0*f0*f0);
-
-    return reflectPercent;
+	PbrSurface s;
+	metallic = saturate(metallic);
+	s.roughness = clamp(roughness, 0.02, 1.0);
+	s.alpha = max(s.roughness * s.roughness, 0.002);
+	s.diffuseColor = baseColor * (1.0 - metallic);
+	s.f0 = lerp(dielectricF0, baseColor, metallic);
+	return s;
 }
 
-float3 BlinnPhong(float3 lightStrength, float3 lightVec, float3 normal, float3 toEye, Material mat)
+float D_GGX(float NoH, float alpha)
 {
-    const float m = mat.Shininess * 256.0f;
-    float3 halfVec = normalize(toEye + lightVec);
-
-    float roughnessFactor = (m + 8.0f)*pow(max(dot(halfVec, normal), 0.0f), m) / 8.0f;
-    float3 fresnelFactor = SchlickFresnel(mat.FresnelR0, halfVec, lightVec);
-
-    float3 specAlbedo = fresnelFactor*roughnessFactor;
-    specAlbedo = specAlbedo / (specAlbedo + 1.0f);
-
-    return (mat.DiffuseAlbedo.rgb + specAlbedo) * lightStrength;
+	float a2 = alpha * alpha;
+	float d = NoH * NoH * (a2 - 1.0) + 1.0;
+	return a2 / (CHERRY_PI * d * d);
 }
 
-float3 ComputeDirectionalLight(Light L, Material mat, float3 normal, float3 toEye)
+// Height-correlated Smith visibility (includes the 1 / (4 NoL NoV) of the microfacet BRDF).
+float V_SmithGGXCorrelated(float NoV, float NoL, float alpha)
 {
-    // The light vector aims opposite the direction the light rays travel.
-    float3 lightVec = -L.Direction;
-
-    // Scale light down by Lambert's cosine law.
-    float ndotl = max(dot(lightVec, normal), 0.0f);
-    float3 lightStrength = L.Strength * ndotl;
-
-    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+	float a2 = alpha * alpha;
+	float ggxL = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
+	float ggxV = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
+	return 0.5 / max(ggxV + ggxL, 1e-5);
 }
 
-float3 ComputeLighting(Light lights[CHERRY_MAX_LIGHTS], uint numDirLights, Material mat, float3 normal, float3 toEye)
+float3 F_Schlick(float3 f0, float VoH)
 {
-    float3 result = 0.0f;
-    for (uint i = 0; i < min(numDirLights, (uint)CHERRY_MAX_LIGHTS); ++i)
-    {
-        result += ComputeDirectionalLight(lights[i], mat, normal, toEye);
-    }
-    return result;
+	float f = pow(1.0 - VoH, 5.0);
+	return f0 + (1.0 - f0) * f;
 }
 
-// Point light with a smooth falloff that reaches exactly zero at L.FalloffEnd (the range).
-float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
+// Light reflected towards V from one light arriving along L with strength E.
+float3 ShadeLight(PbrSurface s, float3 N, float3 V, float3 L, float3 E)
 {
-    float3 lightVec = L.Position - pos;
-    float d = length(lightVec);
-    if (d >= L.FalloffEnd)
-        return 0.0f;
+	float NoL = saturate(dot(N, L));
+	if (NoL <= 0.0)
+		return 0.0;
+	float3 H = normalize(V + L);
+	float NoV = max(dot(N, V), 1e-4);
+	float NoH = saturate(dot(N, H));
+	float VoH = saturate(dot(V, H));
 
-    lightVec /= max(d, 1e-4);
-    float ndotl = max(dot(lightVec, normal), 0.0f);
-    float falloff = saturate(1.0f - d / L.FalloffEnd);
-    float3 lightStrength = L.Strength * ndotl * falloff * falloff;
-
-    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+	float3 F = F_Schlick(s.f0, VoH);
+	float3 specular = D_GGX(NoH, s.alpha) * V_SmithGGXCorrelated(NoV, NoL, s.alpha) * F;
+	float3 diffuse = s.diffuseColor * (1.0 - F);
+	// Strength already includes pi (see the header), so Lambert is diffuseColor * E * NoL.
+	return (diffuse + specular * CHERRY_PI) * E * NoL;
 }
 
-float3 ComputePointLights(Light lights[CHERRY_MAX_POINT_LIGHTS], uint count, Material mat, float3 pos, float3 normal, float3 toEye)
+// Split-sum environment BRDF, analytic fit (Karis, "Physically Based Shading on Mobile").
+float3 EnvBRDFApprox(float3 f0, float roughness, float NoV)
 {
-    float3 result = 0.0f;
-    for (uint i = 0; i < min(count, (uint)CHERRY_MAX_POINT_LIGHTS); ++i)
-    {
-        result += ComputePointLight(lights[i], mat, pos, normal, toEye);
-    }
-    return result;
+	const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
+	const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
+	float4 r = roughness * c0 + c1;
+	float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+	float2 ab = float2(-1.04, 1.04) * a004 + r.zw;
+	return f0 * ab.x + ab.y;
+}
+
+// Every light of the frame (directional + point) plus the flat ambient, without fog.
+float3 ShadeSurface(PbrSurface s, float3 positionW, float3 N, float3 V)
+{
+	float3 color = 0.0;
+	for (uint i = 0; i < min(gFrame.numDirLights, (uint)CHERRY_MAX_LIGHTS); ++i)
+	{
+		Light light = gFrame.lights[i];
+		color += ShadeLight(s, N, V, -light.Direction, light.Strength);
+	}
+	for (uint j = 0; j < min(gFrame.numPointLights, (uint)CHERRY_MAX_POINT_LIGHTS); ++j)
+	{
+		// Smooth falloff that reaches exactly zero at FalloffEnd (the range).
+		Light light = gFrame.pointLights[j];
+		float3 toLight = light.Position - positionW;
+		float d = length(toLight);
+		if (d >= light.FalloffEnd)
+			continue;
+		float falloff = saturate(1.0 - d / light.FalloffEnd);
+		color += ShadeLight(s, N, V, toLight / max(d, 1e-4), light.Strength * falloff * falloff);
+	}
+
+	// Ambient: flat light from every direction, diffuse plus the matching specular share.
+	float NoV = max(dot(N, V), 1e-4);
+	color += gFrame.ambientLight.rgb * (s.diffuseColor + EnvBRDFApprox(s.f0, s.roughness, NoV));
+	return color;
 }
 
 // Linear distance fog; returns the colour blended towards the fog colour.
 float3 ApplyFog(float3 color, float distance, float3 fogColor, float fogStart, float fogEnd)
 {
-    if (fogEnd <= fogStart)
-        return color;
-    float f = saturate((distance - fogStart) / (fogEnd - fogStart));
-    return lerp(color, fogColor, f);
+	if (fogEnd <= fogStart)
+		return color;
+	float f = saturate((distance - fogStart) / (fogEnd - fogStart));
+	return lerp(color, fogColor, f);
 }
 
 #endif

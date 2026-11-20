@@ -118,8 +118,33 @@ namespace rhi
 		return it != mEntries.end() ? it->second.pso.Get() : nullptr;
 	}
 
+	bool PipelineLibrary::SetGraphics(const std::string& name, const GraphicsPipelineDesc& desc, std::string* error)
+	{
+		Entry& entry = mEntries[name];   // a new entry, or the existing one (keeps its PSO on failure)
+		entry.compute = false;
+		entry.graphics = desc;
+		const bool ok = Build(name, entry);
+		if (error) *error = entry.error;
+		return ok;
+	}
+
+	void PipelineLibrary::Remove(const std::string& name)
+	{
+		auto it = mEntries.find(name);
+		if (it == mEntries.end()) return;
+		if (it->second.pso) mDevice->DeferRelease(it->second.pso);
+		mEntries.erase(it);
+	}
+
+	const std::string& PipelineLibrary::Error(const std::string& name) const
+	{
+		auto it = mEntries.find(name);
+		return it != mEntries.end() ? it->second.error : mNoError;
+	}
+
 	bool PipelineLibrary::Build(const std::string& name, Entry& entry)
 	{
+		entry.error.clear();
 		ID3D12Device* d3d = mDevice->D3D();
 		auto compile = [&](const std::string& file, const std::string& entryPoint, ShaderType type, const std::vector<std::string>& defines, CompiledShader& out)
 		{
@@ -127,12 +152,14 @@ namespace rhi
 			sd.type = type;
 			sd.entryPoint = entryPoint;
 			sd.filePath = mShaderRoot / file;
+			sd.source = entry.compute ? std::string() : entry.graphics.source;
 			sd.defines = defines;
 			sd.includeDirs.push_back(mShaderRoot);
 			out = mCompiler.Compile(sd);
 			if (!out.success)
 			{
 				mLastError = "[" + name + "] " + file + " (" + entryPoint + "):\n" + out.errors;
+				entry.error = out.errors.empty() ? mLastError : out.errors;
 				CHERRY_ERROR("Shader compile failed: %s", mLastError.c_str());
 				return false;
 			}
@@ -153,6 +180,7 @@ namespace rhi
 			if (FAILED(hr))
 			{
 				mLastError = "[" + name + "] CreateComputePipelineState failed: " + HResultToString(hr);
+				entry.error = mLastError;
 				return false;
 			}
 		}
@@ -217,6 +245,7 @@ namespace rhi
 			if (FAILED(hr))
 			{
 				mLastError = "[" + name + "] CreateGraphicsPipelineState failed: " + HResultToString(hr);
+				entry.error = mLastError;
 				CHERRY_ERROR("%s", mLastError.c_str());
 				return false;
 			}

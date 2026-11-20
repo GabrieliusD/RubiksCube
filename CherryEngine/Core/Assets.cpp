@@ -68,21 +68,19 @@ namespace
 		return { path.substr(0, hash), path.substr(hash + 1) };
 	}
 
-	MaterialDesc ToDesc(const MaterialFile& file, TextureHandle texture)
+	MaterialDesc ToDesc(const MaterialFile& file, TextureHandle texture, SurfaceShaderHandle shader)
 	{
 		MaterialDesc desc;
 		desc.baseColor = file.baseColor;
 		desc.roughness = std::clamp(file.roughness, 0.02f, 1.0f);
-		const float m = std::clamp(file.metallic, 0.0f, 1.0f);
-		desc.fresnelR0 = { 0.04f + (file.baseColor.x - 0.04f) * m, 0.04f + (file.baseColor.y - 0.04f) * m, 0.04f + (file.baseColor.z - 0.04f) * m };
-		if (m > 0.0f)
-		{
-			// Metals have no diffuse colour.
-			desc.baseColor = { file.baseColor.x * (1.0f - m), file.baseColor.y * (1.0f - m), file.baseColor.z * (1.0f - m), file.baseColor.w };
-		}
+		desc.metallic = std::clamp(file.metallic, 0.0f, 1.0f);
 		desc.albedoTexture = texture;
+		desc.shader = shader;
+		desc.params = file.params;
 		return desc;
 	}
+
+	bool IsGraphPath(const std::string& path) { return Lower(fs::u8path(path).extension().u8string()) == ".shadergraph"; }
 }
 
 struct AssetManager::Impl
@@ -93,6 +91,20 @@ struct AssetManager::Impl
 	std::map<std::string, MeshHandle> meshes;
 	std::map<std::string, MaterialHandle> materials;
 	std::map<std::string, TextureHandle> textures;
+	std::map<std::string, TextureHandle> linearTextures;   // the same files loaded without sRGB decoding
+
+	// A surface shader asset (.hlsl or .shadergraph).
+	struct ShaderEntry
+	{
+		SurfaceShaderHandle handle;
+		bool graph = false;
+		std::vector<sg::GraphParameter> parameters;   // graph: layout of the code that's running
+		std::vector<sg::GraphError> errors;           // graph: last compile
+		std::vector<std::string> dependencies;        // graph: subgraphs it uses
+	};
+	std::map<std::string, ShaderEntry> shaders;
+	std::map<std::string, std::unique_ptr<sg::Graph>> graphs;   // graph files (nullptr: can't load)
+	std::map<std::string, sg::Graph> previewGraphs;             // being edited, not saved
 	std::map<std::string, MaterialFile> materialFiles;   // loaded materials' source data (for texture reloads)
 	std::map<std::string, std::string> prefabs;          // prefab path -> JSON text
 	std::set<std::string> reportedMissing;
@@ -143,7 +155,7 @@ struct AssetManager::Impl
 		return renderer->CreateMesh(gltf.mesh);
 	}
 
-	TextureHandle LoadTexture(const std::string& path)
+	TextureHandle LoadTexture(const std::string& path, bool srgb = true)
 	{
 		if (contentRoot.empty() || path.empty()) return {};
 		const auto [file, sub] = SplitSubAsset(path);
@@ -169,7 +181,7 @@ struct AssetManager::Impl
 		else if (Lower(fs::u8path(file).extension().u8string()) == ".dds")
 		{
 			Watch(file);
-			return renderer->LoadTexture(Full(file).wstring(), true);
+			return renderer->LoadTexture(Full(file).wstring(), srgb);
 		}
 		else
 		{
@@ -181,7 +193,7 @@ struct AssetManager::Impl
 			return {};
 		}
 		Watch(file);
-		return renderer->CreateTexture(image.width, image.height, image.rgba.data(), true);
+		return renderer->CreateTexture(image.width, image.height, image.rgba.data(), srgb);
 	}
 
 	bool ReadMaterialFile(const std::string& path, MaterialFile& out, std::string& error)
@@ -248,23 +260,205 @@ struct AssetManager::Impl
 		out.roughness = json.value("roughness", out.roughness);
 		out.metallic = json.value("metallic", out.metallic);
 		out.albedoTexture = json.value("albedoTexture", std::string());
+		out.shader = json.value("shader", std::string());
+		if (json.contains("params") && json["params"].is_array())
+		{
+			for (const auto& value : json["params"]) out.params.push_back(value.is_number() ? value.get<float>() : 0.0f);
+		}
+		if (json.contains("parameters") && json["parameters"].is_object())
+		{
+			for (const auto& [name, value] : json["parameters"].items())
+			{
+				MaterialParameter parameter;
+				if (value.is_string()) parameter.texture = value.get<std::string>();
+				else if (value.is_number()) parameter.value[0] = value.get<float>();
+				else if (value.is_array())
+				{
+					for (size_t i = 0; i < 4 && i < value.size(); ++i) parameter.value[i] = value[i].is_number() ? value[i].get<float>() : 0.0f;
+				}
+				else continue;
+				out.parameters[name] = parameter;
+			}
+		}
 		return true;
 	}
 
 	void ApplyMaterial(const std::string& path, MaterialHandle handle, const MaterialFile& file)
 	{
 		const TextureHandle texture = file.albedoTexture.empty() ? TextureHandle{} : GetTextureCached(file.albedoTexture);
-		renderer->SetMaterial(handle, ToDesc(file, texture));
+		const SurfaceShaderHandle shader = file.shader.empty() ? SurfaceShaderHandle{} : GetShaderCached(file.shader);
+		MaterialDesc desc = ToDesc(file, texture, shader);
+
+		// A shader graph's parameter block: the graph's defaults, overridden by the material.
+		auto entry = shaders.find(file.shader);
+		if (entry != shaders.end() && entry->second.graph)
+		{
+			desc.params.clear();
+			desc.textures.clear();
+			for (const sg::GraphParameter& param : entry->second.parameters)
+			{
+				const auto set = file.parameters.find(param.name);
+				if (param.kind == sg::ParamKind::Texture)
+				{
+					if (desc.textures.size() <= param.offset) desc.textures.resize(param.offset + 1);
+					const std::string& asset = set != file.parameters.end() && !set->second.texture.empty() ? set->second.texture : param.defaultTexture;
+					if (!asset.empty()) desc.textures[param.offset] = GetTextureCached(asset, !param.linearTexture);
+					continue;
+				}
+				const uint32_t count = param.kind == sg::ParamKind::Scalar ? 1 : 4;
+				if (desc.params.size() < param.offset + count) desc.params.resize(param.offset + count, 0.0f);
+				const sg::Float4& value = set != file.parameters.end() ? set->second.value : param.defaultValue;
+				for (uint32_t i = 0; i < count; ++i) desc.params[param.offset + i] = value[i];
+			}
+		}
+		renderer->SetMaterial(handle, desc);
 		materialFiles[path] = file;
 	}
 
-	TextureHandle GetTextureCached(const std::string& path)
+	// Re-applies every loaded material that `uses` (after its shader or a texture changed).
+	void ReapplyMaterials(const std::function<bool(const MaterialFile&)>& uses)
 	{
-		auto it = textures.find(path);
-		if (it != textures.end()) return it->second;
-		const TextureHandle texture = LoadTexture(path);
-		textures[path] = texture;
+		for (auto& [path, material] : materials)
+		{
+			auto file = materialFiles.find(path);
+			if (material.IsValid() && file != materialFiles.end() && uses(file->second))
+			{
+				const MaterialFile data = file->second;   // ApplyMaterial writes materialFiles
+				ApplyMaterial(path, material, data);
+			}
+		}
+	}
+
+	TextureHandle GetTextureCached(const std::string& path, bool srgb = true)
+	{
+		std::map<std::string, TextureHandle>& cache = srgb ? textures : linearTextures;
+		auto it = cache.find(path);
+		if (it != cache.end()) return it->second;
+		const TextureHandle texture = LoadTexture(path, srgb);
+		cache[path] = texture;
 		return texture;
+	}
+
+	// ---- Shader graphs -------------------------------------------------------------------------
+
+	const sg::Graph* LoadGraph(const std::string& path)
+	{
+		auto preview = previewGraphs.find(path);
+		if (preview != previewGraphs.end()) return &preview->second;
+		auto it = graphs.find(path);
+		if (it != graphs.end()) return it->second.get();
+		std::unique_ptr<sg::Graph> graph;
+		std::string text, error;
+		if (!contentRoot.empty() && ReadText(path, text))
+		{
+			graph = std::make_unique<sg::Graph>();
+			if (!sg::GraphFromJson(text, *graph, error))
+			{
+				ReportMissing("shader graph", path, error);
+				graph.reset();
+			}
+			Watch(path);
+		}
+		else
+		{
+			ReportMissing("shader graph", path);
+		}
+		return (graphs[path] = std::move(graph)).get();
+	}
+
+	sg::GraphLoader Loader()
+	{
+		return [this](const std::string& path) { return LoadGraph(path); };
+	}
+
+	// (Re)compiles a shader graph shader from its current graph (the preview, else the file).
+	sg::CompiledGraph BuildGraphShader(const std::string& path, ShaderEntry& entry)
+	{
+		sg::CompiledGraph compiled;
+		const sg::Graph* graph = LoadGraph(path);
+		if (!graph)
+		{
+			compiled.errors.push_back({ 0, "Can't read the shader graph file" });
+		}
+		else
+		{
+			compiled = sg::CompileGraph(*graph, Loader());
+		}
+		entry.errors = compiled.errors;
+		entry.dependencies = compiled.dependencies;
+
+		SurfaceShaderOptions options;
+		options.translucent = compiled.blend == sg::BlendMode::Translucent;
+		options.boundsPadding = compiled.boundsPadding;
+		if (compiled.ok)
+		{
+			// Keep the generated code next to the project for debugging.
+			std::error_code ec;
+			const fs::path cache = contentRoot.parent_path() / "Saved" / "ShaderCache" / fs::u8path(path + ".hlsl");
+			fs::create_directories(cache.parent_path(), ec);
+			std::ofstream(cache, std::ios::binary) << compiled.hlsl;
+
+			const bool built = entry.handle.IsValid()
+				? renderer->SetSurfaceShaderSource(entry.handle, compiled.hlsl, options)
+				: (entry.handle = renderer->CreateSurfaceShader(path, compiled.hlsl, options), renderer->SurfaceShaderError(entry.handle).empty());
+			if (built)
+			{
+				entry.parameters = compiled.parameters;
+				ReapplyMaterials([&](const MaterialFile& file) { return file.shader == path; });
+			}
+		}
+		else if (!entry.handle.IsValid())
+		{
+			// Never compiled: a shader that fails, so meshes using it show the error checker.
+			entry.handle = renderer->CreateSurfaceShader(path, "#error This shader graph has errors: open it in the graph editor\n", options);
+		}
+		return compiled;
+	}
+
+	// Recompiles the graph shaders that use `file` as a subgraph (directly or not).
+	void RebuildDependents(const std::string& file)
+	{
+		for (auto& [path, entry] : shaders)
+		{
+			if (entry.graph && path != file && std::find(entry.dependencies.begin(), entry.dependencies.end(), file) != entry.dependencies.end())
+			{
+				BuildGraphShader(path, entry);
+			}
+		}
+	}
+
+	bool ReadText(const std::string& path, std::string& out)
+	{
+		std::ifstream stream(Full(path), std::ios::binary);
+		if (!stream) return false;
+		out.assign((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+		return true;
+	}
+
+	SurfaceShaderHandle GetShaderCached(const std::string& path)
+	{
+		auto it = shaders.find(path);
+		if (it != shaders.end()) return it->second.handle;
+		ShaderEntry& entry = shaders[path];   // misses too, so a bad path doesn't retry every frame
+		std::string source;
+		if (contentRoot.empty())
+		{
+		}
+		else if (TypeOf(path) == "shadergraph")
+		{
+			entry.graph = true;
+			BuildGraphShader(path, entry);
+		}
+		else if (TypeOf(path) == "shader" && ReadText(path, source))
+		{
+			entry.handle = renderer->CreateSurfaceShader(path, source);
+			Watch(path);
+		}
+		else
+		{
+			ReportMissing("shader", path);
+		}
+		return entry.handle;
 	}
 
 	void Scan()
@@ -322,9 +516,15 @@ void AssetManager::Shutdown()
 	for (auto& [path, mesh] : a.meshes) if (mesh.IsValid()) a.renderer->DestroyMesh(mesh);
 	for (auto& [path, material] : a.materials) if (material.IsValid()) a.renderer->DestroyMaterial(material);
 	for (auto& [path, texture] : a.textures) if (texture.IsValid()) a.renderer->DestroyTexture(texture);
+	for (auto& [path, texture] : a.linearTextures) if (texture.IsValid()) a.renderer->DestroyTexture(texture);
+	for (auto& [path, shader] : a.shaders) if (shader.handle.IsValid()) a.renderer->DestroySurfaceShader(shader.handle);
 	a.meshes.clear();
 	a.materials.clear();
 	a.textures.clear();
+	a.linearTextures.clear();
+	a.shaders.clear();
+	a.graphs.clear();
+	a.previewGraphs.clear();
 	a.renderer = nullptr;
 }
 
@@ -364,11 +564,103 @@ MaterialHandle AssetManager::GetMaterial(const std::string& path)
 	return material;
 }
 
-TextureHandle AssetManager::GetTexture(const std::string& path)
+TextureHandle AssetManager::GetTexture(const std::string& path, bool srgb)
 {
 	Impl& a = *mImpl;
 	if (!a.renderer || path.empty()) return {};
-	return a.GetTextureCached(path);
+	return a.GetTextureCached(path, srgb);
+}
+
+bool AssetManager::ReadShaderGraph(const std::string& path, sg::Graph& out)
+{
+	Impl& a = *mImpl;
+	std::string text, error;
+	if (a.contentRoot.empty() || !a.ReadText(path, text)) return false;
+	return sg::GraphFromJson(text, out, error);
+}
+
+bool AssetManager::WriteShaderGraph(const std::string& path, const sg::Graph& graph)
+{
+	Impl& a = *mImpl;
+	if (a.contentRoot.empty() || TypeOf(path) != "shadergraph") return false;
+	std::error_code ec;
+	fs::create_directories(a.Full(path).parent_path(), ec);
+	std::ofstream stream(a.Full(path), std::ios::binary | std::ios::trunc);
+	stream << sg::GraphToJson(graph) << "\n";
+	if (!stream) return false;
+	stream.close();
+
+	// Apply now, and don't reload it again for this write.
+	a.previewGraphs.erase(path);
+	a.graphs[path] = std::make_unique<sg::Graph>(graph);
+	a.Watch(path);
+	auto entry = a.shaders.find(path);
+	if (entry != a.shaders.end() && entry->second.graph && a.renderer) a.BuildGraphShader(path, entry->second);
+	if (a.renderer) a.RebuildDependents(path);
+	if (a.scanned && std::find(a.listing["shadergraph"].begin(), a.listing["shadergraph"].end(), path) == a.listing["shadergraph"].end()) a.Scan();
+	return true;
+}
+
+sg::CompiledGraph AssetManager::PreviewShaderGraph(const std::string& path, const sg::Graph& graph)
+{
+	Impl& a = *mImpl;
+	if (!a.renderer) return sg::CompileGraph(graph, a.Loader());
+	a.previewGraphs[path] = graph;
+	a.GetShaderCached(path);   // makes the entry (compiling the preview)
+	sg::CompiledGraph compiled = a.BuildGraphShader(path, a.shaders[path]);
+	a.RebuildDependents(path);
+	return compiled;
+}
+
+void AssetManager::RevertShaderGraph(const std::string& path)
+{
+	Impl& a = *mImpl;
+	if (a.previewGraphs.erase(path) == 0 || !a.renderer) return;
+	auto entry = a.shaders.find(path);
+	if (entry != a.shaders.end() && entry->second.graph) a.BuildGraphShader(path, entry->second);
+	a.RebuildDependents(path);
+}
+
+const std::vector<sg::GraphParameter>* AssetManager::ShaderGraphParameters(const std::string& path)
+{
+	Impl& a = *mImpl;
+	if (!a.renderer || TypeOf(path) != "shadergraph") return nullptr;
+	a.GetShaderCached(path);
+	auto entry = a.shaders.find(path);
+	return entry != a.shaders.end() ? &entry->second.parameters : nullptr;
+}
+
+std::vector<sg::GraphError> AssetManager::ShaderGraphErrors(const std::string& path)
+{
+	Impl& a = *mImpl;
+	auto entry = a.shaders.find(path);
+	return entry != a.shaders.end() ? entry->second.errors : std::vector<sg::GraphError>{};
+}
+
+sg::GraphLoader AssetManager::GraphLoader() { return mImpl->Loader(); }
+
+MaterialHandle AssetManager::ShaderPreviewMaterial(const std::string& shaderPath)
+{
+	Impl& a = *mImpl;
+	if (!a.renderer || shaderPath.empty()) return {};
+	// Kept with the other materials under a key no file has ("?"), so ReapplyMaterials
+	// updates it when the shader recompiles.
+	const std::string key = shaderPath + "?preview";
+	auto it = a.materials.find(key);
+	if (it != a.materials.end()) return it->second;
+	MaterialFile file;
+	file.shader = shaderPath;
+	const MaterialHandle material = a.renderer->CreateMaterial(MaterialDesc{});
+	a.materials[key] = material;
+	a.ApplyMaterial(key, material, file);
+	return material;
+}
+
+SurfaceShaderHandle AssetManager::GetSurfaceShader(const std::string& path)
+{
+	Impl& a = *mImpl;
+	if (!a.renderer || path.empty()) return {};
+	return a.GetShaderCached(path);
 }
 
 std::vector<std::string> AssetManager::List(const std::string& type)
@@ -390,6 +682,8 @@ std::string AssetManager::TypeOf(const std::string& path)
 	if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".tga" || extension == ".bmp" || extension == ".dds") return "texture";
 	if (extension == ".scene") return "scene";
 	if (extension == ".prefab") return "prefab";
+	if (extension == ".hlsl") return "shader";
+	if (extension == ".shadergraph") return "shadergraph";
 	if (IsBuiltin(path))
 	{
 		for (const char* mesh : kBuiltinMeshes) if (path == mesh) return "mesh";
@@ -442,6 +736,18 @@ bool AssetManager::WriteMaterial(const std::string& path, const MaterialFile& ma
 	json["roughness"] = material.roughness;
 	json["metallic"] = material.metallic;
 	json["albedoTexture"] = material.albedoTexture;
+	if (!material.shader.empty()) json["shader"] = material.shader;
+	if (!material.params.empty()) json["params"] = material.params;
+	if (!material.parameters.empty())
+	{
+		nlohmann::ordered_json parameters = nlohmann::ordered_json::object();
+		for (const auto& [name, parameter] : material.parameters)
+		{
+			if (!parameter.texture.empty()) parameters[name] = parameter.texture;
+			else parameters[name] = { parameter.value[0], parameter.value[1], parameter.value[2], parameter.value[3] };
+		}
+		json["parameters"] = parameters;
+	}
 
 	std::error_code ec;
 	fs::create_directories(a.Full(path).parent_path(), ec);
@@ -486,14 +792,40 @@ void AssetManager::PollChanges(std::vector<std::pair<MeshHandle, MeshHandle>>& r
 		a.reportedMissing.clear();
 		a.prefabs.erase(file);   // read again on the next spawn
 
-		// Textures from this file (the file itself, or images inside a glTF).
-		std::set<std::string> reloadedTextures;
-		for (auto& [path, texture] : a.textures)
+		// Textures from this file (the file itself, or images inside a glTF), sRGB and linear.
+		bool texturesReloaded = false;
+		for (bool srgb : { true, false })
 		{
-			if (SplitSubAsset(path).first != file) continue;
-			if (texture.IsValid()) a.renderer->DestroyTexture(texture);
-			texture = a.LoadTexture(path);
-			reloadedTextures.insert(path);
+			for (auto& [path, texture] : srgb ? a.textures : a.linearTextures)
+			{
+				if (SplitSubAsset(path).first != file) continue;
+				if (texture.IsValid()) a.renderer->DestroyTexture(texture);
+				texture = a.LoadTexture(path, srgb);
+				texturesReloaded = true;
+			}
+		}
+		// Surface shaders: recompiled in place (same handle). A failed compile keeps the
+		// previous version running, and the error stays in Renderer::SurfaceShaderError
+		// (and ShaderGraphErrors for graphs).
+		auto graph = a.graphs.find(file);
+		if (graph != a.graphs.end())
+		{
+			a.graphs.erase(graph);   // read again
+			auto entry = a.shaders.find(file);
+			if (entry != a.shaders.end() && entry->second.graph && !a.previewGraphs.count(file))
+			{
+				if (a.BuildGraphShader(file, entry->second).ok) CHERRY_LOG("Shader graph %s compiled", file.c_str());
+			}
+			a.RebuildDependents(file);
+		}
+		auto shader = a.shaders.find(file);
+		if (shader != a.shaders.end() && !shader->second.graph && shader->second.handle.IsValid())
+		{
+			std::string source;
+			if (a.ReadText(file, source) && a.renderer->SetSurfaceShaderSource(shader->second.handle, source))
+			{
+				CHERRY_LOG("Surface shader %s compiled", file.c_str());
+			}
 		}
 		// Meshes: new handles.
 		auto mesh = a.meshes.find(file);
@@ -508,18 +840,15 @@ void AssetManager::PollChanges(std::vector<std::pair<MeshHandle, MeshHandle>>& r
 				replacedMeshes.emplace_back(old, fresh);
 			}
 		}
-		// Materials: in place (same handle), from the file or from the glTF, and every
-		// material that uses a reloaded texture.
+		// Materials: in place (same handle), from the file or from the glTF. A reloaded texture
+		// has a new handle, so then every material is re-applied.
 		for (auto& [path, material] : a.materials)
 		{
-			if (!material.IsValid()) continue;
-			const bool fromFile = SplitSubAsset(path).first == file;
-			const auto previous = a.materialFiles.find(path);
-			const bool usesTexture = previous != a.materialFiles.end() && reloadedTextures.count(previous->second.albedoTexture) > 0;
-			if (!fromFile && !usesTexture) continue;
+			if (!material.IsValid() || SplitSubAsset(path).first != file) continue;
 			MaterialFile data;
 			std::string error;
-			if (fromFile ? a.ReadMaterialFile(path, data, error) : (data = previous->second, true)) a.ApplyMaterial(path, material, data);
+			if (a.ReadMaterialFile(path, data, error)) a.ApplyMaterial(path, material, data);
 		}
+		if (texturesReloaded) a.ReapplyMaterials([](const MaterialFile&) { return true; });
 	}
 }

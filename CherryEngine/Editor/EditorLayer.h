@@ -2,6 +2,7 @@
 #include "Scene/ECS.h"
 #include "Core/Log.h"
 #include "Editor/Gizmo.h"
+#include "Editor/ShaderGraphEditor.h"
 #include "Core/Assets.h"
 #include <DirectXMath.h>
 #include <deque>
@@ -99,6 +100,7 @@ private:
 	// New Script: writes <project>/Scripts/<name>.h/.cpp from a template and compiles.
 	bool CreateScript(Engine& engine, const std::string& name, bool openSource, std::string& error);
 	void DrawNewScriptPopup(Engine& engine);
+	void DrawMaterialParameters(Engine& engine, bool editable, bool& changed);
 
 	bool mLayoutBuilt = false;
 	bool mVoxelTest = false;
@@ -153,6 +155,7 @@ private:
 	MaterialFile mMaterialEdit;            // material being edited, and its path
 	std::string mMaterialEditPath;
 	bool mMaterialChanged = false;
+	ShaderGraphEditor mGraphEditor;
 	bool mOpenNewScript = false;
 	char mNewScriptName[64] = "";
 	bool mNewScriptOpenSource = true;

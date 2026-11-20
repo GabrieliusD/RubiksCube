@@ -28,8 +28,45 @@ namespace
 		if (type == "texture") return ImVec4(0.70f, 0.95f, 0.60f, 1);
 		if (type == "scene") return ImVec4(0.95f, 0.85f, 0.45f, 1);
 		if (type == "prefab") return ImVec4(0.60f, 0.75f, 1.00f, 1);
+		if (type == "shader") return ImVec4(0.90f, 0.60f, 0.95f, 1);
+		if (type == "shadergraph") return ImVec4(1.00f, 0.55f, 0.80f, 1);
 		return ImVec4(0.55f, 0.55f, 0.55f, 1);
 	}
+
+	// Where New Material / New Shader put a file: next to the selected asset, else in `fallback`.
+	fs::path NewAssetFolder(const fs::path& root, const std::string& selected, const char* fallback)
+	{
+		fs::path folder = root / fallback;
+		if (!selected.empty() && selected.find('#') == std::string::npos && selected.rfind("engine/", 0) != 0)
+		{
+			const fs::path file = root / fs::u8path(selected);
+			folder = fs::is_directory(file) ? file : file.parent_path();
+		}
+		std::error_code ec;
+		fs::create_directories(folder, ec);
+		return folder;
+	}
+
+	const char* kNewSurfaceShader =
+		"// A surface shader: decides what a material looks like at each pixel; the engine\n"
+		"// lights it (PBR) and adds fog. Assign it to a material in the material inspector.\n"
+		"// SurfaceInput, SurfaceOutput and the helpers are in CherryEngine/Shaders/Surface.hlsli.\n"
+		"//\n"
+		"// Parameters: the material's \"params\" values, read with ParamFloat(input, i),\n"
+		"// ParamFloat3(input, i) (values i..i+2), ParamFloat4 ...\n"
+		"\n"
+		"SurfaceOutput EvaluateSurface(SurfaceInput input)\n"
+		"{\n"
+		"\t// Start from the material's colour, texture, roughness and metallic.\n"
+		"\tSurfaceOutput s = DefaultSurfaceOutput(input);\n"
+		"\n"
+		"\t// Example: a rim glow in the colour of params 0..2, pulsing over time.\n"
+		"\tfloat rim = pow(1.0 - saturate(dot(input.normalW, input.viewDirW)), 3.0);\n"
+		"\tfloat pulse = 0.75 + 0.25 * sin(input.time * 3.0);\n"
+		"\ts.emissive = ParamFloat3(input, 0) * rim * pulse;\n"
+		"\treturn s;\n"
+		"}\n";
+
 
 	void AssetDragSource(const std::string& path)
 	{
@@ -111,15 +148,7 @@ void EditorLayer::DrawContentBrowser(Engine& engine)
 	ImGui::SameLine();
 	if (ImGui::SmallButton("New Material"))
 	{
-		// Next to the selected asset, else in Content/Materials.
-		fs::path folder = root / "Materials";
-		if (!mSelectedAsset.empty() && mSelectedAsset.find('#') == std::string::npos && mSelectedAsset.rfind("engine/", 0) != 0)
-		{
-			const fs::path selected = root / fs::u8path(mSelectedAsset);
-			folder = fs::is_directory(selected) ? selected : selected.parent_path();
-		}
-		std::error_code ec;
-		fs::create_directories(folder, ec);
+		const fs::path folder = NewAssetFolder(root, mSelectedAsset, "Materials");
 		const std::string path = (folder / UniqueName(folder, "NewMaterial", ".mat")).lexically_relative(root).generic_u8string();
 		if (assets.WriteMaterial(path, MaterialFile{}))
 		{
@@ -127,6 +156,40 @@ void EditorLayer::DrawContentBrowser(Engine& engine)
 			mContentScanTimer = 0.0f;
 		}
 	}
+	ImGui::SameLine();
+	if (ImGui::SmallButton("New Shader"))
+	{
+		const fs::path folder = NewAssetFolder(root, mSelectedAsset, "Shaders");
+		const fs::path file = folder / UniqueName(folder, "NewShader", ".hlsl");
+		std::ofstream stream(file, std::ios::binary);
+		stream << kNewSurfaceShader;
+		if (stream)
+		{
+			stream.close();
+			SelectAsset(file.lexically_relative(root).generic_u8string());
+			assets.Refresh();
+			mContentScanTimer = 0.0f;
+		}
+		else
+		{
+			CHERRY_ERROR("Couldn't write %s", file.u8string().c_str());
+		}
+	}
+	ImGui::SetItemTooltip("Create a surface shader (.hlsl) to use in materials");
+	ImGui::SameLine();
+	if (ImGui::SmallButton("New Shader Graph"))
+	{
+		const fs::path folder = NewAssetFolder(root, mSelectedAsset, "Shaders");
+		const std::string path = (folder / UniqueName(folder, "NewShaderGraph", ".shadergraph")).lexically_relative(root).generic_u8string();
+		if (assets.WriteShaderGraph(path, ShaderGraphEditor::DefaultGraph()))
+		{
+			SelectAsset(path);
+			assets.Refresh();
+			mContentScanTimer = 0.0f;
+			mGraphEditor.Open(engine, path);
+		}
+	}
+	ImGui::SetItemTooltip("Create a shader graph (a node-based surface shader) and open it");
 	ImGui::SameLine();
 	const ModuleStatus moduleStatus = engine.GetModuleStatus();
 	ImGui::BeginDisabled(moduleStatus.isStatic);
@@ -179,12 +242,20 @@ void EditorLayer::DrawContentBrowser(Engine& engine)
 				{
 					if (engine.ConfirmDiscardSceneChanges()) engine.OpenScene(root / fs::u8path(entry.path));
 				}
+				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && type == "shadergraph")
+				{
+					mGraphEditor.Open(engine, entry.path);
+				}
+				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && type == "shader")
+				{
+					ShellExecuteW(nullptr, L"open", (root / fs::u8path(entry.path)).wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				}
 			}
 			ImGui::Unindent(ImGui::GetTreeNodeToLabelSpacing());
 			ImGui::PopStyleColor();
 			if (!type.empty()) AssetDragSource(entry.path);
 			if (!type.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s (%s)%s", entry.path.c_str(), type.c_str(),
-				type == "mesh" || type == "material" || type == "prefab" ? "\nDrag into the viewport or onto an asset field" : type == "scene" ? "\nDouble-click to open" : "");
+				type == "mesh" || type == "material" || type == "prefab" ? "\nDrag into the viewport or onto an asset field" : type == "scene" ? "\nDouble-click to open" : type == "shader" || type == "shadergraph" ? "\nDouble-click to edit; drag onto a material's shader field" : "");
 		}
 		ImGui::PopID();
 	}
@@ -218,6 +289,9 @@ void EditorLayer::DrawAssetInspector(Engine& engine)
 		}
 		ImGui::BeginDisabled(!editable);
 		bool changed = false;
+		const bool graphMaterial = AssetManager::TypeOf(mMaterialEdit.shader) == "shadergraph";
+		if (!graphMaterial)
+		{
 		changed |= ImGui::ColorEdit4("baseColor", &mMaterialEdit.baseColor.x, ImGuiColorEditFlags_Float);
 		changed |= ImGui::SliderFloat("roughness", &mMaterialEdit.roughness, 0.02f, 1.0f);
 		changed |= ImGui::SliderFloat("metallic", &mMaterialEdit.metallic, 0.0f, 1.0f);
@@ -239,7 +313,74 @@ void EditorLayer::DrawAssetInspector(Engine& engine)
 			}
 			ImGui::EndDragDropTarget();
 		}
+		}
+
+		// Surface shader and its parameters.
+		ImGui::Separator();
+		if (ImGui::BeginCombo("shader", mMaterialEdit.shader.empty() ? "(built-in)" : mMaterialEdit.shader.c_str()))
+		{
+			if (ImGui::Selectable("(built-in)", mMaterialEdit.shader.empty())) { mMaterialEdit.shader.clear(); changed = true; }
+			for (const char* kind : { "shadergraph", "shader" })
+			{
+				for (const std::string& shader : assets.List(kind))
+				{
+					const sg::Graph* graph = std::string(kind) == "shadergraph" ? assets.GraphLoader()(shader) : nullptr;
+					if (graph && graph->IsFunction()) continue;   // subgraphs aren't shaders
+					if (ImGui::Selectable(shader.c_str(), shader == mMaterialEdit.shader)) { mMaterialEdit.shader = shader; changed = true; }
+				}
+			}
+			ImGui::EndCombo();
+		}
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kAssetPayload))
+			{
+				const std::string dropped = static_cast<const char*>(payload->Data);
+				const std::string droppedType = AssetManager::TypeOf(dropped);
+				if (droppedType == "shader" || droppedType == "shadergraph") { mMaterialEdit.shader = dropped; changed = true; }
+			}
+			ImGui::EndDragDropTarget();
+		}
+		if (graphMaterial)
+		{
+			DrawMaterialParameters(engine, editable, changed);
+		}
+		else if (!mMaterialEdit.shader.empty())
+		{
+			ImGui::TextDisabled("params (ParamFloat(input, i) in the shader)");
+			int remove = -1;
+			for (size_t i = 0; i < mMaterialEdit.params.size(); ++i)
+			{
+				ImGui::PushID(static_cast<int>(i));
+				char label[16];
+				std::snprintf(label, sizeof(label), "[%zu]", i);
+				changed |= ImGui::DragFloat(label, &mMaterialEdit.params[i], 0.01f);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("x")) remove = static_cast<int>(i);
+				ImGui::PopID();
+			}
+			if (remove >= 0) { mMaterialEdit.params.erase(mMaterialEdit.params.begin() + remove); changed = true; }
+			if (ImGui::SmallButton("Add param")) { mMaterialEdit.params.push_back(0.0f); changed = true; }
+		}
 		ImGui::EndDisabled();
+
+		if (!mMaterialEdit.shader.empty())
+		{
+			const std::string& error = engine.GetRenderer().SurfaceShaderError(assets.GetSurfaceShader(mMaterialEdit.shader));
+			const std::vector<sg::GraphError> graphErrors = assets.ShaderGraphErrors(mMaterialEdit.shader);
+			if (!graphErrors.empty())
+			{
+				ImGui::Separator();
+				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "The shader graph has %zu error%s (open it to fix them).", graphErrors.size(), graphErrors.size() == 1 ? "" : "s");
+			}
+			else if (!error.empty())
+			{
+				ImGui::Separator();
+				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "Shader doesn't compile:");
+				ImGui::TextWrapped("%s", error.c_str());
+			}
+			if (AssetManager::TypeOf(mMaterialEdit.shader) == "shadergraph" && ImGui::Button("Open shader graph")) mGraphEditor.Open(engine, mMaterialEdit.shader);
+		}
 
 		if (changed)
 		{
@@ -254,6 +395,67 @@ void EditorLayer::DrawAssetInspector(Engine& engine)
 			mMaterialChanged = false;
 		}
 		if (!editable) ImGui::TextDisabled(path.find('#') != std::string::npos ? "Part of a glTF file: edit it in the modelling tool,\nor make a .mat material instead." : "Built-in material (read only).");
+	}
+	else if (type == "shadergraph")
+	{
+		const sg::Graph* graph = assets.GraphLoader()(path);
+		if (!graph)
+		{
+			ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "Can't read the file.");
+		}
+		else if (graph->IsFunction())
+		{
+			std::vector<sg::FunctionPin> inputs, outputs;
+			sg::FunctionSignature(*graph, inputs, outputs);
+			ImGui::TextWrapped("A function (subgraph): %zu input%s, %zu output%s. Use it in other graphs with a Subgraph node.",
+				inputs.size(), inputs.size() == 1 ? "" : "s", outputs.size(), outputs.size() == 1 ? "" : "s");
+		}
+		else
+		{
+			assets.GetSurfaceShader(path);   // compiles it, if nothing used it yet
+			const std::vector<sg::GraphError> errors = assets.ShaderGraphErrors(path);
+			if (errors.empty()) ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1), "Compiled.");
+			else ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%zu error%s.", errors.size(), errors.size() == 1 ? "" : "s");
+			ImGui::Text("%zu nodes, blend: %s", graph->nodes.size(), sg::BlendModeName(graph->blend));
+			if (const std::vector<sg::GraphParameter>* params = assets.ShaderGraphParameters(path))
+			{
+				for (const sg::GraphParameter& param : *params) ImGui::BulletText("%s", param.name.c_str());
+			}
+		}
+		if (ImGui::Button("Open in Graph Editor")) mGraphEditor.Open(engine, path);
+		if (graph && !graph->IsFunction())
+		{
+			ImGui::SameLine();
+			if (ImGui::Button("Create Material"))
+			{
+				// A material instance of this graph, next to it.
+				const fs::path folder = assets.FullPath(path).parent_path();
+				const std::string stem = fs::u8path(path).stem().u8string();
+				MaterialFile material;
+				material.shader = path;
+				const std::string materialPath = (folder / UniqueName(folder, stem, ".mat")).lexically_relative(assets.ContentRoot()).generic_u8string();
+				if (assets.WriteMaterial(materialPath, material))
+				{
+					SelectAsset(materialPath);
+					mContentScanTimer = 0.0f;
+				}
+			}
+			ImGui::SetItemTooltip("A material using this graph; it can override the graph's parameters");
+		}
+	}
+	else if (type == "shader")
+	{
+		const SurfaceShaderHandle shader = assets.GetSurfaceShader(path);
+		const std::string& error = engine.GetRenderer().SurfaceShaderError(shader);
+		if (!shader.IsValid()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "Can't read the file.");
+		else if (error.empty()) ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1), "Compiled.");
+		else
+		{
+			ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "Doesn't compile (materials keep the last version that did):");
+			ImGui::TextWrapped("%s", error.c_str());
+		}
+		if (ImGui::Button("Edit")) ShellExecuteW(nullptr, L"open", assets.FullPath(path).wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+		ImGui::TextDisabled("Recompiles when the file is saved. Use it in a material's shader field.");
 	}
 	else if (type == "mesh")
 	{
@@ -516,4 +718,88 @@ void EditorLayer::DrawNewScriptPopup(Engine& engine)
 	ImGui::SameLine();
 	if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
 	ImGui::EndPopup();
+}
+
+// The parameters of a shader graph material: one widget per graph parameter, showing the
+// material's value or the graph's default, with a reset button for overridden ones.
+void EditorLayer::DrawMaterialParameters(Engine& engine, bool editable, bool& changed)
+{
+	AssetManager& assets = engine.GetAssets();
+	const std::vector<sg::GraphParameter>* params = assets.ShaderGraphParameters(mMaterialEdit.shader);
+	if (!params || params->empty())
+	{
+		ImGui::TextDisabled("The graph has no parameters.");
+		return;
+	}
+	ImGui::SeparatorText("Parameters");
+	ImGui::BeginDisabled(!editable);
+	for (const sg::GraphParameter& param : *params)
+	{
+		ImGui::PushID(param.name.c_str());
+		auto set = mMaterialEdit.parameters.find(param.name);
+		const bool overridden = set != mMaterialEdit.parameters.end();
+		MaterialParameter value;
+		value.value = param.defaultValue;
+		value.texture = param.defaultTexture;
+		if (overridden)
+		{
+			if (param.kind == sg::ParamKind::Texture) { if (!set->second.texture.empty()) value.texture = set->second.texture; }
+			else value.value = set->second.value;
+		}
+
+		// Reset (to the graph's default) for overridden parameters, else a spacer.
+		if (overridden)
+		{
+			if (ImGui::SmallButton("x"))
+			{
+				mMaterialEdit.parameters.erase(param.name);
+				changed = true;
+				ImGui::PopID();
+				continue;
+			}
+			ImGui::SetItemTooltip("Use the graph's default");
+		}
+		else
+		{
+			ImGui::Dummy(ImVec2(ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f, 0));
+		}
+		ImGui::SameLine();
+
+		bool edited = false;
+		if (!overridden) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.7f);
+		switch (param.kind)
+		{
+		case sg::ParamKind::Scalar: edited = ImGui::DragFloat(param.name.c_str(), &value.value[0], 0.01f); break;
+		case sg::ParamKind::Vector: edited = ImGui::DragFloat4(param.name.c_str(), value.value.data(), 0.01f); break;
+		case sg::ParamKind::Color: edited = ImGui::ColorEdit4(param.name.c_str(), value.value.data(), ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR); break;
+		case sg::ParamKind::Texture:
+			if (ImGui::BeginCombo(param.name.c_str(), value.texture.empty() ? "(none)" : value.texture.c_str()))
+			{
+				for (const std::string& texture : assets.List("texture"))
+				{
+					if (ImGui::Selectable(texture.c_str(), texture == value.texture)) { value.texture = texture; edited = true; }
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::BeginDragDropTarget())
+			{
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kAssetPayload))
+				{
+					const std::string dropped = static_cast<const char*>(payload->Data);
+					if (AssetManager::TypeOf(dropped) == "texture") { value.texture = dropped; edited = true; }
+				}
+				ImGui::EndDragDropTarget();
+			}
+			break;
+		}
+		if (!overridden) ImGui::PopStyleVar();
+		ImGui::SetItemTooltip(overridden ? "Set by this material" : "The graph's default (edit to override it)");
+		if (edited)
+		{
+			mMaterialEdit.parameters[param.name] = value;
+			changed = true;
+		}
+		ImGui::PopID();
+	}
+	ImGui::EndDisabled();
 }

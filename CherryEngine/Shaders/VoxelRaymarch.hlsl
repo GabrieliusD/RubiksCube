@@ -179,14 +179,9 @@ PixelOut PSMain(VertexOut pin)
 		ao = FaceAO(voxels, int3(volume.dims), cell, axis, n, origin + dir * t, volume.aoStrength);
 	}
 
-	Material mat;
-	mat.DiffuseAlbedo = albedo;
-	mat.FresnelR0 = float3(0.02, 0.02, 0.02);
-	mat.Shininess = 0.1;
-	float3 toEye = -rayDirW;
-	float3 color = gFrame.ambientLight.rgb * albedo.rgb
-		+ ComputeLighting(gFrame.lights, gFrame.numDirLights, mat, normalW, toEye)
-		+ ComputePointLights(gFrame.pointLights, gFrame.numPointLights, mat, hitW, normalW, toEye);
+	// Rock: a rough dielectric.
+	PbrSurface surface = MakePbrSurface(albedo.rgb, 0.0, 0.85, float3(0.02, 0.02, 0.02));
+	float3 color = ShadeSurface(surface, hitW, normalW, -rayDirW);
 	color = ApplyFog(color * ao, t, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
 
 	float4 clip = mul(float4(hitW, 1.0), gView.viewProj);

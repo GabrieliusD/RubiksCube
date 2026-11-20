@@ -31,7 +31,8 @@ namespace rhi
 
 	struct GraphicsPipelineDesc
 	{
-		std::string shaderFile;            // relative to the shader root
+		std::string shaderFile;            // relative to the shader root; with `source`, only a name for diagnostics
+		std::string source;                // HLSL compiled instead of shaderFile (generated shaders)
 		std::string vsEntry = "VSMain";
 		std::string psEntry = "PSMain";
 		std::vector<std::string> defines;
@@ -67,6 +68,16 @@ namespace rhi
 		void AddCompute(const std::string& name, const ComputePipelineDesc& desc);
 		ID3D12PipelineState* Get(const std::string& name) const;
 
+		// Adds or replaces a pipeline without throwing (for shaders made at runtime). When the
+		// build fails, a pipeline that already existed keeps its previous PSO and a new one is
+		// stored without a PSO (Get returns nullptr); either way the new desc is kept, so the
+		// next reload retries it. Returns false with the compiler output in `error`.
+		bool SetGraphics(const std::string& name, const GraphicsPipelineDesc& desc, std::string* error = nullptr);
+		// Removes a pipeline (its PSO is released once in-flight frames are done with it).
+		void Remove(const std::string& name);
+		// The last build error of one pipeline ("" if its last build succeeded).
+		const std::string& Error(const std::string& name) const;
+
 		// Polls shader timestamps (cheap; rate-limited). Returns true if pipelines were rebuilt.
 		bool PollHotReload();
 		void ReloadAll();
@@ -82,6 +93,7 @@ namespace rhi
 			GraphicsPipelineDesc graphics;
 			ComputePipelineDesc computeDesc;
 			ComPtr<ID3D12PipelineState> pso;
+			std::string error;
 		};
 
 		bool Build(const std::string& name, Entry& entry);
@@ -95,6 +107,7 @@ namespace rhi
 		uint64_t mShaderSignature = 0;
 		uint64_t mLastPollTick = 0;
 		std::string mLastError;
+		std::string mNoError;
 		uint32_t mReloadCount = 0;
 	};
 }

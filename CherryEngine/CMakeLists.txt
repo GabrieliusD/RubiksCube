@@ -33,6 +33,7 @@ set(ENGINE_HEADERS
   Renderer/DebugDraw.h
   Editor/EditorLayer.h
   Editor/Gizmo.h
+  Editor/ShaderGraphEditor.h
   Physics/PhysicsWorld.h
   RHI/D3DCommon.h
   RHI/DescriptorHeap.h
@@ -43,6 +44,9 @@ set(ENGINE_HEADERS
   RHI/Pipeline.h
   ShaderSystem/ShaderDesc.h
   ShaderSystem/ShaderCompiler.h
+  ShaderGraph/ShaderGraph.h
+  ShaderGraph/NodeLibrary.h
+  ShaderGraph/GraphCompiler.h
   Shaders/Shared/ShaderInterop.h
   DDSTextureLoader.h
   GeometryGenerator.h
@@ -71,6 +75,7 @@ set(ENGINE_SOURCES
   Editor/ScenePanels.cpp
   Editor/Gizmo.cpp
   Editor/ContentBrowser.cpp
+  Editor/ShaderGraphEditor.cpp
   Physics/PhysicsWorld.cpp
   RHI/D3DCommon.cpp
   RHI/DescriptorHeap.cpp
@@ -80,6 +85,9 @@ set(ENGINE_SOURCES
   RHI/UploadRing.cpp
   RHI/Pipeline.cpp
   ShaderSystem/ShaderCompiler.cpp
+  ShaderGraph/ShaderGraph.cpp
+  ShaderGraph/NodeLibrary.cpp
+  ShaderGraph/GraphCompiler.cpp
   DDSTextureLoader.cpp
   GeometryGenerator.cpp
   MathHelper.cpp
@@ -103,6 +111,16 @@ set(IMGUI_SOURCES
   ${IMGUI_DIR}/imgui_impl_dx12.cpp
   ${IMGUI_DIR}/imgui_impl_win32.cpp
 )
+# imgui-node-editor (the shader graph editor), compiled into the engine with ImGui.
+set(NODE_EDITOR_DIR thirdparty/imgui-node-editor)
+set(NODE_EDITOR_SOURCES
+  ${NODE_EDITOR_DIR}/crude_json.cpp
+  ${NODE_EDITOR_DIR}/imgui_canvas.cpp
+  ${NODE_EDITOR_DIR}/imgui_node_editor.cpp
+  ${NODE_EDITOR_DIR}/imgui_node_editor_api.cpp
+)
+set_source_files_properties(${NODE_EDITOR_SOURCES} PROPERTIES COMPILE_OPTIONS "/W0")
+list(APPEND IMGUI_SOURCES ${NODE_EDITOR_SOURCES})
 
 # ---------------------------------------------------------------------------
 # DirectX Shader Compiler (vcpkg: directx-dxc)
@@ -187,6 +205,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_path(CHERRY_CGLTF_INCLUDE_DIR "cgltf.h" REQUIRED)
 find_path(CHERRY_STB_INCLUDE_DIR "stb_image.h" REQUIRED)
 target_include_directories(CherryEngine PRIVATE "${CHERRY_CGLTF_INCLUDE_DIR}" "${CHERRY_STB_INCLUDE_DIR}")
+target_include_directories(CherryEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${NODE_EDITOR_DIR}")
 target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt nlohmann_json::nlohmann_json)
 
 target_compile_definitions(CherryEngine
@@ -216,8 +235,10 @@ target_include_directories(CherryEngine
 # ---------------------------------------------------------------------------
 # Tests: scene, reflection and serialization (no window or GPU needed)
 # ---------------------------------------------------------------------------
-add_executable(CherryEngineTests Tests/EngineTests.cpp)
+add_executable(CherryEngineTests Tests/EngineTests.cpp Tests/ShaderGraphTests.cpp)
 target_link_libraries(CherryEngineTests PRIVATE CherryEngine)
+# Generated shader graph code is compiled with DXC against the engine's shaders.
+target_compile_definitions(CherryEngineTests PRIVATE CHERRY_TEST_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Shaders")
 if(MSVC)
   target_compile_options(CherryEngineTests PRIVATE /W3 /utf-8)
 endif()

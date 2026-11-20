@@ -47,17 +47,24 @@ CompiledShader ShaderCompiler::Compile(const ShaderDesc& desc)
 	CompiledShader output;
 	const std::wstring filePath = desc.filePath.wstring();
 
-	ComPtr<IDxcBlobEncoding> sourceBlob;
-	if (FAILED(m_utils->LoadFile(filePath.c_str(), nullptr, &sourceBlob)))
-	{
-		output.errors = "Could not open shader file: " + desc.filePath.string();
-		return output;
-	}
-
 	DxcBuffer sourceBuffer{};
-	sourceBuffer.Ptr = sourceBlob->GetBufferPointer();
-	sourceBuffer.Size = sourceBlob->GetBufferSize();
 	sourceBuffer.Encoding = DXC_CP_UTF8;
+	ComPtr<IDxcBlobEncoding> sourceBlob;
+	if (!desc.source.empty())
+	{
+		sourceBuffer.Ptr = desc.source.data();
+		sourceBuffer.Size = desc.source.size();
+	}
+	else
+	{
+		if (FAILED(m_utils->LoadFile(filePath.c_str(), nullptr, &sourceBlob)))
+		{
+			output.errors = "Could not open shader file: " + desc.filePath.string();
+			return output;
+		}
+		sourceBuffer.Ptr = sourceBlob->GetBufferPointer();
+		sourceBuffer.Size = sourceBlob->GetBufferSize();
+	}
 
 	std::vector<std::wstring> args;
 	args.push_back(filePath);   // file name for diagnostics

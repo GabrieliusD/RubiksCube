@@ -110,6 +110,7 @@ void EditorLayer::Draw(Engine& engine, IGameModule* game, bool editorMode, bool 
 	DrawStats(engine, frameMs);
 	DrawOutput();
 	DrawContentBrowser(engine);
+	mGraphEditor.Draw(engine);
 	DrawSelection(engine);
 	UpdateUndo(engine);
 
@@ -500,6 +501,7 @@ void EditorLayer::SetVoxelTest(Engine& engine, bool enabled)
 
 void EditorLayer::Shutdown(Engine& engine)
 {
+	mGraphEditor.Shutdown(engine);
 	if (mVoxelTest)
 	{
 		SetVoxelTest(engine, false);

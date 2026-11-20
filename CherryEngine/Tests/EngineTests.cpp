@@ -9,6 +9,8 @@
 
 using namespace DirectX;
 
+int RunShaderGraphTests();   // ShaderGraphTests.cpp
+
 namespace
 {
 	int gFailures = 0;
@@ -297,6 +299,9 @@ int main()
 		Check(waited && child && child->fields.size() == 2 && child->fields[0].name == "health", "Base<>() works when the base registers later");
 		registry.Unregister("tests");
 	}
+
+	// ---- Shader graphs ----------------------------------------------------------------------------
+	gFailures += RunShaderGraphTests();
 
 	std::printf("\n%s (%d failure%s)\n", gFailures == 0 ? "All engine tests passed" : "ENGINE TESTS FAILED", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures == 0 ? 0 : 1;

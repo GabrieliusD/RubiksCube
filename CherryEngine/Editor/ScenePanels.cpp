@@ -311,6 +311,7 @@ void EditorLayer::HandleSceneHotkeys(Engine& engine)
 {
 	const ImGuiIO& io = ImGui::GetIO();
 	if (io.WantTextInput || !engine.Project().IsValid()) return;
+	if (mGraphEditor.WantsKeyboard()) return;   // the shader graph editor has its own Ctrl+S / Z / Y / D
 	if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
 	{
 		if (io.KeyShift || engine.ScenePath().empty()) SaveSceneAs(engine);

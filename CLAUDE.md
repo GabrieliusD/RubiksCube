@@ -52,7 +52,7 @@ ctest --test-dir out/build/x64-debug -C Debug -R UndertimeTests   # one suite
 out/build/x64-debug/bin/Debug/UndertimeTests.exe          # run directly to see each check
 ```
 
-- **Suites:** `CherryEngineTests` covers scenes, hierarchy, reflection and scene files (save/load round trip, unknown components, play-world copy). `RubikPuzzleTests` covers the puzzle logic. `UndertimeTests` covers voxel helpers, fragments, the structure/support check, cave generation over 20 seeds, and the hits needed to crack rock.
+- **Suites:** `CherryEngineTests` covers scenes, hierarchy, reflection, scene files (save/load round trip, unknown components, play-world copy) and shader graphs (`Tests/ShaderGraphTests.cpp`: type rules, parameter layout, subgraphs, and every node type compiled through DXC with `CompileSurfaceShaderOffline`). `RubikPuzzleTests` covers the puzzle logic. `UndertimeTests` covers voxel helpers, fragments, the structure/support check, cave generation over 20 seeds, and the hits needed to crack rock.
 - **Running one check:** there is no per-test filter. To focus on one check, edit or comment out code in the suite's `main()`.
 - **What the tests can't reach:** they link only the pure-C++ sources (see `Undertime/CMakeLists.txt`), so anything that needs `Engine` can't be tested there.
 
@@ -90,6 +90,15 @@ The `.github/` folder exists but is empty: there is no CI.
   - **Layers:** `Renderer/` sits on the thin D3D12 layer in `RHI/`. It's bindless (SM 6.6 `ResourceDescriptorHeap`) with two frames in flight and HDR.
   - **Passes:** mesh pass, then ray-marched voxel pass (writes `SV_Depth`), then ACES tonemap, then debug lines.
   - **Resources:** assets are handle-based pools, e.g. `CreateVoxelVolume`, `UpdateVoxelVolume(handle, offset, size, data)` and `DestroyVoxelVolume`.
+  - **Lighting:** GGX PBR (metallic/roughness) in `Shaders/LightingUtil.hlsl` (`ShadeSurface`), shared by the mesh and voxel passes. A light's `Strength` includes pi, so Lambert is `albedo * Strength * NdotL`.
+  - **Surface shaders:** HLSL defining `SurfaceOutput EvaluateSurface(SurfaceInput)` (`Shaders/Surface.hlsli`), wrapped around `MeshPass.hlsli` into a pipeline of its own (`Renderer::CreateSurfaceShader`). `Mesh.hlsl` is the built-in one. A material picks one with `MaterialDesc::shader` and passes values through `params`/`textures`, a per-material parameter block. `.hlsl` files in Content are "shader" assets that a `.mat` references (`"shader"`, `"params"`). A shader that fails to compile keeps its last good version, or shows a magenta checker if it never compiled. A surface shader can be translucent (blended, drawn after the voxel pass, back to front) and can define `EvaluateVertexOffset`.
+  - **Shader graphs (`ShaderGraph/`):**
+    - `ShaderGraph.h` is the graph model and its `.shadergraph` JSON format.
+    - `NodeLibrary.h/.cpp` defines every node type: pins, settings and the HLSL it emits.
+    - `GraphCompiler.h/.cpp` turns a graph into a surface shader plus a parameter layout (sorted by name).
+    - `AssetManager` compiles graphs used as shaders, applies `.mat` `"parameters"` overrides, and reloads dependents when a subgraph changes. `PreviewShaderGraph` serves live editing.
+    - The editor is `Editor/ShaderGraphEditor.cpp`, built on imgui-node-editor (vendored in `thirdparty/imgui-node-editor`). Its preview uses `Renderer::RenderPreview`.
+    - Generated HLSL is also written to `<project>/Saved/ShaderCache/`.
   - **Voxel palettes:** volumes use 8-bit palette indices. A volume can share another volume's palette (`sharePaletteFrom`).
 - **Physics:** `Physics/PhysicsWorld.h` wraps Jolt, whose types never leak out of the engine. Bodies are integer `BodyId`s.
   - **What the API offers:**

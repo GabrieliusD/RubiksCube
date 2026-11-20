@@ -57,7 +57,7 @@ struct FrameConstants
 	float  fogStart;
 	float  fogEnd;
 	uint   numPointLights;
-	float  pad0;
+	uint   materialParamBufferIndex;  // StructuredBuffer<uint>: every material's parameter block
 	float  pad1;
 	// Point lights: Position, Strength (colour x intensity), FalloffEnd (range).
 	Light pointLights[CHERRY_MAX_POINT_LIGHTS];
@@ -95,13 +95,21 @@ struct InstanceData
 	uint pad1;
 };
 
+// One material. Surface shaders read the fixed fields directly and their own parameters
+// from the material's block in FrameConstants::materialParamBufferIndex: `paramCount`
+// 32-bit values starting at `paramOffset`, then `textureCount` bindless texture indices
+// starting at `textureOffset` (see Shaders/Surface.hlsli).
 struct MaterialData
 {
-	float4 baseColor;
-	float3 fresnelR0;
-	float  roughness;
+	float4 baseColor;              // linear
+	float3 fresnelR0;              // reflectance of the non-metal part at normal incidence (0.04 typical)
+	float  roughness;              // perceptual, 0..1
 	uint   albedoTextureIndex;     // CHERRY_INVALID_INDEX = untextured
-	uint   flags;
+	float  metallic;               // 0 = dielectric, 1 = metal tinted by baseColor
+	uint   paramOffset;
+	uint   paramCount;
+	uint   textureOffset;
+	uint   textureCount;
 	uint   pad0;
 	uint   pad1;
 };

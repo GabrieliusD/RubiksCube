@@ -19,7 +19,8 @@ CherryLaunch.exe ──loads──▶ RubikGame.dll ──links──▶ CherryE
 | `CherryEngine/Scene` | ECS, `Scene`, built-in components (`Transform`, `MeshRenderer`, `Camera`, `VoxelVolumeRenderer`) |
 | `CherryEngine/RHI` | Thin D3D12 layer: device + frames in flight, bindless descriptor heap, buffers/textures, swap chain, pipeline library with shader hot reload |
 | `CherryEngine/Renderer` | Frame orchestration, GPU scene, passes, asset pools (mesh/material/texture/voxel handles), debug draw |
-| `CherryEngine/Editor` | ImGui editor layer: menu bar with play controls, dockspace, viewport, stats, output log, game panel, project picker |
+| `CherryEngine/Editor` | ImGui editor layer: menu bar with play controls, dockspace, viewport, stats, output log, game panel, project picker, shader graph editor |
+| `CherryEngine/ShaderGraph` | Shader graphs: the graph model and file format, the node library, the graph-to-HLSL compiler |
 | `CherryEngine/Shaders` | HLSL (SM 6.6, compiled at runtime by DXC). `Shared/ShaderInterop.h` is used by both C++ and HLSL |
 | `Rubik` | The Rubik's cube game module (`RubikModule`, pure-logic `RubikPuzzle`, tests) |
 | `Rubik/Rubik.cherryproject` | The Rubik project file |
@@ -31,7 +32,7 @@ CherryLaunch.exe ──loads──▶ RubikGame.dll ──links──▶ CherryE
 Bindless (Shader Model 6.6 `ResourceDescriptorHeap`) with one global root signature,
 two frames in flight, and an HDR pipeline:
 
-1. **Mesh pass**: forward Blinn-Phong into HDR colour + depth
+1. **Mesh pass**: forward PBR (metallic/roughness, GGX) into HDR colour + depth. Each material's surface shader is a pipeline of its own; translucent surfaces draw after the voxel pass, back to front
 2. **Voxel pass**: ray-marched voxel volumes (DDA through a 3D texture) that write `SV_Depth`, so voxels and meshes intersect correctly
 3. **Tonemap**: compute shader, HDR to LDR (ACES)
 4. **Debug lines**: bounds, picking rays, etc.
@@ -203,3 +204,42 @@ In `OnStartup` (or a system), find placed entities with `scene.Each<Lantern>(...
 Fields are matched by name when loading, so changing a component keeps old scenes
 loadable, and a hot reload keeps the edit scene through the change. While playing, a
 hot reload restarts the game; `SaveState` / `LoadState` let it keep what matters.
+
+## Materials, surface shaders and shader graphs
+
+Lighting is physically based (GGX, metallic/roughness). What a material looks like at each
+pixel is decided by its **surface shader**: an HLSL function the engine wraps with the
+vertex shader, lighting and fog.
+
+```hlsl
+SurfaceOutput EvaluateSurface(SurfaceInput input)
+{
+    SurfaceOutput s = DefaultSurfaceOutput(input);   // the material's colour, texture, roughness, metallic
+    s.emissive = ParamFloat3(input, 0) * pow(1.0 - saturate(dot(input.normalW, input.viewDirW)), 3.0);
+    return s;
+}
+```
+
+- **Built-in:** a `.mat` without a shader uses `Shaders/Mesh.hlsl` (colour x texture).
+- **Hand-written:** an `.hlsl` file in Content (Content panel, **New Shader**). A `.mat` picks it
+  with `"shader"` and passes values with `"params"` (read with `ParamFloat*`).
+- **Shader graphs:** a `.shadergraph` file (**New Shader Graph**, double-click to edit). Nodes
+  for inputs, constants, parameters, texture samples, math, vectors, noise, fresnel, normal
+  maps, custom HLSL and subgraphs, wired into a Surface Output (base colour, metallic,
+  roughness, specular, normal, emissive, opacity, opacity mask, world position offset).
+  Blend modes: Opaque, Masked, Translucent.
+- **Material instances:** a `.mat` whose shader is a graph shows the graph's parameters in the
+  inspector and overrides only what it sets (`"parameters": { "Tint": [1, 0, 0, 1], "Albedo": "Textures/rock.png" }`).
+  Materials sharing a graph share one pipeline; their values live in a per-material
+  parameter block.
+
+The graph editor recompiles a moment after each edit, and every material using the graph
+updates at once. It also shows errors on the nodes, a live preview (drag to turn it) and
+the generated HLSL (also written to `Saved/ShaderCache/`). Ctrl+S saves, Ctrl+Z / Ctrl+Y undo
+and redo, Ctrl+D duplicates the selection. A shader that stops compiling keeps its last
+working version. One that never compiled draws as a magenta checker.
+
+The compiler walks back from the Surface Output, so nodes that don't reach it cost nothing.
+Identical expressions are computed once, and subgraphs are inlined. A `float` converts to any
+width, a wider value converts to a narrower one, and other mismatches are errors on the node.
+`CherryEngineTests` checks these rules and compiles every node type through DXC.
