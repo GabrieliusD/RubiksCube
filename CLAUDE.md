@@ -52,7 +52,7 @@ ctest --test-dir out/build/x64-debug -C Debug -R UndertimeTests   # one suite
 out/build/x64-debug/bin/Debug/UndertimeTests.exe          # run directly to see each check
 ```
 
-- **Suites:** `CherryEngineTests` covers scenes, hierarchy, reflection, scene files (save/load round trip, unknown components, play-world copy) and shader graphs (`Tests/ShaderGraphTests.cpp`: type rules, parameter layout, subgraphs, and every node type compiled through DXC with `CompileSurfaceShaderOffline`). `RubikPuzzleTests` covers the puzzle logic. `UndertimeTests` covers voxel helpers, fragments, the structure/support check, cave generation over 20 seeds, and the hits needed to crack rock.
+- **Suites:** `CherryEngineTests` covers scenes, hierarchy, reflection, scene files (save/load round trip, unknown components, play-world copy) and shader graphs (`Tests/ShaderGraphTests.cpp`: type rules, parameter layout, subgraphs, and every node type compiled through DXC with `CompileSurfaceShaderOffline`). `RubikPuzzleTests` covers the puzzle logic. `UndertimeTests` covers voxel helpers, fragments, the structure/support check, cave generation over 20 seeds, the hits needed to crack rock, and the valley (`Tests/ValleyTests.cpp`: heights, river, lake, trees, terrain and water meshes). `CherryEngineTests` also has `Tests/VoxelModelTests.cpp` and `Tests/RendererTests.cpp`.
 - **Running one check:** there is no per-test filter. To focus on one check, edit or comment out code in the suite's `main()`.
 - **What the tests can't reach:** they link only the pure-C++ sources (see `Undertime/CMakeLists.txt`), so anything that needs `Engine` can't be tested there.
 
@@ -85,12 +85,13 @@ The `.github/` folder exists but is empty: there is no CI.
   - **Self-registration:** `CHERRY_SCRIPT(Type, "Name") { script.Field(...); }` in a script's `.cpp` (needs `Game/GameModule.h`) registers it without touching `RegisterTypes`. Each game's `Scripts/` folder is globbed into its target (`CONFIGURE_DEPENDS`). The editor's New Script writes there and compiles with a configure step first, because a VS-generator build that regenerates projects only compiles new files on the next build. Monolithic builds link the game with `/WHOLEARCHIVE` so unreferenced self-registering objects aren't dropped.
 - **Prefabs:** `.prefab` files (scene JSON for one entity tree). `Engine::Spawn(path, position)` places one; `cherry::SavePrefab`/`InstantiatePrefab` in `Scene/SceneSerializer.h`. Instances are copies (`EntityInfo::prefab` remembers the source).
 - **Editor worlds:** the editor edits the *edit world*. Play copies it (`cherry::CopyScene`) into a *play world*, runs `OnStartup` there and throws it away on Stop. `engine.GetScene()` is the active one.
-- **Assets (`Core/Assets.h`):** referenced by path under the project's `Content/` (`Meshes/x.glb`, `Materials/x.mat`, `Textures/x.png`, built-ins `engine/Cube`). `MeshRenderer.meshAsset`/`materialAsset` are resolved to handles by the engine; game code that makes meshes sets the handles directly and leaves the asset paths empty. Files reload when they change on disk.
+- **Assets (`Core/Assets.h`):** referenced by path under the project's `Content/` (`Meshes/x.glb`, `Models/x.vox`, `Materials/x.mat`, `Textures/x.png`, built-ins `engine/Cube`).
+- **Voxel models (`Voxel/VoxelModel.h`):** `VoxelModel` data, `LoadVox`/`SaveVox` (MagicaVoxel, Z-up mapped to Y-up), `BakeVoxelMesh` (greedy faces, corner shading in vertex colour, glow strength in `uv.x`, block size in `uv.y` for the shader's per-block brightness) and `BakeVoxelBoxes` (collision). A `.vox` path is a mesh asset, which defaults to the `engine/VoxelModel` material (`Shaders/VoxelModelSurface.hlsli`). Tests are in `Tests/VoxelModelTests.cpp`, with a fixture in `Tests/Data/`. `MeshRenderer.meshAsset`/`materialAsset` are resolved to handles by the engine; game code that makes meshes sets the handles directly and leaves the asset paths empty. Files reload when they change on disk.
 - **Renderer:**
   - **Layers:** `Renderer/` sits on the thin D3D12 layer in `RHI/`. It's bindless (SM 6.6 `ResourceDescriptorHeap`) with two frames in flight and HDR.
-  - **Passes:** mesh pass, then ray-marched voxel pass (writes `SV_Depth`), then ACES tonemap, then debug lines.
+  - **Passes:** opaque mesh pass (same mesh + surface shader runs are instanced: the VS reads `instances[gDraw.instanceIndex + SV_InstanceID]`), then ray-marched voxel pass (writes `SV_Depth`), then the sky (`Shaders/SkyPass.hlsl`, only where depth is still clear), then translucent meshes, then debug lines, then bloom (`Shaders/Bloom.hlsl`, compute chain), then ACES tonemap. Before all of it, with `RenderSettings::shadows` on, two sun shadow cascades are drawn depth-only (`Shaders/ShadowPass.hlsl`; casters are gathered whether or not the camera sees them), and `ShadeSurface` darkens the sun through `SunShadow` (`LightingUtil.hlsl`), so meshes and voxels both receive them. Voxel volumes don't cast shadows yet.
   - **Resources:** assets are handle-based pools, e.g. `CreateVoxelVolume`, `UpdateVoxelVolume(handle, offset, size, data)` and `DestroyVoxelVolume`.
-  - **Lighting:** GGX PBR (metallic/roughness) in `Shaders/LightingUtil.hlsl` (`ShadeSurface`), shared by the mesh and voxel passes. A light's `Strength` includes pi, so Lambert is `albedo * Strength * NdotL`.
+  - **Lighting:** GGX PBR (metallic/roughness) in `Shaders/LightingUtil.hlsl` (`ShadeSurface`), shared by the mesh and voxel passes. A light's `Strength` includes pi, so Lambert is `albedo * Strength * NdotL`. Up to 8 point lights per frame; with more, `SelectPointLights` keeps those closest to reaching the camera. `RenderSettings::shaderGlobals` (4 float4) reach every surface shader as `ShaderGlobal(i)` / the Global Input node.
   - **Surface shaders:** HLSL defining `SurfaceOutput EvaluateSurface(SurfaceInput)` (`Shaders/Surface.hlsli`), wrapped around `MeshPass.hlsli` into a pipeline of its own (`Renderer::CreateSurfaceShader`). `Mesh.hlsl` is the built-in one. A material picks one with `MaterialDesc::shader` and passes values through `params`/`textures`, a per-material parameter block. `.hlsl` files in Content are "shader" assets that a `.mat` references (`"shader"`, `"params"`). A shader that fails to compile keeps its last good version, or shows a magenta checker if it never compiled. Surface shader pipelines build on worker threads (`PipelineLibrary::SetGraphicsAsync`, applied in `PumpAsync` at `BeginFrame`): `CreateSurfaceShader`/`SetSurfaceShaderSource` return at once and report through a `done` callback, and a graph's parameter layout switches when its code does. Voxel volumes with a material use its surface shader too: the ray march is `Shaders/VoxelPass.hlsli` (`VoxelRaymarch.hlsl` is the built-in voxel surface), and the voxel pipeline variant is built on first use (`Impl::VoxelPipeline`). `SurfaceInput` has `positionL` and `blockId` for voxels. A surface shader can be translucent (blended, drawn after the voxel pass, back to front) and can define `EvaluateVertexOffset`.
   - **Shader graphs (`ShaderGraph/`):**
     - `ShaderGraph.h` is the graph model and its `.shadergraph` JSON format.
@@ -125,6 +126,12 @@ The game is first-person mining in a procedurally generated mountain. One world 
 - **Structure (`Structure.cpp`):** `DetachUnsupported` flood-fills from an edit to find rock no longer connected to the anchored shell. That rock is cut out of the grid as `FragmentVoxels`.
 - **Boulders (`Fragments.cpp`):** rock that broke off in a cave-in is a physics body plus its own small voxel volume. The pick breaks it up with `Chip`, which re-splits it into connected pieces. Boulders never bake back into the grid; past `kMaxBoulders` the oldest comes apart into loose blocks.
 - **Loose blocks (`LooseBlocks.cpp`):** every voxel the pick removes becomes one 0.25 m cube on the debris layer (passes through the player), drawn with shared vertex-coloured cube meshes. `MirrorOutOfFace` places them in the air in front of the face. They never go back into the grid; the shovel scoops them into the backpack, and past `kMaxLooseBlocks` the oldest crumble away.
+- **The valley (`Valley.h`, `TerrainMesh.h`, built in `UndertimeModule::CreateScenery`):**
+  - **Layout:** from Design.md's map, with numbers in `Config.h` (valley section). `Valley` gives heights, the river (water level never rises downstream, so it steps down in falls), the lake, ground types and tree spots. The mountain over the cave grid starts at the grid's top.
+  - **Terrain:** 16 m chunks, using 0.25 m blocks where `Valley::Detailed` and 1 m blocks elsewhere, with skirts where the two meet. Chunks are built on worker threads and merged 4×4 into one mesh and one collision body; remote mountains get 4 m collision.
+  - **Trees** are placeholder `.vox` models in `Content/Models/Placeholders/`, written by the `UndertimePlaceholders` tool (`Undertime/Tools/Placeholders.cpp`); rerun it after changing a generator. Trees have trunk collision.
+  - **The valley is not shown in the editor yet;** it's only built on Play.
+  - **Dev screenshots:** the environment variable `UNDERTIME_DEV_VIEW="x y z yaw pitch"` skips the title and starts there; `UNDERTIME_DEV_SUN="x y z"` overrides the sun direction (e.g. a low sun to check shadows).
 - **How every grid edit is applied:** `UndertimeModule::ApplyWorldChange(box, checkSupport)` uploads to the GPU, marks collision dirty, rebuilds meshes in mesh-render mode, and optionally runs the support check, spawning fragments. Route edits through it.
 - **Scene components (`SceneComponents.h`):** `CaveWorld` (seed, 0 = random; `rockMaterial`, an optional material for the world volume and boulders, e.g. `Materials/Rock.mat`) and `PlayerStart`, placed in `Content/Scenes/Mine.scene`. `CavePreviewSystem` shows a CaveWorld's mountain in the editor ("Generate preview" in the inspector).
 - **Module (`UndertimeModule.cpp`):**
@@ -140,9 +147,30 @@ The game is first-person mining in a procedurally generated mountain. One world 
     - **M:** cave map.
     - **V:** switch between ray-marched and mesh rendering.
 
+## UNDERTIME status and design
+
+- **Design document:** `Undertime/Docs/Design.md` holds every decision so far: the time rule, the run loop, eras, story, the valley and town layout, the visual style and the milestone plan. Read it before UNDERTIME feature work, and update it when the user changes a decision.
+- **Built so far:** the cave game (mining, cave-ins, boulders, loose blocks, shovel, backpack) and voxel surface shaders. **Not built yet:** the outside clock, eras, the valley and town, shops, the run reset and the story.
+- **Current work** (branch `features/voxel-town`): milestones from Design.md §8, in order:
+  1. Voxel model pipeline (`.vox` load and save, mesh and collision baking, a `.vox` asset type). **Done** (the user checked it in the editor and in MagicaVoxel).
+  2. Engine visuals I (sky, shader globals, nearest-8 lights, instancing). **Done.**
+  3. The valley (terrain, river, lake, forest). **Done.**
+  4. Engine visuals II (sun shadows, bloom). **Done.**
+  5. Camp era. **Next.**
+  6. Settlement era.
+
+  The time clock comes later.
+- **Waiting for the user to test** (remind them at the end of each milestone):
+  - Milestone 2: the sky outside, instanced loose blocks, the Global Input node.
+  - Milestone 3: walking the valley (cave to the square), the river and lake up close, cracks at the fine/coarse edge, the cave still working, the frame rate.
+  - Milestone 4: sun shadows outside (shimmer when moving, acne, the frame rate), bloom on bright things (sun, lantern, crystals in the cave).
+- **Nothing is committed since `15cb46d`.** The user commits when they ask.
+- **Style:** everything is 0.25 m voxels. The cave is real (diggable) voxels; everything outside is voxel models baked to meshes. Placeholder art is generated as `.vox` files; MagicaVoxel is the editor for now, and a built-in voxel designer may replace it later.
+
 ## Working rules for UNDERTIME (from the user)
 
 - **Never invent engine APIs.** Only call functions that exist. If a feature is missing, say so and propose the smallest engine addition or a workaround in game code. Wait for the user's OK before changing anything under `CherryEngine/`.
+  - **Except:** engine additions the agreed visual style needs (Design.md §8: sky, global shader inputs, lights, instancing, shadows, bloom and similar) are pre-approved, and so is the `.vox` voxel model pipeline. Name each engine change in the plan and the report.
 - **Work in milestones.** Each one must build and run. Then stop and report what to test and what couldn't be verified.
 - **Tuning numbers** all live in one place: `Config.h`.
 - **Audio** is out of scope for now.

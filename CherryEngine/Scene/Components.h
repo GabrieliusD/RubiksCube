@@ -143,6 +143,23 @@ struct Environment
 	float fogStart = 50.0f;
 	float fogEnd = 200.0f;
 	float exposure = 1.0f;
+	// The gradient sky with a sun disk and stars (RenderSettings::sky). Off: the background
+	// is skyColor.
+	bool skyEnabled = false;
+	DirectX::XMFLOAT3 skyZenith{ 0.16f, 0.34f, 0.78f };
+	DirectX::XMFLOAT3 skyHorizon{ 0.60f, 0.74f, 0.90f };
+	DirectX::XMFLOAT3 skyGround{ 0.30f, 0.29f, 0.27f };
+	float skyGradientPower = 0.5f;
+	float sunSize = 0.6f;          // degrees
+	float sunIntensity = 30.0f;
+	float starIntensity = 0.0f;
+	// Sun shadows (RenderSettings::shadows) and glow (RenderSettings::bloom).
+	bool shadowsEnabled = false;
+	float shadowNearDistance = 40.0f;
+	float shadowFarDistance = 220.0f;
+	bool bloomEnabled = false;
+	float bloomIntensity = 0.06f;
+	float bloomThreshold = 1.2f;
 };
 
 // Components a scene file has but this build doesn't know (e.g. a game component whose

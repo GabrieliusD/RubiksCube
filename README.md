@@ -32,11 +32,21 @@ CherryLaunch.exe ──loads──▶ RubikGame.dll ──links──▶ CherryE
 Bindless (Shader Model 6.6 `ResourceDescriptorHeap`) with one global root signature,
 two frames in flight, and an HDR pipeline:
 
-1. **Mesh pass**: forward PBR (metallic/roughness, GGX) into HDR colour + depth. Each material's surface shader is a pipeline of its own; translucent surfaces draw after the voxel pass, back to front
+0. **Shadow maps** (`RenderSettings::shadows`): two sun shadow cascades around the camera, drawn depth-only from opaque meshes (instanced; casters outside the view count too). Meshes and voxel volumes receive the shadows; voxel volumes don't cast any yet
+1. **Mesh pass**: forward PBR (metallic/roughness, GGX) into HDR colour + depth. Each material's surface shader is a pipeline of its own; translucent surfaces draw after the voxel pass and the sky, back to front. Draws of the same mesh with the same surface shader are **instanced** into one draw call
 2. **Voxel pass**: ray-marched voxel volumes (DDA through a 3D texture) that write `SV_Depth`, so voxels and meshes intersect correctly
-3. **Tonemap**: compute shader, HDR to LDR (ACES)
-4. **Debug lines**: bounds, picking rays, etc.
-5. **Present**: the LDR view is shown in the editor viewport, or blitted full-window in game mode
+3. **Sky** (`RenderSettings::sky`, or the `Environment` component): a gradient from the ground through the horizon to the zenith, a sun disk, and stars, wherever nothing else was drawn. Off, the background is `clearColor`
+4. **Bloom** (`RenderSettings::bloom`): bright pixels are blurred down a chain of half-size textures and added back up (compute)
+5. **Tonemap**: compute shader, HDR to LDR (ACES), adding the bloom
+6. **Debug lines**: bounds, picking rays, etc.
+7. **Present**: the LDR view is shown in the editor viewport, or blitted full-window in game mode
+
+**Point lights:** up to 8 per frame, from `RenderSettings::pointLights` and `PointLight`
+components. With more, the 8 closest to reaching the camera are used (distance minus range).
+
+**Shader globals:** `RenderSettings::shaderGlobals` holds 4 `float4`s that every surface
+shader can read (`ShaderGlobal(i)` in HLSL, the **Global Input** graph node). The game
+decides what they mean, for example time of day, snow amount or wind.
 
 Requires a GPU/driver with Shader Model 6.6 and resource binding tier 3. The engine
 checks this at startup and reports what's missing.
@@ -199,6 +209,25 @@ Save as Prefab...). Drag it from Content into the viewport, or spawn it from cod
 `engine.Spawn("Prefabs/Door.prefab", position)`. A placed prefab is a copy: "Save to
 Prefab" in the inspector writes an edited instance back to the file, and instances
 already placed keep their own copy.
+
+### Voxel models
+
+`.vox` files (MagicaVoxel) in Content are meshes: put `Models/Cabin.vox` in a
+`MeshRenderer`'s mesh, or drag it in from Content. The engine bakes each model into one mesh:
+- **Faces:** only faces next to empty space, merged where colour and corner shading match.
+- **Size:** 0.25 m voxels, with the origin at the bottom centre.
+- **Hot reload:** saving in MagicaVoxel updates the scene.
+
+Without a material of their own, these meshes use `engine/VoxelModel`: the voxel colours,
+and colours given an *emit* material in MagicaVoxel glow (strength = emission × (1 + power)).
+MagicaVoxel is Z-up; models come in Y-up and unmirrored. A file with several models
+combines them at their places in the MagicaVoxel scene (rotations aren't supported yet).
+
+From code, `Voxel/VoxelModel.h`:
+- `LoadVox` / `SaveVox` read and write the files.
+- `BakeVoxelMesh` makes the mesh, with options for voxel size and pivot.
+- `BakeVoxelBoxes` gives a few collision boxes for `PhysicsWorld`.
+- `engine.GetAssets().ReadVoxelModel(path, model)` loads one by Content path.
 
 In `OnStartup` (or a system), find placed entities with `scene.Each<Lantern>(...)`.
 Fields are matched by name when loading, so changing a component keeps old scenes

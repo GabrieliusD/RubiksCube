@@ -27,7 +27,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 	Texture2D<float4> hdr = ResourceDescriptorHeap[gDraw.hdrTextureIndex];
 	RWTexture2D<float4> output = ResourceDescriptorHeap[gDraw.outputTextureIndex];
 
-	float3 color = hdr[id.xy].rgb * gView.exposure;
+	float3 color = hdr[id.xy].rgb;
+	if (gDraw.bloomTextureIndex != CHERRY_INVALID_INDEX)
+	{
+		// Bloom (Bloom.hlsl) at half size, stretched over the view.
+		Texture2D<float4> bloom = ResourceDescriptorHeap[gDraw.bloomTextureIndex];
+		const float2 uv = (id.xy + 0.5) / float2(gDraw.width, gDraw.height);
+		color += bloom.SampleLevel(gLinearClamp, uv, 0).rgb * gDraw.bloomIntensity;
+	}
+	color *= gView.exposure;
 	color = ACESFilm(color);
 	output[id.xy] = float4(LinearToSrgb(color), 1.0);
 }

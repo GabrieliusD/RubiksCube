@@ -128,3 +128,7 @@ private:
 // `voxel` compiles it for the voxel pass instead of the mesh pass.
 CHERRY_API bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source,
 	const std::filesystem::path& shaderRoot, std::string& errors, bool voxel = false);
+// Compiles an engine shader file's VSMain and PSMain with DXC (no device). For tests.
+CHERRY_API bool CompileShaderFileOffline(const std::string& file, const std::filesystem::path& shaderRoot, std::string& errors);
+// Compiles one compute entry point of an engine shader file (no device). For tests.
+CHERRY_API bool CompileComputeShaderOffline(const std::string& file, const std::string& entry, const std::filesystem::path& shaderRoot, std::string& errors);

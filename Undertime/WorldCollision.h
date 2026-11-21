@@ -12,6 +12,8 @@
 class WorldCollision
 {
 public:
+	// With the valley, its terrain collides outside the grid (no flat ground or mountain boxes).
+	void SetValleyOutside(bool valley) { mValleyOutside = valley; }
 	void Build(PhysicsWorld& physics, const VoxelWorld& world);
 	// Marks the chunks whose faces can change when voxels in `box` change (box grown by one).
 	void MarkDirty(const VoxelWorld::Box& box);
@@ -36,4 +38,5 @@ private:
 	float mLastFlushMs = 0.0f;
 	int mLastFlushChunks = 0;
 	float mBuildMs = 0.0f;
+	bool mValleyOutside = false;
 };

@@ -35,6 +35,7 @@ set(ENGINE_HEADERS
   Editor/Gizmo.h
   Editor/ShaderGraphEditor.h
   Physics/PhysicsWorld.h
+  Voxel/VoxelModel.h
   RHI/D3DCommon.h
   RHI/DescriptorHeap.h
   RHI/Device.h
@@ -77,6 +78,7 @@ set(ENGINE_SOURCES
   Editor/ContentBrowser.cpp
   Editor/ShaderGraphEditor.cpp
   Physics/PhysicsWorld.cpp
+  Voxel/VoxelModel.cpp
   RHI/D3DCommon.cpp
   RHI/DescriptorHeap.cpp
   RHI/Device.cpp
@@ -235,10 +237,11 @@ target_include_directories(CherryEngine
 # ---------------------------------------------------------------------------
 # Tests: scene, reflection and serialization (no window or GPU needed)
 # ---------------------------------------------------------------------------
-add_executable(CherryEngineTests Tests/EngineTests.cpp Tests/ShaderGraphTests.cpp)
+add_executable(CherryEngineTests Tests/EngineTests.cpp Tests/ShaderGraphTests.cpp Tests/VoxelModelTests.cpp Tests/RendererTests.cpp)
 target_link_libraries(CherryEngineTests PRIVATE CherryEngine)
 # Generated shader graph code is compiled with DXC against the engine's shaders.
-target_compile_definitions(CherryEngineTests PRIVATE CHERRY_TEST_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Shaders")
+target_compile_definitions(CherryEngineTests PRIVATE CHERRY_TEST_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Shaders"
+  CHERRY_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Tests/Data")
 if(MSVC)
   target_compile_options(CherryEngineTests PRIVATE /W3 /utf-8)
 endif()

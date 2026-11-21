@@ -1060,6 +1060,12 @@ void ShaderGraphEditor::DrawNodeSettings(Engine& engine, Node& node)
 		int width = std::clamp(node.option, 1, 4);
 		if (ImGui::SliderInt(node.type == "Custom" ? "Output width" : "Width", &width, 1, 4)) { node.option = width; Edited(); }
 	}
+	if (settings & Setting_GlobalSlot)
+	{
+		int slot = std::clamp(node.option, 0, 3);
+		if (ImGui::SliderInt("Slot", &slot, 0, 3)) { node.option = slot; Edited(); }
+		ImGui::SetItemTooltip("Which of RenderSettings::shaderGlobals to read; the game decides what each slot means.");
+	}
 	if (settings & Setting_Octaves)
 	{
 		int octaves = std::clamp(node.option, 1, 8);

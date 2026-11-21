@@ -59,7 +59,21 @@ namespace
 			.Field("fogColor", &Environment::fogColor, Field_Color)
 			.Field("fogStart", &Environment::fogStart, 0.0f, 10000.0f).Speed(0.5f)
 			.Field("fogEnd", &Environment::fogEnd, 0.0f, 10000.0f).Speed(0.5f)
-			.Field("exposure", &Environment::exposure, 0.05f, 8.0f).Speed(0.01f);
+			.Field("exposure", &Environment::exposure, 0.05f, 8.0f).Speed(0.01f)
+			.Field("skyEnabled", &Environment::skyEnabled)
+			.Field("skyZenith", &Environment::skyZenith, Field_Color)
+			.Field("skyHorizon", &Environment::skyHorizon, Field_Color)
+			.Field("skyGround", &Environment::skyGround, Field_Color)
+			.Field("skyGradientPower", &Environment::skyGradientPower, 0.05f, 8.0f).Speed(0.01f)
+			.Field("sunSize", &Environment::sunSize, 0.0f, 20.0f).Speed(0.01f)
+			.Field("sunIntensity", &Environment::sunIntensity, 0.0f, 500.0f).Speed(0.5f)
+			.Field("starIntensity", &Environment::starIntensity, 0.0f, 10.0f).Speed(0.01f)
+			.Field("shadowsEnabled", &Environment::shadowsEnabled)
+			.Field("shadowNearDistance", &Environment::shadowNearDistance, 1.0f, 500.0f).Speed(0.5f)
+			.Field("shadowFarDistance", &Environment::shadowFarDistance, 2.0f, 2000.0f).Speed(1.0f)
+			.Field("bloomEnabled", &Environment::bloomEnabled)
+			.Field("bloomIntensity", &Environment::bloomIntensity, 0.0f, 2.0f).Speed(0.005f)
+			.Field("bloomThreshold", &Environment::bloomThreshold, 0.0f, 20.0f).Speed(0.01f);
 
 		// Runtime-made renderers and bodies: shown in the inspector while playing, never saved.
 		registry.Component<VoxelVolumeRenderer>("VoxelVolumeRenderer", Component_Transient | Component_NotAddable)

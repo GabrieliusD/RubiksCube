@@ -1,7 +1,8 @@
 // MeshPass.hlsli
 // Forward opaque mesh pass around a surface shader: included after the surface shader's
 // EvaluateSurface (see Surface.hlsli). Instance and material data come from bindless
-// structured buffers indexed through gFrame; the instance index is a root constant.
+// structured buffers indexed through gFrame; the first instance index is a root constant
+// and SV_InstanceID counts from it.
 #ifndef CHERRY_MESH_PASS_HLSLI
 #define CHERRY_MESH_PASS_HLSLI
 
@@ -28,10 +29,11 @@ struct VertexOut
 	nointerpolation uint materialIndex : MATERIAL;
 };
 
-VertexOut VSMain(VertexIn vin)
+// Instanced: a draw covers `instanceCount` consecutive entries starting at gDraw.instanceIndex.
+VertexOut VSMain(VertexIn vin, uint instanceId : SV_InstanceID)
 {
 	StructuredBuffer<InstanceData> instances = ResourceDescriptorHeap[gFrame.instanceBufferIndex];
-	InstanceData instance = instances[gDraw.instanceIndex];
+	InstanceData instance = instances[gDraw.instanceIndex + instanceId];
 
 	VertexOut vout;
 	float4 positionW = mul(float4(vin.position, 1.0), instance.world);

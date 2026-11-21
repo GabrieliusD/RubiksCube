@@ -44,6 +44,7 @@ namespace sg
 		Setting_Width       = 1 << 7,   // Node::option, 1..4 components
 		Setting_Octaves     = 1 << 8,   // Node::option, 1..8
 		Setting_Subgraph    = 1 << 9,   // Node::asset, a .shadergraph function
+		Setting_GlobalSlot  = 1 << 10,  // Node::option, 0..CHERRY_SHADER_GLOBALS-1 (RenderSettings::shaderGlobals)
 	};
 
 	enum class ValueEdit : uint8_t { None, Float1, Float2, Float3, Float4, Color };

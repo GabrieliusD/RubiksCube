@@ -84,14 +84,54 @@ float3 EnvBRDFApprox(float3 f0, float roughness, float NoV)
 	return f0 * ab.x + ab.y;
 }
 
-// Every light of the frame (directional + point) plus the flat ambient, without fog.
+// ---- Sun shadows -----------------------------------------------------------------------
+// 1 lit, 0 in shadow, from one cascade's shadow map: 3x3 bilinear comparisons (soft edges).
+float SampleShadowMap(uint mapIndex, float4x4 shadowMatrix, float3 positionW)
+{
+	const float3 uvz = mul(float4(positionW, 1.0), shadowMatrix).xyz;
+	if (any(uvz.xy <= 0.0) || any(uvz.xy >= 1.0) || uvz.z >= 1.0)
+		return 1.0;
+	Texture2D<float> map = ResourceDescriptorHeap[NonUniformResourceIndex(mapIndex)];
+	float2 size;
+	map.GetDimensions(size.x, size.y);
+	const float2 texel = 1.0 / size;
+	float lit = 0.0;
+	[unroll] for (int y = -1; y <= 1; ++y)
+		[unroll] for (int x = -1; x <= 1; ++x)
+			lit += map.SampleCmpLevelZero(gShadowSampler, uvz.xy + float2(x, y) * texel, uvz.z);
+	return lit / 9.0;
+}
+
+// How much sun reaches a point (1 = all). The nearest cascade that covers it is used, pushed
+// a little along the normal (less acne on surfaces facing away from the sun), and the last
+// cascade fades out towards its end.
+float SunShadow(float3 positionW, float3 N)
+{
+	if (gFrame.shadowEnabled == 0)
+		return 1.0;
+	const float d = distance(positionW, gView.eyePosW);
+	const float3 L = -normalize(gFrame.lights[0].Direction);
+	const float push = gFrame.shadowNormalBias * (1.5 - saturate(dot(N, L)));
+	if (d < gFrame.shadowSplits.x)
+		return SampleShadowMap(gFrame.shadowMap0, gFrame.shadowMatrix[0], positionW + N * gFrame.shadowTexelWorld.x * push);
+	if (d < gFrame.shadowSplits.y)
+	{
+		const float lit = SampleShadowMap(gFrame.shadowMap1, gFrame.shadowMatrix[1], positionW + N * gFrame.shadowTexelWorld.y * push);
+		return lerp(lit, 1.0, smoothstep(gFrame.shadowSplits.y - gFrame.shadowSplits.z, gFrame.shadowSplits.y, d));
+	}
+	return 1.0;
+}
+
+// Every light of the frame (directional + point) plus the flat ambient, without fog. The
+// sun (light 0) is shadowed when RenderSettings::shadows is on.
 float3 ShadeSurface(PbrSurface s, float3 positionW, float3 N, float3 V)
 {
 	float3 color = 0.0;
 	for (uint i = 0; i < min(gFrame.numDirLights, (uint)CHERRY_MAX_LIGHTS); ++i)
 	{
 		Light light = gFrame.lights[i];
-		color += ShadeLight(s, N, V, -light.Direction, light.Strength);
+		const float shadow = i == 0 ? SunShadow(positionW, N) : 1.0;
+		color += ShadeLight(s, N, V, -light.Direction, light.Strength * shadow);
 	}
 	for (uint j = 0; j < min(gFrame.numPointLights, (uint)CHERRY_MAX_POINT_LIGHTS); ++j)
 	{

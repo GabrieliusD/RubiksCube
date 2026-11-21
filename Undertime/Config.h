@@ -116,9 +116,68 @@ namespace cfg
 	constexpr int kChamberHalfWidth = 2;
 	constexpr int kChamberHeight = 3;
 
-	// Outside: flat ground at y = 1, walkable within +-kOutsideExtent of the entrance.
+	// Outside: ground level at the cave mouth is y = 1. Tests (no valley) use flat ground,
+	// walkable within +-kOutsideExtent of the entrance.
 	constexpr float kGroundY = 1.0f;
 	constexpr float kOutsideExtent = 60.0f;
+
+	// ---- The valley (metres; Valley.cpp) --------------------------------------------
+	// Laid out after Undertime/Docs/Images/valley_map.png: the cave mouth at the valley's
+	// north edge (z = 0), the valley floor to the south (-z), mountains all around.
+	constexpr float kValleyCenter[2] = { 27.0f, -150.0f };   // x, z of the valley floor's middle
+	constexpr float kValleyRadius[2] = { 215.0f, 185.0f };   // half-size of the valley floor
+	constexpr float kValleyFlatAtMouth = 28.0f;   // flat ground (y = kGroundY) this far around the cave mouth
+	constexpr float kValleyFloorBumps = 2.5f;     // +- metres of rolling ground on the valley floor
+	constexpr float kValleyFoothills = 9.0f;      // the floor rises this much towards the edge
+	constexpr float kMountainHeight = 85.0f;      // typical height of the ring of mountains
+	constexpr float kMountainOverCave = 34.0f;    // the mountain above the cave rises to at least this
+	constexpr float kSnowLine = 72.0f;            // snow above this (with noise)
+	constexpr float kTreeLine = 62.0f;            // no trees above this
+	constexpr float kRockSlope = 0.6f;            // metres of drop between neighbouring 0.25 m columns that make rock
+	// The river, from the waterfall in the north-east to the pass in the south-west.
+	constexpr float kRiverPoints[][2] = {
+		{ 184.5f, 15.0f }, { 169.5f, -27.5f }, { 134.5f, -62.5f }, { 119.5f, -107.5f }, { 94.5f, -147.5f },
+		{ 54.5f, -177.5f }, { 9.5f, -217.5f }, { -35.5f, -257.5f }, { -75.5f, -297.5f }, { -100.5f, -347.5f },
+		{ -110.5f, -420.0f } };
+	constexpr float kRiverHalfWidth = 2.75f;
+	constexpr float kRiverDepth = 0.75f;          // water depth below the water level
+	constexpr float kRiverBank = 5.0f;            // banks slope down to the river over this distance
+	constexpr float kLakeCenter[2] = { 74.5f, -307.5f };
+	constexpr float kLakeRadius[2] = { 30.0f, 19.0f };
+	constexpr float kLakeDepth = 2.0f;
+	// Clearings (no trees): x, z, radius. The cave mouth, the town square, the homestead...
+	constexpr float kClearings[][3] = {
+		{ 24.5f, -10.0f, 32.0f },     // cave mouth
+		{ -15.5f, -132.5f, 55.0f },   // town square
+		{ 34.5f, -47.5f, 14.0f },     // the big tree
+		{ -70.5f, -20.0f, 24.0f },    // founders' house
+		{ -138.0f, -77.5f, 16.0f },   // clockmaker
+		{ 159.5f, -107.5f, 28.0f },   // chapel
+		{ 67.0f, -170.0f, 24.0f },    // sawmill
+		{ -110.5f, -197.5f, 40.0f },  // homestead
+		{ 234.5f, -27.5f, 10.0f },    // lookout
+	};
+	constexpr float kForestSpacing = 5.5f;        // metres between tree spots on the valley floor
+	constexpr float kForestSpacingFar = 11.0f;    // ... on the mountains
+	// Terrain chunks: 0.25 m blocks on the valley floor and around the cave mouth, 1 m blocks
+	// on the mountains beyond (chosen per chunk; trees follow the same rule).
+	constexpr float kValleyWorld[4] = { -400.0f, -544.0f, 448.0f, 320.0f };  // min x, min z, max x, max z (multiples of kTerrainChunk)
+	constexpr float kTerrainChunk = 16.0f;        // metres per chunk side
+	constexpr int kTerrainRegion = 4;             // chunks per side merged into one mesh and one collision body
+	constexpr float kDetailValleyDistance = 1.0f; // detailed where the chunk centre's ValleyDistance is below this...
+	constexpr float kDetailMouthReach = 56.0f;    // ... or it's this close to the cave mouth
+
+	// Ground colours (sRGB).
+	constexpr uint32_t kTerrainGrass = 0x5f7d3a;
+	constexpr uint32_t kTerrainGrass2 = 0x6a8840;
+	constexpr uint32_t kTerrainDirt = 0x7a6248;
+	constexpr uint32_t kTerrainSand = 0x9c8a66;
+	constexpr uint32_t kTerrainGravel = 0x6e675d;
+	constexpr uint32_t kTerrainRock = 0x7a7064;
+	constexpr uint32_t kTerrainRock2 = 0x6a6258;
+	constexpr uint32_t kTerrainSnow = 0xe8eef4;
+	constexpr uint32_t kWaterColor = 0x2f6f8a;
+	constexpr float kWaterOpacity = 0.72f;
 
 	// ---- Colours (sRGB 0xRRGGBB) --------------------------------------------
 	constexpr uint32_t kStoneNear = 0x7d6b58;     // warm brown at the entrance
@@ -126,11 +185,6 @@ namespace cfg
 	constexpr float kStoneJitter = 0.15f;         // +-15% brightness per cell
 	constexpr float kOreJitter = 0.06f;
 	constexpr float kBedrockDarken = 0.55f;
-	constexpr uint32_t kGrass = 0x5f7d3c;
-	constexpr uint32_t kMountainRock = 0x6f6559;
-	constexpr uint32_t kMountainHigh = 0x9a948c;
-	constexpr uint32_t kTreeTrunk = 0x5a3d24;
-	constexpr uint32_t kTreeLeaves = 0x2f5a2c;
 
 	// ---- Player ---------------------------------------------------------------
 	constexpr float kWalkSpeed = 4.2f;            // m/s
@@ -202,12 +256,22 @@ namespace cfg
 
 	// ---- Lighting by position -------------------------------------------------
 	constexpr float kSunFadeDistance = 6.0f;      // sun/sky light gone this far inside
-	constexpr float kOutsideFogStart = 70.0f;
-	constexpr float kOutsideFogEnd = 280.0f;
+	constexpr float kHideValleyDepth = 40.0f;     // deeper than this (m into the mountain), the valley isn't drawn
+	constexpr float kOutsideFogStart = 110.0f;
+	constexpr float kOutsideFogEnd = 520.0f;
 	constexpr float kCaveFogStartFraction = 0.35f;// cave fog starts at this fraction of lantern range
 	constexpr float kCaveAmbient = 0.012f;
-	constexpr uint32_t kDaySky = 0x8fb8e8;
-	constexpr uint32_t kDayFog = 0xb9cde0;
+	constexpr uint32_t kDaySky = 0x8fb8e8;        // flat background when the sky is off
+	constexpr uint32_t kDayFog = 0xb9cde0;        // also the sky's horizon, so distant land meets it
+	constexpr uint32_t kSkyZenith = 0x3f74cc;     // straight up
+	constexpr uint32_t kSkyGround = 0x6f7458;     // below the horizon
+	constexpr float kSkyGradientPower = 0.45f;
+	constexpr float kSunDiskSize = 0.7f;          // degrees
+	constexpr float kSunDiskIntensity = 25.0f;
+	constexpr float kShadowNear = 40.0f;          // metres of sharp sun shadows around the camera
+	constexpr float kShadowFar = 240.0f;          // softer ones out to here, fading away
+	constexpr float kBloomIntensity = 0.06f;      // glow around bright things (windows, fire, crystals)
+	constexpr float kBloomThreshold = 1.2f;
 	constexpr float kDayAmbient = 0.30f;
 
 	// ---- UI -------------------------------------------------------------------

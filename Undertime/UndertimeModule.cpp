@@ -2,6 +2,8 @@
 #include "Meshes.h"
 #include "ColorUtil.h"
 #include "Structure.h"
+#include "TerrainMesh.h"
+#include <Voxel/VoxelModel.h>
 #include <cmath>
 #include <cstdio>
 #include <sstream>
@@ -10,6 +12,8 @@
 #include <unordered_set>
 #include <algorithm>
 #include <chrono>
+#include <atomic>
+#include <thread>
 #include <Core/Log.h>
 
 using namespace DirectX;
@@ -137,6 +141,7 @@ void UndertimeModule::OnStartup(Engine& engine)
 	CreateScenery(engine);
 	CreateViewModels(engine);
 
+	collision.SetValleyOutside(true);
 	PhysicsWorld& physics = engine.GetPhysics();
 	physics.SetGravity(cfg::kGravity);
 	player.CreateBody(physics);
@@ -151,6 +156,35 @@ void UndertimeModule::OnStartup(Engine& engine)
 	Camera& camera = engine.GetScene().Get<Camera>(engine.MainCamera());
 	camera.nearZ = cfg::kNearPlane;
 	camera.farZ = cfg::kFarPlane;
+
+	// Development: UNDERTIME_DEV_VIEW="x y z yaw pitch" (metres, degrees) skips the title and
+	// starts there, for screenshots of a particular view.
+	// UNDERTIME_DEV_SUN="x y z": the direction sunlight travels (checking shadows).
+	char* sun = nullptr;
+	size_t sunLength = 0;
+	devSun = {};
+	if (_dupenv_s(&sun, &sunLength, "UNDERTIME_DEV_SUN") == 0 && sun)
+	{
+		std::istringstream in(sun);
+		std::free(sun);
+		XMFLOAT3 d{};
+		if (in >> d.x >> d.y >> d.z) devSun = d;
+	}
+	char* view = nullptr;
+	size_t viewLength = 0;
+	if (_dupenv_s(&view, &viewLength, "UNDERTIME_DEV_VIEW") == 0 && view)
+	{
+		float x = 0, y = 0, z = 0, yaw = 0, pitch = 0;
+		std::istringstream in(view);
+		std::free(view);
+		if (in >> x >> y >> z)
+		{
+			in >> yaw >> pitch;
+			player.Teleport({ x, y, z }, XMConvertToRadians(yaw));
+			player.pitch = XMConvertToRadians(pitch);
+			state = State::Playing;
+		}
+	}
 
 	UpdateCamera(engine);
 	UpdateLighting(engine);
@@ -275,46 +309,188 @@ void UndertimeModule::RebuildChunk(Engine& engine, int chunk)
 
 void UndertimeModule::CreateScenery(Engine& engine)
 {
+	// The valley (Valley.h): blocky terrain chunks with collision, water, and the forest.
+	// Built once per play; the valley is the same every run.
+	const auto start = std::chrono::steady_clock::now();
 	Scene& scene = engine.GetScene();
 	Renderer& renderer = engine.GetRenderer();
-	auto spawn = [&](MeshHandle mesh, const XMFLOAT3& position, float yaw = 0.0f)
+	AssetManager& assets = engine.GetAssets();
+	PhysicsWorld& physics = engine.GetPhysics();
+	if (!valley) valley = std::make_unique<Valley>();
+
+	const MaterialHandle blockMaterial = assets.GetMaterial("engine/VoxelModel");
+	std::array<XMFLOAT3, static_cast<int>(Ground::Count)> colours{};
+	colours[static_cast<int>(Ground::Grass)] = color::Linear(cfg::kTerrainGrass);
+	colours[static_cast<int>(Ground::Grass2)] = color::Linear(cfg::kTerrainGrass2);
+	colours[static_cast<int>(Ground::Dirt)] = color::Linear(cfg::kTerrainDirt);
+	colours[static_cast<int>(Ground::Sand)] = color::Linear(cfg::kTerrainSand);
+	colours[static_cast<int>(Ground::Gravel)] = color::Linear(cfg::kTerrainGravel);
+	colours[static_cast<int>(Ground::Rock)] = color::Linear(cfg::kTerrainRock);
+	colours[static_cast<int>(Ground::Rock2)] = color::Linear(cfg::kTerrainRock2);
+	colours[static_cast<int>(Ground::Snow)] = color::Linear(cfg::kTerrainSnow);
+
+	// Water: translucent, each block of the surface slowly brightening and dimming.
+	SurfaceShaderOptions waterOptions;
+	waterOptions.translucent = true;
+	waterShader = renderer.CreateSurfaceShader("UNDERTIME water",
+		"SurfaceOutput EvaluateSurface(SurfaceInput input)\n"
+		"{\n"
+		"\tSurfaceOutput s = DefaultSurfaceOutput(input);\n"
+		"\tconst float2 cell = floor(input.positionW.xz * 4.0);\n"
+		"\tconst float h = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453);\n"
+		"\ts.baseColor *= 0.85 + 0.3 * (0.5 + 0.5 * sin(input.time * (0.8 + h) + h * 6.2831));\n"
+		"\tconst float facing = saturate(dot(input.normalW, input.viewDirW));\n"
+		"\ts.alpha = lerp(0.95, s.alpha, facing);\n"
+		"\treturn s;\n"
+		"}\n", waterOptions);
+	MaterialDesc water;
+	const XMFLOAT3 waterColour = color::Linear(cfg::kWaterColor);
+	water.baseColor = { waterColour.x, waterColour.y, waterColour.z, cfg::kWaterOpacity };
+	water.roughness = 0.08f;
+	water.shader = waterShader;
+	waterMaterial = renderer.CreateMaterial(water);
+
+	auto addMesh = [&](const MeshData& data, MaterialHandle material)
 	{
-		Entity entity = scene.CreateEntity();
-		Transform transform;
-		transform.position = position;
-		transform.SetRotationEuler(0.0f, yaw, 0.0f);
-		scene.Add(entity, transform);
-		scene.Add(entity, MeshRenderer{ mesh, vertexColorMaterial });
+		if (data.indices.empty()) return;
+		const MeshHandle mesh = renderer.CreateMesh(data);
+		sceneryMeshes.push_back(mesh);
+		const Entity entity = scene.CreateEntity();
+		scene.Add(entity, Transform{});
+		scene.Add(entity, MeshRenderer{ mesh, material });
 		sceneryEntities.push_back(entity);
-		return entity;
 	};
-
-	const MeshHandle ground = renderer.CreateMesh(meshes::Ground());
-	const MeshHandle mountain = renderer.CreateMesh(meshes::Mountain());
-	sceneryMeshes = { ground, mountain };
-	spawn(ground, { 0, 0, 0 });
-	mountainEntity = spawn(mountain, { 0, 0, 0 });
-
-	// A few tree variants scattered in front of the mountain (seeded: same every run).
-	MeshHandle trees[3];
-	for (int i = 0; i < 3; ++i)
+	auto addCollision = [&](const MeshData& data)
 	{
-		trees[i] = renderer.CreateMesh(meshes::Tree(4.5f + i * 1.3f, i + 1));
-		sceneryMeshes.push_back(trees[i]);
-	}
-	std::mt19937 rng(cfg::kWorldSeed ^ 0x7EE5u);
-	std::uniform_real_distribution<float> xDist(cfg::kCenterX - 55.0f, cfg::kCenterX + 55.0f), zDist(-55.0f, -4.0f), yawDist(0.0f, XM_2PI);
-	int placed = 0;
-	for (int attempt = 0; attempt < 200 && placed < 24; ++attempt)
+		if (data.indices.empty()) return;
+		sceneryBodies.push_back(physics.CreateStaticMesh(MeshTriangles(data)));
+	};
+	// Terrain chunks: 0.25 m blocks where Valley::Detailed, 1 m blocks elsewhere, with skirts
+	// where the two meet. Sampling and meshing run on worker threads (the valley is
+	// read-only); meshes and collision are made here afterwards.
+	struct ChunkJob
 	{
-		const float x = xDist(rng), z = zDist(rng);
-		const bool onPath = std::fabs(x - (cfg::kCenterX + 0.5f)) < 5.0f && z > -30.0f;
-		const bool hutArea = x > cfg::kCenterX + 4.0f && x < cfg::kCenterX + 17.0f && z > -18.0f && z < -5.0f;   // reserved for the trader (milestone 2)
-		const bool nearSpawn = std::fabs(x - cfg::kSpawnX) < 4.0f && std::fabs(z - cfg::kSpawnZ) < 4.0f;
-		if (onPath || hutArea || nearSpawn) continue;
-		spawn(trees[placed % 3], { x, cfg::kGroundY, z }, yawDist(rng));
-		++placed;
+		float x0, z0, block;
+		std::array<float, 4> skirts;
+		MeshData ground, water, shape;
+	};
+	const float chunkSize = cfg::kTerrainChunk, skirt = 3.0f;
+	std::vector<ChunkJob> jobs;
+	for (float z0 = cfg::kValleyWorld[1]; z0 < cfg::kValleyWorld[3]; z0 += chunkSize)
+	{
+		for (float x0 = cfg::kValleyWorld[0]; x0 < cfg::kValleyWorld[2]; x0 += chunkSize)
+		{
+			const float h = chunkSize * 0.5f;
+			const bool detailed = valley->Detailed(x0 + h, z0 + h);
+			auto differs = [&](float x, float z) { return valley->Detailed(x, z) != detailed ? skirt : 0.0f; };
+			ChunkJob job;
+			job.x0 = x0;
+			job.z0 = z0;
+			job.block = detailed ? cfg::kVoxelSize : 1.0f;
+			job.skirts = { differs(x0 - h, z0 + h), differs(x0 + chunkSize + h, z0 + h), differs(x0 + h, z0 - h), differs(x0 + h, z0 + chunkSize + h) };
+			jobs.push_back(std::move(job));
+		}
 	}
+	std::atomic<size_t> nextJob{ 0 };
+	auto work = [&]()
+	{
+		for (size_t i = nextJob++; i < jobs.size(); i = nextJob++)
+		{
+			ChunkJob& job = jobs[i];
+			const TerrainPatch patch = SampleTerrain(*valley, job.x0, job.z0, job.block, static_cast<int>(std::lround(chunkSize / job.block)));
+			job.ground = BuildTerrainMesh(patch, colours, job.skirts);
+			job.water = BuildWaterMesh(patch, { 1, 1, 1 });
+			// Collision: the same shape, except on mountains away from the detailed valley
+			// (nobody walks there), where 4 m blocks are plenty.
+			const bool remote = job.block > 0.5f && job.skirts == std::array<float, 4>{ 0, 0, 0, 0 };
+			job.shape = remote ? BuildTerrainMesh(SampleTerrain(*valley, job.x0, job.z0, 4.0f, static_cast<int>(chunkSize / 4.0f)), colours, job.skirts, true)
+				: BuildTerrainMesh(patch, colours, job.skirts, true);
+		}
+	};
+	std::vector<std::thread> workers;
+	const unsigned threadCount = std::max(1u, std::thread::hardware_concurrency());
+	for (unsigned t = 1; t < threadCount; ++t) workers.emplace_back(work);
+	work();
+	for (std::thread& worker : workers) worker.join();
+	const float meshMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+
+	int chunks = 0, detailedChunks = 0;
+	size_t triangles = 0;
+	float uploadMs = 0.0f, collisionMs = 0.0f;
+	size_t collisionTriangles = 0;
+	// Chunks merged into regions of kTerrainRegion x kTerrainRegion: far fewer meshes and bodies.
+	const int region = cfg::kTerrainRegion;
+	const int columns = static_cast<int>(std::lround((cfg::kValleyWorld[2] - cfg::kValleyWorld[0]) / chunkSize));
+	const int rows = static_cast<int>(std::lround((cfg::kValleyWorld[3] - cfg::kValleyWorld[1]) / chunkSize));
+	for (int rz = 0; rz < rows; rz += region)
+	{
+		for (int rx = 0; rx < columns; rx += region)
+		{
+			MeshData ground, water, shape;
+			for (int cz = rz; cz < std::min(rz + region, rows); ++cz)
+			{
+				for (int cx = rx; cx < std::min(rx + region, columns); ++cx)
+				{
+					const ChunkJob& job = jobs[static_cast<size_t>(cz) * columns + cx];
+					AppendMesh(ground, job.ground);
+					AppendMesh(water, job.water);
+					AppendMesh(shape, job.shape);
+					++chunks;
+					detailedChunks += job.block < 0.5f ? 1 : 0;
+				}
+			}
+			auto t0 = std::chrono::steady_clock::now();
+			addMesh(ground, blockMaterial);
+			addMesh(water, waterMaterial);
+			auto t1 = std::chrono::steady_clock::now();
+			addCollision(shape);
+			auto t2 = std::chrono::steady_clock::now();
+			uploadMs += std::chrono::duration<float, std::milli>(t1 - t0).count();
+			collisionMs += std::chrono::duration<float, std::milli>(t2 - t1).count();
+			triangles += ground.indices.size() / 3;
+			collisionTriangles += shape.indices.size() / 3;
+		}
+	}
+
+	// The forest: placeholder voxel models (Content/Models/Placeholders, editable in
+	// MagicaVoxel), standing on whole blocks and turned in quarter turns so they line up
+	// with the ground. Far trees use a coarse model baked with 1 m voxels.
+	const char* const kTreeModels[] = {
+		"Models/Placeholders/ConiferSmall.vox", "Models/Placeholders/ConiferMedium.vox",
+		"Models/Placeholders/ConiferLarge.vox", "Models/Placeholders/Broadleaf.vox" };
+	MeshHandle treeMeshes[4];
+	for (int i = 0; i < 4; ++i) treeMeshes[i] = assets.GetMesh(kTreeModels[i]);
+	MeshHandle farTree;
+	VoxelModel farModel;
+	if (assets.ReadVoxelModel("Models/Placeholders/ConiferFar.vox", farModel))
+	{
+		VoxelBakeOptions options;
+		options.voxelSize = 1.0f;
+		farTree = renderer.CreateMesh(BakeVoxelMesh(farModel, options));
+		sceneryMeshes.push_back(farTree);
+	}
+	int trees = 0;
+	for (const TreeSpot& tree : valley->Trees())
+	{
+		const float block = tree.distant ? 1.0f : cfg::kVoxelSize;
+		const MeshHandle mesh = tree.distant ? farTree : treeMeshes[tree.kind];
+		if (!mesh.IsValid()) continue;
+		const float x = std::floor(tree.x / block) * block, z = std::floor(tree.z / block) * block;
+		const float y = std::round(valley->Height(x + 0.5f * block, z + 0.5f * block) / block) * block;
+		const Entity entity = scene.CreateEntity();
+		Transform transform;
+		transform.position = { x, y, z };
+		transform.SetRotationEuler(0.0f, std::floor(tree.yaw / XM_PIDIV2) * XM_PIDIV2, 0.0f);
+		scene.Add(entity, transform);
+		scene.Add(entity, MeshRenderer{ mesh, blockMaterial });
+		sceneryEntities.push_back(entity);
+		if (!tree.distant) sceneryBodies.push_back(physics.CreateStaticBox({ x, y + 1.6f, z }, { 0.25f, 1.6f, 0.25f }));   // the trunk
+		++trees;
+	}
+
+	CHERRY_LOG("UNDERTIME valley: %d terrain chunks (%d detailed, %zu triangles, %zu for collision), %d trees; meshes in %.0f ms on %u threads, upload %.0f ms, collision %.0f ms, all built in %.0f ms",
+		chunks, detailedChunks, triangles, collisionTriangles, trees, meshMs, threadCount, uploadMs, collisionMs,
+		std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count());
 }
 
 void UndertimeModule::CreateViewModels(Engine& engine)
@@ -358,6 +534,15 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	scene.DestroyEntity(lanternEntity);
 	for (MeshHandle m : chunkMeshes) renderer.DestroyMesh(m);
 	for (MeshHandle m : sceneryMeshes) renderer.DestroyMesh(m);
+	sceneryMeshes.clear();
+	sceneryEntities.clear();
+	for (BodyId body : sceneryBodies) engine.GetPhysics().RemoveBody(body);
+	sceneryBodies.clear();
+	renderer.DestroyMaterial(waterMaterial);
+	renderer.DestroySurfaceShader(waterShader);
+	waterMaterial = {};
+	waterShader = {};
+	sceneryHidden = false;
 	renderer.DestroyMesh(pickMesh);
 	renderer.DestroyMesh(shovelMesh);
 	renderer.DestroyMesh(lanternMesh);
@@ -976,14 +1161,29 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	RenderSettings& settings = engine.GetRenderer().Settings();
 
 	// 0 outside, 1 once you're kSunFadeDistance into the mountain.
-	const float inside = std::clamp(player.EyePosition().z / cfg::kSunFadeDistance, 0.0f, 1.0f);
+	// (On the mountain above the cave you're outside, whatever your z.)
+	const float inside = IsInside() ? std::clamp(player.EyePosition().z / cfg::kSunFadeDistance, 0.0f, 1.0f) : 0.0f;
 	const float outside = 1.0f - inside;
 	const float lanternRange = cfg::kLanternRange[lanternLevel];
 
 	// Daytime sky for now; the outside clock drives it in milestone 2.
 	const XMFLOAT3 sky = color::Linear(cfg::kDaySky);
 	settings.clearColor = { sky.x, sky.y, sky.z, 1.0f };
-	settings.sunDirection = { -0.35f, -0.8f, 0.45f };
+	settings.sky.enabled = true;
+	settings.sky.zenith = color::Linear(cfg::kSkyZenith);
+	settings.sky.horizon = color::Linear(cfg::kDayFog);
+	settings.sky.ground = color::Linear(cfg::kSkyGround);
+	settings.sky.gradientPower = cfg::kSkyGradientPower;
+	settings.sky.sunSize = cfg::kSunDiskSize;
+	settings.sky.sunIntensity = cfg::kSunDiskIntensity;
+	settings.sky.starIntensity = 0.0f;
+	settings.shadows.enabled = true;
+	settings.shadows.nearDistance = cfg::kShadowNear;
+	settings.shadows.farDistance = cfg::kShadowFar;
+	settings.bloom.enabled = true;
+	settings.bloom.intensity = cfg::kBloomIntensity;
+	settings.bloom.threshold = cfg::kBloomThreshold;
+	settings.sunDirection = devSun.x != 0.0f || devSun.y != 0.0f || devSun.z != 0.0f ? devSun : XMFLOAT3{ -0.35f, -0.8f, 0.45f };
 	settings.sunColor = color::Scale({ 1.0f, 0.96f, 0.88f }, outside);
 	settings.fillLightScale = outside;
 	const float ambient = cfg::kCaveAmbient + (cfg::kDayAmbient - cfg::kCaveAmbient) * outside;
@@ -1005,7 +1205,14 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	settings.pointLights.assign(1, lantern);
 
 	// The mountain shell is scenery for the outside; hide it inside so it never blocks the view.
-	engine.GetScene().Get<MeshRenderer>(mountainEntity).visible = !IsInside();
+	// Deep in the mountain the valley can't be seen: skip drawing it.
+	const bool hideScenery = IsInside() && player.position.z > cfg::kHideValleyDepth;
+	if (hideScenery != sceneryHidden)
+	{
+		sceneryHidden = hideScenery;
+		Scene& scene = engine.GetScene();
+		for (Entity entity : sceneryEntities) scene.Get<MeshRenderer>(entity).visible = !hideScenery;
+	}
 }
 
 // =============================================================================

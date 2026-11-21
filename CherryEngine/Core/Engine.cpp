@@ -388,6 +388,12 @@ void Engine::Impl::ResolveAssets(Scene& scene)
 		MeshRenderer& renderer = scene.Get<MeshRenderer>(entity);
 		if (!renderer.mesh.IsValid() && !renderer.meshAsset.empty()) renderer.mesh = assets.GetMesh(renderer.meshAsset);
 		if (!renderer.material.IsValid() && !renderer.materialAsset.empty()) renderer.material = assets.GetMaterial(renderer.materialAsset);
+		// Voxel models (.vox) default to the material that shows their colours and glow.
+		if (!renderer.material.IsValid() && renderer.materialAsset.empty() && renderer.meshAsset.size() > 4
+			&& _stricmp(renderer.meshAsset.c_str() + renderer.meshAsset.size() - 4, ".vox") == 0)
+		{
+			renderer.material = assets.GetMaterial("engine/VoxelModel");
+		}
 	}
 	for (Entity entity : scene.VoxelEntities())
 	{
@@ -414,6 +420,20 @@ void Engine::Impl::ApplyEnvironment(Scene& scene)
 		settings.fogStart = environment->fogStart;
 		settings.fogEnd = environment->fogEnd;
 		settings.exposure = environment->exposure;
+		settings.sky.enabled = environment->skyEnabled;
+		settings.sky.zenith = environment->skyZenith;
+		settings.sky.horizon = environment->skyHorizon;
+		settings.sky.ground = environment->skyGround;
+		settings.sky.gradientPower = environment->skyGradientPower;
+		settings.sky.sunSize = environment->sunSize;
+		settings.sky.sunIntensity = environment->sunIntensity;
+		settings.sky.starIntensity = environment->starIntensity;
+		settings.shadows.enabled = environment->shadowsEnabled;
+		settings.shadows.nearDistance = environment->shadowNearDistance;
+		settings.shadows.farDistance = environment->shadowFarDistance;
+		settings.bloom.enabled = environment->bloomEnabled;
+		settings.bloom.intensity = environment->bloomIntensity;
+		settings.bloom.threshold = environment->bloomThreshold;
 		return;   // the first one wins
 	}
 }

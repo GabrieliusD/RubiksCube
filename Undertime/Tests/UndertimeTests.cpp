@@ -14,6 +14,8 @@
 using namespace DirectX;
 using cfg::Block;
 
+int ValleyTests();   // ValleyTests.cpp
+
 namespace
 {
 	int gFailures = 0;
@@ -458,6 +460,7 @@ int main()
 	}
 
 	CaveGenerationTests();
+	gFailures += ValleyTests();
 
 	std::printf("%s (%d failure%s)\n", gFailures == 0 ? "ALL PASSED" : "FAILED", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures == 0 ? 0 : 1;

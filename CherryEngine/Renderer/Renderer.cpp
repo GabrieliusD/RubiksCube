@@ -262,6 +262,7 @@ struct Renderer::Impl
 	GpuTimer gpuTimer;
 
 	DynamicStructuredBuffer instanceBuffer{ "InstanceBuffer", sizeof(gpu::InstanceData) };
+	DynamicStructuredBuffer shadowInstanceBuffer{ "ShadowInstanceBuffer", sizeof(gpu::InstanceData) };
 	DynamicStructuredBuffer materialBuffer{ "MaterialBuffer", sizeof(gpu::MaterialData) };
 	DynamicStructuredBuffer materialParamBuffer{ "MaterialParamBuffer", sizeof(uint32_t) };
 	DynamicStructuredBuffer voxelBuffer{ "VoxelVolumeBuffer", sizeof(gpu::VoxelVolumeData) };
@@ -287,6 +288,29 @@ struct Renderer::Impl
 	bool frameActive = false;
 
 	std::vector<gpu::InstanceData> instanceScratch;
+	std::vector<gpu::InstanceData> sortedInstanceScratch;
+
+	// Sun shadows: one depth map per cascade, and this frame's cascades.
+	static constexpr uint32_t kShadowMapSize = 2048;
+	std::unique_ptr<rhi::Texture> shadowMaps[CHERRY_SHADOW_CASCADES];
+	struct ShadowCascade
+	{
+		BoundingOrientedBox box;    // world-space volume whose casters it draws
+		XMFLOAT4X4 viewProj;        // light view x orthographic projection
+		XMFLOAT4X4 uv;              // world -> (u, v, depth)
+		float texelWorld = 0.0f;    // world size of one texel
+		float split = 0.0f;         // view distance it covers
+	};
+	ShadowCascade cascades[CHERRY_SHADOW_CASCADES];
+	struct ShadowItem { uint32_t meshSlot; uint32_t instance; };
+	std::vector<ShadowItem> shadowScratch[CHERRY_SHADOW_CASCADES];
+	std::vector<gpu::InstanceData> shadowCasterScratch;     // instances, as the casters were found
+	std::vector<gpu::InstanceData> shadowInstanceScratch;   // ... in draw order, cascade after cascade
+	void CreateShadowMaps();
+	void SetupShadowCascades(const XMMATRIX& view, const XMMATRIX& proj, const RenderView& renderView);
+
+	// Bloom: half the view's size, then halving down the chain.
+	std::vector<std::unique_ptr<rhi::Texture>> bloomChain;
 	std::vector<gpu::MaterialData> materialScratch;
 	std::vector<uint32_t> materialParamScratch;
 	std::vector<gpu::VoxelVolumeData> voxelScratch;
@@ -304,8 +328,9 @@ struct Renderer::Impl
 	void ShutdownImGui();
 	void SetViewport(ID3D12GraphicsCommandList* cmd, uint32_t width, uint32_t height);
 	void BindGlobals(ID3D12GraphicsCommandList4* cmd);
-	gpu::FrameConstants BuildFrameConstants();
+	gpu::FrameConstants BuildFrameConstants(const XMFLOAT3* eye = nullptr);   // eye: picks the point lights that matter there
 	std::vector<PointLight> sceneLights;   // PointLight components of the scene being rendered
+	std::vector<PointLight> pointLightScratch;
 	void ClearView(ID3D12GraphicsCommandList4* cmd);
 	// Fills materialScratch / materialParamScratch from the material pool: one GPU entry per
 	// pool slot, plus its parameter block.
@@ -370,6 +395,7 @@ bool Renderer::Initialize(HWND hwnd, uint32_t width, uint32_t height, std::strin
 	r.defaultMaterial = r.materials.Add(MaterialDesc(defaultDesc));
 
 	r.CreateViewTargets(r.requestedViewWidth, r.requestedViewHeight);
+	r.CreateShadowMaps();
 	r.gpuTimer.Initialize(r.device.D3D(), r.device.Queue());
 	r.InitImGui();
 	r.initialized = true;
@@ -419,6 +445,33 @@ void Renderer::Impl::CreatePipelines()
 	debug.depthWrite = false;
 	debug.cullMode = D3D12_CULL_MODE_NONE;
 	pipelines.AddGraphics("debug", debug);
+
+	rhi::GraphicsPipelineDesc shadow;
+	shadow.shaderFile = "ShadowPass.hlsl";
+	shadow.psEntry = "";                     // depth only
+	shadow.dsvFormat = kDepthFormat;
+	shadow.cullMode = D3D12_CULL_MODE_NONE;  // both sides cast (game meshes' winding isn't guaranteed)
+	shadow.slopeScaledDepthBias = 2.5f;
+	shadow.depthBiasClamp = 0.01f;
+	pipelines.AddGraphics("shadow", shadow);
+
+	rhi::ComputePipelineDesc bloomDown;
+	bloomDown.shaderFile = "Bloom.hlsl";
+	bloomDown.entry = "CSDownsample";
+	pipelines.AddCompute("bloom_down", bloomDown);
+	rhi::ComputePipelineDesc bloomUp;
+	bloomUp.shaderFile = "Bloom.hlsl";
+	bloomUp.entry = "CSUpsample";
+	pipelines.AddCompute("bloom_up", bloomUp);
+
+	rhi::GraphicsPipelineDesc sky;
+	sky.shaderFile = "SkyPass.hlsl";
+	sky.vertexLayout = rhi::VertexLayout::None;
+	sky.rtvFormats = { kHdrFormat };
+	sky.dsvFormat = kDepthFormat;
+	sky.depthWrite = false;   // z = 1 passes LESS_EQUAL only where the depth is still clear
+	sky.cullMode = D3D12_CULL_MODE_NONE;
+	pipelines.AddGraphics("sky", sky);
 
 	rhi::GraphicsPipelineDesc blit;
 	blit.shaderFile = "Blit.hlsl";
@@ -500,8 +553,88 @@ void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
 	ldrDesc.name = "ViewLDR";
 	ldr = rhi::Texture::Create(device, ldrDesc);
 
+	// Bloom chain: half size, then halving while it's at least 8 texels, up to 6 levels.
+	bloomChain.clear();
+	for (uint32_t w = std::max(width / 2, 1u), h = std::max(height / 2, 1u); bloomChain.size() < 6; w = std::max(w / 2, 1u), h = std::max(h / 2, 1u))
+	{
+		rhi::TextureDesc level;
+		level.width = w;
+		level.height = h;
+		level.format = kHdrFormat;
+		level.usage = rhi::TextureUsage_ShaderResource | rhi::TextureUsage_UnorderedAccess;
+		level.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+		level.name = "Bloom";
+		bloomChain.push_back(rhi::Texture::Create(device, level));
+		if (w < 16 || h < 16) break;
+	}
+
 	viewWidth = width;
 	viewHeight = height;
+}
+
+void Renderer::Impl::CreateShadowMaps()
+{
+	for (auto& map : shadowMaps)
+	{
+		rhi::TextureDesc desc;
+		desc.width = desc.height = kShadowMapSize;
+		desc.format = kDepthResourceFormat;
+		desc.dsvFormat = kDepthFormat;
+		desc.srvFormat = kDepthSrvFormat;
+		desc.usage = rhi::TextureUsage_DepthStencil | rhi::TextureUsage_ShaderResource;
+		desc.initialState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+		desc.name = "ShadowMap";
+		map = rhi::Texture::Create(device, desc);
+	}
+}
+
+// Fits each cascade around its slice of the view frustum: a sphere around the slice (so the
+// map doesn't change size as the camera turns), in the sun's space, moved in whole texels
+// (so shadow edges don't shimmer as the camera moves). It reaches far towards the sun so
+// tall casters outside the view still cast into it.
+void Renderer::Impl::SetupShadowCascades(const XMMATRIX& view, const XMMATRIX& proj, const RenderView& renderView)
+{
+	const XMMATRIX invView = XMMatrixInverse(nullptr, view);
+	const XMVECTOR eye = XMLoadFloat3(&renderView.position);
+	const XMVECTOR forward = XMVector3Normalize(invView.r[2]);
+	XMFLOAT4X4 p;
+	XMStoreFloat4x4(&p, proj);
+	const float tanX = 1.0f / p._11, tanY = 1.0f / p._22;
+	const float k2 = tanX * tanX + tanY * tanY;
+
+	const XMVECTOR sun = XMVector3Normalize(XMLoadFloat3(&settings.sunDirection));
+	const XMVECTOR up = std::fabs(XMVectorGetY(sun)) > 0.99f ? XMVectorSet(0, 0, 1, 0) : XMVectorSet(0, 1, 0, 0);
+	const XMMATRIX lightView = XMMatrixLookToLH(XMVectorZero(), sun, up);
+	const XMMATRIX lightToWorld = XMMatrixInverse(nullptr, lightView);
+	const XMMATRIX toUv = XMMatrixScaling(0.5f, -0.5f, 1.0f) * XMMatrixTranslation(0.5f, 0.5f, 0.0f);
+
+	const float splits[CHERRY_SHADOW_CASCADES + 1] = { std::max(renderView.nearZ, 0.01f),
+		std::max(settings.shadows.nearDistance, 1.0f), std::max(settings.shadows.farDistance, settings.shadows.nearDistance + 1.0f) };
+	for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c)
+	{
+		const float n = splits[c], f = splits[c + 1];
+		const float zc = std::min(f, 0.5f * (n + f) * (1.0f + k2));
+		const float radius = std::max(std::sqrt((f - zc) * (f - zc) + f * f * k2), std::sqrt((zc - n) * (zc - n) + n * n * k2));
+		const XMVECTOR center = XMVectorAdd(eye, XMVectorScale(forward, zc));
+
+		XMFLOAT3 cl;
+		XMStoreFloat3(&cl, XMVector3TransformCoord(center, lightView));
+		const float texel = 2.0f * radius / kShadowMapSize;
+		cl.x = std::floor(cl.x / texel) * texel;
+		cl.y = std::floor(cl.y / texel) * texel;
+		const float reach = 400.0f;   // towards the sun, for casters outside the slice
+		const float zNear = cl.z - radius - reach, zFar = cl.z + radius;
+		const XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(cl.x - radius, cl.x + radius, cl.y - radius, cl.y + radius, zNear, zFar);
+
+		ShadowCascade& cascade = cascades[c];
+		XMStoreFloat4x4(&cascade.viewProj, lightView * lightProj);
+		XMStoreFloat4x4(&cascade.uv, lightView * lightProj * toUv);
+		cascade.texelWorld = texel;
+		cascade.split = f;
+		BoundingOrientedBox::CreateFromBoundingBox(cascade.box,
+			BoundingBox(XMFLOAT3(cl.x, cl.y, 0.5f * (zNear + zFar)), XMFLOAT3(radius, radius, 0.5f * (zFar - zNear))));
+		cascade.box.Transform(cascade.box, lightToWorld);
+	}
 }
 
 void Renderer::Impl::CreatePreviewTargets(uint32_t size)
@@ -640,6 +773,9 @@ void Renderer::Shutdown()
 	r.depth.reset();
 	r.ldr.reset();
 	r.instanceBuffer.Reset();
+	r.shadowInstanceBuffer.Reset();
+	for (auto& map : r.shadowMaps) map.reset();
+	r.bloomChain.clear();
 	r.materialBuffer.Reset();
 	r.materialParamBuffer.Reset();
 	r.voxelBuffer.Reset();
@@ -886,6 +1022,42 @@ bool CompileSurfaceShaderOffline(const std::string& name, const std::string& sou
 	return true;
 }
 
+bool CompileShaderFileOffline(const std::string& file, const std::filesystem::path& shaderRoot, std::string& errors)
+{
+	ShaderCompiler compiler;
+	compiler.Initialize();
+	ShaderDesc desc;
+	desc.filePath = shaderRoot / file;
+	desc.includeDirs.push_back(shaderRoot);
+	errors.clear();
+	for (ShaderType type : { ShaderType::Vertex, ShaderType::Pixel })
+	{
+		desc.type = type;
+		desc.entryPoint = type == ShaderType::Vertex ? "VSMain" : "PSMain";
+		const CompiledShader result = compiler.Compile(desc);
+		if (!result.success)
+		{
+			errors = std::string(type == ShaderType::Vertex ? "VSMain: " : "PSMain: ") + result.errors;
+			return false;
+		}
+	}
+	return true;
+}
+
+bool CompileComputeShaderOffline(const std::string& file, const std::string& entry, const std::filesystem::path& shaderRoot, std::string& errors)
+{
+	ShaderCompiler compiler;
+	compiler.Initialize();
+	ShaderDesc desc;
+	desc.filePath = shaderRoot / file;
+	desc.includeDirs.push_back(shaderRoot);
+	desc.type = ShaderType::Compute;
+	desc.entryPoint = entry;
+	const CompiledShader result = compiler.Compile(desc);
+	errors = result.success ? std::string() : entry + ": " + result.errors;
+	return result.success;
+}
+
 void Renderer::DestroySurfaceShader(SurfaceShaderHandle shader)
 {
 	Impl& r = *mImpl;
@@ -1042,6 +1214,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	gpu::FrameConstants frame = r.BuildFrameConstants();
 	frame.numPointLights = 0;
 	frame.fogStart = frame.fogEnd = 0.0f;
+	frame.shadowEnabled = 0;
 	frame.materialBufferIndex = r.previewMaterialBuffer.Write(r.device, frameIndex, r.materialScratch.data(), static_cast<uint32_t>(r.materialScratch.size()));
 	frame.materialParamBufferIndex = r.previewParamBuffer.Write(r.device, frameIndex, r.materialParamScratch.data(), static_cast<uint32_t>(r.materialParamScratch.size()));
 	const MaterialHandle material = r.materials.IsValid(materialHandle) ? materialHandle : r.defaultMaterial;
@@ -1096,8 +1269,8 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size };
-	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, 4, &tonemap, 0);
+	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f };
+	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((size + 7) / 8, (size + 7) / 8, 1);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	return static_cast<unsigned long long>(r.previewLdr->SrvGpu().ptr);
@@ -1158,7 +1331,7 @@ void Renderer::BeginFrame(float totalTime, float deltaTime)
 	ImGui::NewFrame();
 }
 
-gpu::FrameConstants Renderer::Impl::BuildFrameConstants()
+gpu::FrameConstants Renderer::Impl::BuildFrameConstants(const XMFLOAT3* eye)
 {
 	gpu::FrameConstants frame{};
 	frame.time = totalTime;
@@ -1180,12 +1353,18 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants()
 	frame.lights[2].Strength = { 0.2f * fill, 0.2f * fill, 0.22f * fill };
 	frame.numDirLights = 3;
 
-	// The game's lights first, then the scene's PointLight components.
-	const uint32_t gameLights = static_cast<uint32_t>(settings.pointLights.size());
-	const uint32_t pointCount = std::min<uint32_t>(gameLights + static_cast<uint32_t>(sceneLights.size()), CHERRY_MAX_POINT_LIGHTS);
+	// The game's lights and the scene's PointLight components; past CHERRY_MAX_POINT_LIGHTS,
+	// the ones that matter most at the camera.
+	std::vector<PointLight>& all = pointLightScratch;
+	all.assign(settings.pointLights.begin(), settings.pointLights.end());
+	all.insert(all.end(), sceneLights.begin(), sceneLights.end());
+	std::vector<uint32_t> chosen;
+	if (all.size() > CHERRY_MAX_POINT_LIGHTS && eye) chosen = SelectPointLights(all, *eye, CHERRY_MAX_POINT_LIGHTS);
+	else for (uint32_t i = 0; i < std::min<uint32_t>(static_cast<uint32_t>(all.size()), CHERRY_MAX_POINT_LIGHTS); ++i) chosen.push_back(i);
+	const uint32_t pointCount = static_cast<uint32_t>(chosen.size());
 	for (uint32_t i = 0; i < pointCount; ++i)
 	{
-		const PointLight& light = i < gameLights ? settings.pointLights[i] : sceneLights[i - gameLights];
+		const PointLight& light = all[chosen[i]];
 		gpu::Light& out = frame.pointLights[i];
 		out.Position = light.position;
 		out.Strength = { light.color.x * light.intensity, light.color.y * light.intensity, light.color.z * light.intensity };
@@ -1204,7 +1383,38 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants()
 	{
 		frame.fogStart = frame.fogEnd = 0.0f;   // disabled
 	}
+
+	for (uint32_t i = 0; i < CHERRY_SHADER_GLOBALS; ++i) frame.globals[i] = settings.shaderGlobals[i];
+
+	const SkySettings& sky = settings.sky;
+	frame.skyEnabled = sky.enabled ? 1u : 0u;
+	frame.skyZenith = sky.zenith;
+	frame.skyHorizon = sky.horizon;
+	frame.skyGround = sky.ground;
+	frame.skyGradientPower = sky.gradientPower;
+	frame.sunCosRadius = sky.sunSize > 0.0f ? std::cos(XMConvertToRadians(std::min(sky.sunSize, 20.0f))) : 1.0f;
+	frame.sunDiskColor = { settings.sunColor.x * sky.sunIntensity, settings.sunColor.y * sky.sunIntensity, settings.sunColor.z * sky.sunIntensity };
+	frame.starIntensity = std::max(sky.starIntensity, 0.0f);
 	return frame;
+}
+
+std::vector<uint32_t> SelectPointLights(const std::vector<PointLight>& lights, const XMFLOAT3& eye, uint32_t maxLights)
+{
+	std::vector<uint32_t> order(lights.size());
+	for (uint32_t i = 0; i < order.size(); ++i) order[i] = i;
+	if (order.size() <= maxLights) return order;
+	// How far the camera is outside each light's reach (negative: inside it).
+	std::vector<float> score(lights.size());
+	for (size_t i = 0; i < lights.size(); ++i)
+	{
+		const XMFLOAT3& p = lights[i].position;
+		const float dx = p.x - eye.x, dy = p.y - eye.y, dz = p.z - eye.z;
+		score[i] = std::sqrt(dx * dx + dy * dy + dz * dz) - std::max(lights[i].range, 0.0f);
+	}
+	std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return score[a] < score[b]; });
+	order.resize(maxLights);
+	std::sort(order.begin(), order.end());
+	return order;
 }
 
 void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
@@ -1224,6 +1434,13 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	frustum.Transform(frustum, invView);
 
 	r.BuildMaterialScratch();
+
+	// ---- Sun shadow cascades ------------------------------------------------
+	const XMFLOAT3& sunColor = r.settings.sunColor;
+	const bool shadows = r.settings.shadows.enabled && sunColor.x + sunColor.y + sunColor.z > 0.0f;
+	if (shadows) r.SetupShadowCascades(view, proj, renderView);
+	for (auto& list : r.shadowScratch) list.clear();
+	r.shadowCasterScratch.clear();
 
 	// ---- Mesh instances (CPU frustum culling) ------------------------------
 	r.instanceScratch.clear();
@@ -1247,6 +1464,24 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		{
 			const float pad = surface->options.boundsPadding;
 			worldBounds.Extents = { worldBounds.Extents.x + pad, worldBounds.Extents.y + pad, worldBounds.Extents.z + pad };
+		}
+		const bool castsShadow = shadows && !viewModel && !(surface && surface->options.translucent);
+		if (castsShadow)
+		{
+			// Shadow casters are found whether or not the camera sees them.
+			uint32_t caster = UINT32_MAX;
+			for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c)
+			{
+				if (!r.cascades[c].box.Intersects(worldBounds)) continue;
+				if (caster == UINT32_MAX)
+				{
+					caster = static_cast<uint32_t>(r.shadowCasterScratch.size());
+					gpu::InstanceData shadowInstance{};
+					XMStoreFloat4x4(&shadowInstance.world, world);
+					r.shadowCasterScratch.push_back(shadowInstance);
+				}
+				r.shadowScratch[c].push_back({ renderer.mesh.index, caster });
+			}
 		}
 		if (!viewModel && r.settings.cullingEnabled && !frustum.Intersects(worldBounds))
 		{
@@ -1281,6 +1516,28 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		if (a.pipeline != b.pipeline) return a.pipeline < b.pipeline;
 		return a.meshSlot < b.meshSlot;
 	});
+	// Instances in draw order, so a run of draws with the same pipeline and mesh becomes one
+	// instanced draw over consecutive entries.
+	r.sortedInstanceScratch.clear();
+	for (DrawItem& item : r.drawScratch)
+	{
+		const uint32_t sorted = static_cast<uint32_t>(r.sortedInstanceScratch.size());
+		r.sortedInstanceScratch.push_back(r.instanceScratch[item.instanceIndex]);
+		item.instanceIndex = sorted;
+	}
+	std::swap(r.instanceScratch, r.sortedInstanceScratch);
+	// Shadow casters by mesh (instanced), cascade after cascade in one buffer.
+	r.shadowInstanceScratch.clear();
+	for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c)
+	{
+		std::sort(r.shadowScratch[c].begin(), r.shadowScratch[c].end(), [](const auto& a, const auto& b) { return a.meshSlot < b.meshSlot; });
+		for (auto& item : r.shadowScratch[c])
+		{
+			const uint32_t sorted = static_cast<uint32_t>(r.shadowInstanceScratch.size());
+			r.shadowInstanceScratch.push_back(r.shadowCasterScratch[item.instance]);
+			item.instance = sorted;
+		}
+	}
 	const auto firstViewModel = std::find_if(r.drawScratch.begin(), r.drawScratch.end(),
 		[](const DrawItem& item) { return item.layer == static_cast<uint32_t>(RenderLayer::ViewModel); });
 	const auto firstWorldTranslucent = std::find_if(r.drawScratch.begin(), firstViewModel,
@@ -1338,13 +1595,60 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	}
 
 	// ---- Upload per-frame data ---------------------------------------------
-	gpu::FrameConstants frame = r.BuildFrameConstants();
+	gpu::FrameConstants frame = r.BuildFrameConstants(&renderView.position);
 	frame.materialBufferIndex = r.materialBuffer.Write(r.device, frameIndex, r.materialScratch.data(), static_cast<uint32_t>(r.materialScratch.size()));
 	frame.materialParamBufferIndex = r.materialParamBuffer.Write(r.device, frameIndex, r.materialParamScratch.data(), static_cast<uint32_t>(r.materialParamScratch.size()));
 	frame.instanceBufferIndex = r.instanceBuffer.Write(r.device, frameIndex, r.instanceScratch.data(), static_cast<uint32_t>(r.instanceScratch.size()));
 	frame.voxelVolumeBufferIndex = r.voxelBuffer.Write(r.device, frameIndex, r.voxelScratch.data(), static_cast<uint32_t>(r.voxelScratch.size()));
 	const auto& lines = r.debugDraw.Vertices();
 	frame.debugVertexBufferIndex = r.debugVertexBuffer.Write(r.device, frameIndex, lines.data(), static_cast<uint32_t>(lines.size()));
+
+	// ---- Shadow maps (before the mesh pass, which reads them) -------------------
+	if (shadows)
+	{
+		gpu::FrameConstants shadowFrame = frame;
+		shadowFrame.instanceBufferIndex = r.shadowInstanceBuffer.Write(r.device, frameIndex, r.shadowInstanceScratch.data(), static_cast<uint32_t>(r.shadowInstanceScratch.size()));
+		cmd->SetGraphicsRootConstantBufferView(rhi::RootSlot_FrameConstants, r.uploadRing.PushConstants(shadowFrame));
+		cmd->SetPipelineState(r.pipelines.Get("shadow"));
+		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c)
+		{
+			gpu::ViewConstants lightView{};
+			lightView.viewProj = r.cascades[c].viewProj;
+			lightView.eyePosW = renderView.position;
+			cmd->SetGraphicsRootConstantBufferView(rhi::RootSlot_ViewConstants, r.uploadRing.PushConstants(lightView));
+			rhi::Texture& map = *r.shadowMaps[c];
+			map.Transition(cmd, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			const D3D12_CPU_DESCRIPTOR_HANDLE mapDsv = map.Dsv();
+			cmd->ClearDepthStencilView(mapDsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+			cmd->OMSetRenderTargets(0, nullptr, FALSE, &mapDsv);
+			r.SetViewport(cmd, Impl::kShadowMapSize, Impl::kShadowMapSize);
+			const auto& items = r.shadowScratch[c];
+			for (size_t i = 0; i < items.size(); )
+			{
+				size_t end = i + 1;
+				while (end < items.size() && items[end].meshSlot == items[i].meshSlot) ++end;
+				const MeshResource* mesh = r.meshes.AtSlot(items[i].meshSlot);
+				const D3D12_VERTEX_BUFFER_VIEW vbv = mesh->vertexBuffer->VertexView(sizeof(Vertex));
+				const D3D12_INDEX_BUFFER_VIEW ibv = mesh->indexBuffer->IndexView(DXGI_FORMAT_R32_UINT);
+				cmd->IASetVertexBuffers(0, 1, &vbv);
+				cmd->IASetIndexBuffer(&ibv);
+				gpu::MeshDrawConstants constants{ items[i].instance };
+				cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
+				cmd->DrawIndexedInstanced(mesh->indexCount, static_cast<UINT>(end - i), 0, 0, 0);
+				++stats.drawCalls;
+				i = end;
+			}
+			map.Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		}
+		frame.shadowEnabled = 1;
+		frame.shadowMap0 = r.shadowMaps[0]->SrvIndex();
+		frame.shadowMap1 = r.shadowMaps[1]->SrvIndex();
+		for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c) frame.shadowMatrix[c] = r.cascades[c].uv;
+		frame.shadowSplits = { r.cascades[0].split, r.cascades[1].split, r.cascades[1].split * 0.15f, 0.0f };
+		frame.shadowTexelWorld = { r.cascades[0].texelWorld, r.cascades[1].texelWorld, 0.0f, 0.0f };
+		frame.shadowNormalBias = r.settings.shadows.normalBias;
+	}
 
 	gpu::ViewConstants viewConstants{};
 	XMStoreFloat4x4(&viewConstants.view, view);
@@ -1384,7 +1688,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		uint32_t boundPipeline = UINT32_MAX;
 		uint32_t boundMesh = UINT32_MAX;
 		const MeshResource* currentMesh = nullptr;
-		for (auto it = begin; it != end; ++it)
+		for (auto it = begin; it != end; )
 		{
 			if (it->pipeline != boundPipeline)
 			{
@@ -1400,10 +1704,14 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 				cmd->IASetIndexBuffer(&ibv);
 				boundMesh = it->meshSlot;
 			}
+			// Every following draw of the same mesh with the same pipeline: one instanced draw.
+			auto runEnd = it + 1;
+			while (runEnd != end && runEnd->pipeline == it->pipeline && runEnd->meshSlot == it->meshSlot) ++runEnd;
 			gpu::MeshDrawConstants constants{ it->instanceIndex };
 			cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
-			cmd->DrawIndexedInstanced(currentMesh->indexCount, 1, 0, 0, 0);
+			cmd->DrawIndexedInstanced(currentMesh->indexCount, static_cast<UINT>(runEnd - it), 0, 0, 0);
 			++stats.drawCalls;
+			it = runEnd;
 		}
 	};
 
@@ -1430,7 +1738,15 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		}
 		stats.voxelVolumes = static_cast<uint32_t>(r.voxelScratch.size());
 	}
-	// ---- Translucent world meshes (over opaque meshes and voxels, back to front) --
+	// ---- Sky: wherever no mesh or voxel was drawn ----------------------------------
+	if (r.settings.sky.enabled)
+	{
+		cmd->SetPipelineState(r.pipelines.Get("sky"));
+		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		cmd->DrawInstanced(3, 1, 0, 0);
+		++stats.drawCalls;
+	}
+	// ---- Translucent world meshes (over opaque meshes, voxels and the sky, back to front) --
 	if (firstWorldTranslucent != firstViewModel)
 	{
 		drawMeshes(firstWorldTranslucent, firstViewModel);
@@ -1455,12 +1771,35 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	}
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_DebugEnd);
 
-	// ---- Tonemap (compute) --------------------------------------------------
+	// ---- Bloom (compute): down the chain from the HDR view, then back up ---------
 	r.hdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	const BloomSettings& bloom = r.settings.bloom;
+	const bool bloomOn = bloom.enabled && bloom.intensity > 0.0f && !r.bloomChain.empty();
+	if (bloomOn)
+	{
+		auto dispatch = [&](const char* pipeline, rhi::Texture& source, rhi::Texture& dest, bool first)
+		{
+			source.Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			dest.Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			cmd->SetPipelineState(r.pipelines.Get(pipeline));
+			gpu::BloomConstants constants{ source.SrvIndex(), dest.UavIndex(), dest.Width(), dest.Height(),
+				bloom.threshold, std::max(bloom.knee, 0.001f), first ? 1u : 0u, bloom.radius };
+			cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(constants) / 4, &constants, 0);
+			cmd->Dispatch((dest.Width() + 7) / 8, (dest.Height() + 7) / 8, 1);
+			dest.UavBarrier(cmd);
+		};
+		dispatch("bloom_down", *r.hdr, *r.bloomChain[0], true);
+		for (size_t i = 1; i < r.bloomChain.size(); ++i) dispatch("bloom_down", *r.bloomChain[i - 1], *r.bloomChain[i], false);
+		for (size_t i = r.bloomChain.size() - 1; i > 0; --i) dispatch("bloom_up", *r.bloomChain[i], *r.bloomChain[i - 1], false);
+		r.bloomChain[0]->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	}
+
+	// ---- Tonemap (compute) --------------------------------------------------
 	r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), r.ldr->UavIndex(), r.viewWidth, r.viewHeight };
-	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, 4, &tonemap, 0);
+	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), r.ldr->UavIndex(), r.viewWidth, r.viewHeight,
+		bloomOn ? r.bloomChain[0]->SrvIndex() : CHERRY_INVALID_INDEX, bloom.intensity };
+	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
 	r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_TonemapEnd);

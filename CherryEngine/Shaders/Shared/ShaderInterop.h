@@ -24,6 +24,8 @@
 
 #define CHERRY_MAX_LIGHTS 4
 #define CHERRY_MAX_POINT_LIGHTS 8
+#define CHERRY_SHADER_GLOBALS 4
+#define CHERRY_SHADOW_CASCADES 2
 #define CHERRY_INVALID_INDEX 0xFFFFFFFF
 
 struct Light
@@ -62,6 +64,30 @@ struct FrameConstants
 	float  pad1;
 	// Point lights: Position, Strength (colour x intensity), FalloffEnd (range).
 	Light pointLights[CHERRY_MAX_POINT_LIGHTS];
+
+	// RenderSettings::shaderGlobals: values the game sets for every surface shader
+	// (ShaderGlobal(i) in Surface.hlsli, the Global Input graph node).
+	float4 globals[CHERRY_SHADER_GLOBALS];
+
+	// The sky (RenderSettings::sky), drawn where nothing else is (SkyPass.hlsl).
+	float3 skyZenith;              // linear HDR, straight up
+	uint   skyEnabled;
+	float3 skyHorizon;             // at the horizon
+	float  sunCosRadius;           // cos of the sun disk's angular radius (1 = no disk)
+	float3 skyGround;              // below the horizon
+	float  starIntensity;
+	float3 sunDiskColor;           // sun colour x disk brightness
+	float  skyGradientPower;       // how fast the horizon colour gives way to the zenith colour
+
+	// Sun shadows (RenderSettings::shadows): CHERRY_SHADOW_CASCADES shadow maps around the
+	// camera, the nearest first. shadowMatrix maps world space to (u, v, depth) of its map.
+	CHERRY_MATRIX shadowMatrix[CHERRY_SHADOW_CASCADES];
+	float4 shadowSplits;           // view distance where each cascade ends (x, y); z: fade length of the last
+	float4 shadowTexelWorld;       // world size of one shadow texel in each cascade (x, y)
+	uint   shadowMap0;             // Texture2D<float> (depth) of cascade 0
+	uint   shadowMap1;             // ... and cascade 1 (not an array: cbuffer arrays pad each element to 16 bytes)
+	uint   shadowEnabled;
+	float  shadowNormalBias;       // texels of push along the normal before the lookup
 };
 
 // Root CBV b1: one camera / view.
@@ -155,6 +181,21 @@ struct TonemapConstants
 	uint outputTextureIndex;       // RWTexture2D<float4> (UNORM, gamma encoded by the shader)
 	uint width;
 	uint height;
+	uint bloomTextureIndex;        // Texture2D<float4> at half size, or CHERRY_INVALID_INDEX
+	float bloomIntensity;
+};
+
+// One step of the bloom chain (Bloom.hlsl): read `source`, write `dest` (dest size given).
+struct BloomConstants
+{
+	uint sourceIndex;              // Texture2D<float4>
+	uint destIndex;                // RWTexture2D<float4>
+	uint destWidth;
+	uint destHeight;
+	float threshold;               // first downsample only: brightness where bloom starts
+	float knee;                    // ... and how softly it starts
+	uint firstPass;                // 1: from the HDR view (threshold, firefly-proof averaging)
+	float radius;                  // upsample: how far the blur spreads (in source texels)
 };
 
 struct BlitConstants

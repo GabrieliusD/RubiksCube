@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "Renderer/Renderer.h"
 #include "GeometryGenerator.h"
+#include "Voxel/VoxelModel.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <fstream>
@@ -36,7 +37,13 @@ namespace
 		DirectX::XMFLOAT4 color;
 		float roughness;
 		float metallic;
+		const char* shader = nullptr;   // a built-in surface shader (kBuiltinShaders), or none
 	};
+
+	// Built-in surface shaders (the EvaluateSurface part; see Shaders/Surface.hlsli).
+	// engine/VoxelModelShader: meshes baked from voxel models (Shaders/VoxelModelSurface.hlsli).
+	const char* const kVoxelModelShader = "engine/VoxelModelShader";
+	const char* const kVoxelModelSurface = "#include \"VoxelModelSurface.hlsli\"\n";
 
 	const BuiltinMaterial kBuiltinMaterials[] =
 	{
@@ -49,6 +56,8 @@ namespace
 		{ "engine/Yellow",  { 0.95f, 0.78f, 0.15f, 1 }, 0.5f, 0.0f },
 		{ "engine/Gold",    { 1.00f, 0.77f, 0.34f, 1 }, 0.25f, 1.0f },
 		{ "engine/Stone",   { 0.42f, 0.40f, 0.38f, 1 }, 0.9f, 0.0f },
+		// The default for .vox meshes: voxel colours, matte, glowing colours glow.
+		{ "engine/VoxelModel", { 1.00f, 1.00f, 1.00f, 1 }, 0.85f, 0.0f, kVoxelModelShader },
 	};
 	const char* kBuiltinMeshes[] = { "engine/Cube", "engine/Sphere", "engine/Plane", "engine/Cylinder" };
 
@@ -59,6 +68,7 @@ namespace
 	}
 
 	bool IsBuiltin(const std::string& path) { return path.rfind("engine/", 0) == 0; }
+	bool IsVoxPath(const std::string& path) { return Lower(fs::u8path(path).extension().u8string()) == ".vox"; }
 
 	// "Meshes/rock.glb#2" -> ("Meshes/rock.glb", "2")
 	std::pair<std::string, std::string> SplitSubAsset(const std::string& path)
@@ -143,6 +153,19 @@ struct AssetManager::Impl
 		if (IsBuiltin(path) || contentRoot.empty()) return {};
 
 		const std::string extension = Lower(fs::u8path(path).extension().u8string());
+		if (extension == ".vox")
+		{
+			VoxelModel model;
+			std::string error;
+			if (!LoadVox(Full(path), model, error))
+			{
+				ReportMissing("mesh", path, error);
+				return {};
+			}
+			if (!error.empty()) CHERRY_WARN("%s: %s", path.c_str(), error.c_str());
+			Watch(path);
+			return renderer->CreateMesh(BakeVoxelMesh(model));
+		}
 		if (extension != ".gltf" && extension != ".glb") return {};
 		asset_import::GltfFile gltf;
 		std::string error;
@@ -205,6 +228,7 @@ struct AssetManager::Impl
 			out.baseColor = builtin.color;
 			out.roughness = builtin.roughness;
 			out.metallic = builtin.metallic;
+			if (builtin.shader) out.shader = builtin.shader;
 			return true;
 		}
 		if (contentRoot.empty()) return false;
@@ -444,7 +468,11 @@ struct AssetManager::Impl
 		if (it != shaders.end()) return it->second.handle;
 		ShaderEntry& entry = shaders[path];   // misses too, so a bad path doesn't retry every frame
 		std::string source;
-		if (contentRoot.empty())
+		if (path == kVoxelModelShader)
+		{
+			entry.handle = renderer->CreateSurfaceShader(path, kVoxelModelSurface);
+		}
+		else if (contentRoot.empty())
 		{
 		}
 		else if (TypeOf(path) == "shadergraph")
@@ -480,7 +508,7 @@ struct AssetManager::Impl
 			const std::string type = AssetManager::TypeOf(path);
 			if (type.empty()) continue;
 			listing[type].push_back(path);
-			if (type == "mesh")
+			if (type == "mesh" && !IsVoxPath(path))
 			{
 				// Its materials are assets too.
 				asset_import::GltfFile gltf;
@@ -680,7 +708,7 @@ std::string AssetManager::TypeOf(const std::string& path)
 	const auto [file, sub] = SplitSubAsset(path);
 	const std::string extension = Lower(fs::u8path(file).extension().u8string());
 	if (!sub.empty()) return sub.rfind("image", 0) == 0 ? "texture" : "material";
-	if (extension == ".gltf" || extension == ".glb") return "mesh";
+	if (extension == ".gltf" || extension == ".glb" || extension == ".vox") return "mesh";
 	if (extension == ".mat") return "material";
 	if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".tga" || extension == ".bmp" || extension == ".dds") return "texture";
 	if (extension == ".scene") return "scene";
@@ -702,6 +730,19 @@ std::string AssetManager::AssetPathOf(const fs::path& file) const
 	const fs::path relative = file.lexically_normal().lexically_relative(mImpl->contentRoot);
 	if (relative.empty() || relative.native().rfind(L"..", 0) == 0) return {};
 	return relative.generic_u8string();
+}
+
+bool AssetManager::ReadVoxelModel(const std::string& path, VoxelModel& out)
+{
+	Impl& a = *mImpl;
+	if (a.contentRoot.empty() || !IsVoxPath(path)) return false;
+	std::string error;
+	if (!LoadVox(a.Full(path), out, error))
+	{
+		a.ReportMissing("voxel model", path, error);
+		return false;
+	}
+	return true;
 }
 
 bool AssetManager::ReadPrefab(const std::string& path, std::string& out)

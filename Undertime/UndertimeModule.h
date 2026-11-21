@@ -11,7 +11,9 @@
 #include "CaveGenerator.h"
 #include "CaveMap.h"
 #include "SceneComponents.h"
+#include "Valley.h"
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -85,7 +87,11 @@ private:
 	void UpdateLighting(Engine& engine);
 
 	float Depth() const { return player.position.z; }   // metres into the mountain (x10 on the HUD)
-	bool IsInside() const { return player.position.z > 0.0f; }
+	// In the cave grid (the mountain over it is outside: you can climb it).
+	bool IsInside() const
+	{
+		return player.position.z > 0.0f && player.position.x >= 0.0f && player.position.x <= cfg::kGridX && player.position.y < cfg::kGridY;
+	}
 
 	VoxelWorld world;
 	uint32_t seed = 0;
@@ -123,7 +129,12 @@ private:
 	std::vector<MeshHandle> chunkMeshes;
 	std::vector<MeshHandle> sceneryMeshes;
 	std::vector<Entity> sceneryEntities;
-	Entity mountainEntity = INVALID_ENTITY;
+	std::vector<BodyId> sceneryBodies;
+	std::unique_ptr<Valley> valley;
+	SurfaceShaderHandle waterShader;
+	MaterialHandle waterMaterial;
+	bool sceneryHidden = false;
+	DirectX::XMFLOAT3 devSun{ 0, 0, 0 };   // UNDERTIME_DEV_SUN, for checking shadows
 	Entity pickEntity = INVALID_ENTITY;
 	Entity shovelEntity = INVALID_ENTITY;
 	Entity lanternEntity = INVALID_ENTITY;

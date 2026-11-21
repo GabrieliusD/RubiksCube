@@ -38,6 +38,12 @@ namespace rhi
 			s.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 			return s;
 		};
+		// s6: shadow-map comparisons (lit where the reference depth <= the stored depth), with
+		// bilinear filtering of the results; outside the map counts as lit.
+		D3D12_STATIC_SAMPLER_DESC shadowSampler = sampler(6, D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT, D3D12_TEXTURE_ADDRESS_MODE_BORDER);
+		shadowSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+		shadowSampler.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+		shadowSampler.MaxAnisotropy = 1;
 		const D3D12_STATIC_SAMPLER_DESC samplers[] =
 		{
 			sampler(0, D3D12_FILTER_MIN_MAG_MIP_POINT,  D3D12_TEXTURE_ADDRESS_MODE_WRAP),
@@ -46,6 +52,7 @@ namespace rhi
 			sampler(3, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP),
 			sampler(4, D3D12_FILTER_ANISOTROPIC,        D3D12_TEXTURE_ADDRESS_MODE_WRAP),
 			sampler(5, D3D12_FILTER_ANISOTROPIC,        D3D12_TEXTURE_ADDRESS_MODE_CLAMP),
+			shadowSampler,
 		};
 
 		D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc{};
@@ -210,6 +217,9 @@ namespace rhi
 			psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 			psoDesc.RasterizerState.CullMode = desc.cullMode;
 			psoDesc.RasterizerState.FrontCounterClockwise = FALSE;
+			psoDesc.RasterizerState.DepthBias = desc.depthBias;
+			psoDesc.RasterizerState.SlopeScaledDepthBias = desc.slopeScaledDepthBias;
+			psoDesc.RasterizerState.DepthBiasClamp = desc.depthBiasClamp;
 
 			psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 			if (desc.alphaBlend)

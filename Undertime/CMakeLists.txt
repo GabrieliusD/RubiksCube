@@ -22,6 +22,10 @@ set(UndertimeSrc
     CaveGenerator.cpp
     CaveMap.h
     CaveMap.cpp
+    Valley.h
+    Valley.cpp
+    TerrainMesh.h
+    TerrainMesh.cpp
     Player.h
     Player.cpp
     Meshes.h
@@ -48,6 +52,13 @@ if(MSVC)
 endif()
 
 # Pure voxel/physics helper tests: ctest -C Debug
-add_executable(UndertimeTests Tests/UndertimeTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp)
+add_executable(UndertimeTests Tests/UndertimeTests.cpp Tests/ValleyTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp
+    Valley.cpp TerrainMesh.cpp)
 target_link_libraries(UndertimeTests PRIVATE CherryEngine)
 add_test(NAME UndertimeTests COMMAND UndertimeTests)
+
+# Writes the placeholder voxel models (Content/Models/Placeholders/*.vox). Run by hand:
+#   bin/<Config>/UndertimePlaceholders.exe
+add_executable(UndertimePlaceholders Tools/Placeholders.cpp)
+target_link_libraries(UndertimePlaceholders PRIVATE CherryEngine)
+target_compile_definitions(UndertimePlaceholders PRIVATE UNDERTIME_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Content")

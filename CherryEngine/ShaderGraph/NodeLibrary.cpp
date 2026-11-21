@@ -109,6 +109,14 @@ namespace sg
 				"Meshes: the position in the mesh's own space. Voxels: the position in the volume's grid in metres "
 				"(it moves with pieces that break off, so patterns stay put on them).",
 				{}, { P("Position", F3) }, fixed({ "input.positionL" }));
+			{
+				NodeDef& d = add("GlobalInput", "Global Input", "Inputs",
+					"A value the game sets for every shader (RenderSettings::shaderGlobals), such as time of day, "
+					"snow or wind. Pick which of the 4 slots to read.",
+					{}, { P("Value", F4) },
+					[](EmitContext& c) { c.out[0] = "ShaderGlobal(" + std::to_string(std::clamp(c.node->option, 0, 3)) + ")"; });
+				d.settings = Setting_GlobalSlot;
+			}
 			add("BlockIndex", "Block Index", "Inputs",
 				"Voxels: the palette index of the voxel (which block it is). Meshes: 0. Compare it with an If node.",
 				{}, { P("Index", F1) }, fixed({ "input.blockId" }));

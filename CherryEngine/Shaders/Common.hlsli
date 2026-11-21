@@ -13,6 +13,7 @@ SamplerState gLinearWrap  : register(s2);
 SamplerState gLinearClamp : register(s3);
 SamplerState gAnisoWrap   : register(s4);
 SamplerState gAnisoClamp  : register(s5);
+SamplerComparisonState gShadowSampler : register(s6);   // shadow maps: LESS_EQUAL, bilinear, border = lit
 
 float3 SrgbToLinear(float3 c)
 {

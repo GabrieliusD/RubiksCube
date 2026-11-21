@@ -10,6 +10,8 @@
 using namespace DirectX;
 
 int RunShaderGraphTests();   // ShaderGraphTests.cpp
+int RunVoxelModelTests();    // VoxelModelTests.cpp
+int RunRendererTests();      // RendererTests.cpp
 
 namespace
 {
@@ -302,6 +304,12 @@ int main()
 
 	// ---- Shader graphs ----------------------------------------------------------------------------
 	gFailures += RunShaderGraphTests();
+
+	// ---- Voxel models -----------------------------------------------------------------------------
+	gFailures += RunVoxelModelTests();
+
+	// ---- Renderer (no GPU) ------------------------------------------------------------------------
+	gFailures += RunRendererTests();
 
 	std::printf("\n%s (%d failure%s)\n", gFailures == 0 ? "All engine tests passed" : "ENGINE TESTS FAILED", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures == 0 ? 0 : 1;

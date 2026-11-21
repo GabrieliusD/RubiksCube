@@ -2,6 +2,7 @@
 #include "CherryAPI.h"
 #include <DirectXMath.h>
 #include <DirectXCollision.h>
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -121,6 +122,46 @@ struct PointLight
 };
 
 constexpr uint32_t kMaxPointLights = 8;   // matches CHERRY_MAX_POINT_LIGHTS
+constexpr uint32_t kShaderGlobalCount = 4;   // matches CHERRY_SHADER_GLOBALS
+
+// Picks which point lights to use when there are more than `maxLights`: the ones that matter
+// most at `eye` (closest to reaching it: distance minus range). Returns indices into `lights`,
+// in their original order.
+CHERRY_API std::vector<uint32_t> SelectPointLights(const std::vector<PointLight>& lights, const DirectX::XMFLOAT3& eye, uint32_t maxLights);
+
+// A gradient sky with a sun disk and stars, drawn wherever no mesh or voxel was drawn.
+// Disabled, the background is RenderSettings::clearColor.
+struct SkySettings
+{
+	bool enabled = false;
+	DirectX::XMFLOAT3 zenith{ 0.16f, 0.34f, 0.78f };     // linear HDR, straight up
+	DirectX::XMFLOAT3 horizon{ 0.60f, 0.74f, 0.90f };    // at the horizon
+	DirectX::XMFLOAT3 ground{ 0.30f, 0.29f, 0.27f };     // below the horizon
+	float gradientPower = 0.5f;     // < 1: the horizon colour stays low; > 1: it reaches higher
+	float sunSize = 0.6f;           // angular radius of the sun disk, degrees (0 = no disk)
+	float sunIntensity = 30.0f;     // disk brightness, times RenderSettings::sunColor
+	float starIntensity = 0.0f;     // 0 by day; around 1 on a clear night
+};
+
+// Sun shadows: two shadow maps (cascades) around the camera, cast by opaque meshes and
+// received by meshes and voxel volumes. Voxel volumes don't cast shadows yet.
+struct ShadowSettings
+{
+	bool enabled = false;
+	float nearDistance = 40.0f;     // metres from the camera covered by the sharp cascade
+	float farDistance = 220.0f;     // ... and by the second one (shadows fade out towards it)
+	float normalBias = 1.5f;        // shadow-map texels the lookup is pushed along the normal
+};
+
+// Glow around bright pixels (windows, fire, crystals, the sun).
+struct BloomSettings
+{
+	bool enabled = false;
+	float intensity = 0.06f;        // how much glow is added (it's the sum of several blur sizes)
+	float threshold = 1.2f;         // HDR brightness (after exposure is not applied) where glow starts
+	float knee = 0.6f;              // how softly it starts around the threshold
+	float radius = 1.0f;            // blur spread per level
+};
 
 // Scene-wide lighting and presentation settings. Games may change any of these every frame.
 struct RenderSettings
@@ -134,7 +175,17 @@ struct RenderSettings
 	DirectX::XMFLOAT3 sunColor{ 1.0f, 0.97f, 0.9f };              // set to 0 to switch the sun off
 	float fillLightScale = 1.0f;                                  // the two fixed fill lights (0 = off)
 
-	std::vector<PointLight> pointLights;                         // the first kMaxPointLights are used
+	// With the scene's PointLight components, the kMaxPointLights that matter most at the
+	// camera are used (SelectPointLights).
+	std::vector<PointLight> pointLights;
+
+	SkySettings sky;
+	ShadowSettings shadows;
+	BloomSettings bloom;
+
+	// Values every surface shader can read (ShaderGlobal(i) in HLSL, the Global Input graph
+	// node). Their meaning is up to the game, e.g. time of day, snow amount, wind.
+	std::array<DirectX::XMFLOAT4, kShaderGlobalCount> shaderGlobals{};
 
 	// Linear distance fog applied to meshes and voxels (not to the sky/clear colour).
 	bool fogEnabled = false;

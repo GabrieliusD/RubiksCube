@@ -62,6 +62,11 @@ float2 ParamFloat2(SurfaceInput input, uint index) { return float2(ParamFloat(in
 float3 ParamFloat3(SurfaceInput input, uint index) { return float3(ParamFloat2(input, index), ParamFloat(input, index + 2)); }
 float4 ParamFloat4(SurfaceInput input, uint index) { return float4(ParamFloat3(input, index), ParamFloat(input, index + 3)); }
 
+// ---- Shader globals ---------------------------------------------------------------
+// RenderSettings::shaderGlobals: values the game sets for every shader (time of day,
+// snow, wind...). `index` 0..CHERRY_SHADER_GLOBALS-1.
+float4 ShaderGlobal(uint index) { return gFrame.globals[min(index, CHERRY_SHADER_GLOBALS - 1)]; }
+
 // Bindless index of texture slot `slot`, or CHERRY_INVALID_INDEX.
 uint ParamTextureIndex(SurfaceInput input, uint slot)
 {

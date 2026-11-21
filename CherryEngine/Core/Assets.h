@@ -10,6 +10,7 @@
 #include <vector>
 
 class Renderer;
+struct VoxelModel;
 
 // A material's value for one shader graph parameter (by name): numbers (a Scalar uses
 // value[0]) or, for a texture parameter, a texture asset path.
@@ -44,6 +45,8 @@ struct MaterialFile
 //   "engine/Default", "engine/Red", ...                                   built-in materials
 //   "Meshes/rock.glb"                 a file in the project's Content folder (glTF: .gltf / .glb)
 //   "Meshes/rock.glb#0"               the first material of that glTF file
+//   "Models/cabin.vox"                a MagicaVoxel model, baked into a mesh (Voxel/VoxelModel.h);
+//                                     meshes from .vox files default to the "engine/VoxelModel" material
 //   "Materials/rock.mat"              a material file
 //   "Textures/rock.png"               a texture (.png .jpg .tga .bmp .dds)
 //   "Prefabs/door.prefab"             a prefab (an entity tree, spawned with Engine::Spawn)
@@ -106,6 +109,10 @@ public:
 
 	// Prefab files (JSON text), cached and reloaded when the file changes.
 	bool ReadPrefab(const std::string& path, std::string& out);
+
+	// A voxel model file ("Models/cabin.vox"), e.g. for its collision (BakeVoxelBoxes).
+	// As a mesh, the same path works with GetMesh (baked with the default VoxelBakeOptions).
+	bool ReadVoxelModel(const std::string& path, VoxelModel& out);
 
 	// Material files: read, write (and apply to the loaded material at once), create.
 	bool ReadMaterial(const std::string& path, MaterialFile& out);
