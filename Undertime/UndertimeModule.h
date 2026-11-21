@@ -12,6 +12,8 @@
 #include "CaveMap.h"
 #include "SceneComponents.h"
 #include "Valley.h"
+#include "ValleyScenery.h"
+#include "ValleyProps.h"
 #include <array>
 #include <memory>
 #include <string>
@@ -127,13 +129,10 @@ private:
 	Entity voxelEntity = INVALID_ENTITY;
 	std::vector<Entity> chunkEntities;
 	std::vector<MeshHandle> chunkMeshes;
-	std::vector<MeshHandle> sceneryMeshes;
-	std::vector<Entity> sceneryEntities;
-	std::vector<BodyId> sceneryBodies;
 	std::unique_ptr<Valley> valley;
-	SurfaceShaderHandle waterShader;
-	MaterialHandle waterMaterial;
-	bool sceneryHidden = false;
+	ValleyScenery scenery;
+	ValleyProps props;
+	int era = 1;                     // which era's town stands (N cycles it, for now)
 	DirectX::XMFLOAT3 devSun{ 0, 0, 0 };   // UNDERTIME_DEV_SUN, for checking shadows
 	Entity pickEntity = INVALID_ENTITY;
 	Entity shovelEntity = INVALID_ENTITY;

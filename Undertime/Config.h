@@ -151,12 +151,27 @@ namespace cfg
 		{ -15.5f, -132.5f, 55.0f },   // town square
 		{ 34.5f, -47.5f, 14.0f },     // the big tree
 		{ -70.5f, -20.0f, 24.0f },    // founders' house
-		{ -138.0f, -77.5f, 16.0f },   // clockmaker
+		{ 96.8f, -121.1f, 18.0f },    // clockmaker, by the river
+		{ 8.0f, -60.0f, 8.0f },       // along the trail from the mine
 		{ 159.5f, -107.5f, 28.0f },   // chapel
 		{ 67.0f, -170.0f, 24.0f },    // sawmill
 		{ -110.5f, -197.5f, 40.0f },  // homestead
 		{ 234.5f, -27.5f, 10.0f },    // lookout
 	};
+	// Trails (start x, z, end x, z): the mine to the camp, the camp to the clockmaker.
+	constexpr float kPathSegments[][4] = {
+		{ 24.5f, -4.0f, 20.0f, -40.0f }, { 20.0f, -40.0f, 6.0f, -80.0f }, { 6.0f, -80.0f, -8.0f, -112.0f }, { -8.0f, -112.0f, -15.5f, -124.0f },
+		{ -10.0f, -136.0f, 30.0f, -130.0f }, { 30.0f, -130.0f, 62.0f, -124.0f }, { 62.0f, -124.0f, 88.0f, -121.0f },
+		// Settlement lanes: the homes, the founders' house, the sawmill, over the footbridge to the chapel.
+		{ -20.0f, -131.0f, -33.0f, -131.0f }, { -33.0f, -131.0f, -44.0f, -116.0f }, { -33.0f, -131.0f, -44.0f, -150.0f },
+		{ -15.5f, -146.0f, -30.0f, -164.0f },
+		{ -15.5f, -112.0f, -40.0f, -60.0f }, { -40.0f, -60.0f, -70.5f, -34.0f },
+		{ -5.0f, -145.0f, 30.0f, -160.0f }, { 30.0f, -160.0f, 62.0f, -167.0f },
+		{ 96.8f, -121.0f, 112.3f, -108.6f }, { 121.7f, -114.4f, 150.0f, -104.0f },
+	};
+	constexpr float kPathHalfWidth = 0.9f;
+	constexpr float kPadBlend = 4.0f;             // metres over which a building's flat pad blends into the land
+	constexpr float kPadMargin = 0.5f;            // pads reach this far past a building's footprint
 	constexpr float kForestSpacing = 5.5f;        // metres between tree spots on the valley floor
 	constexpr float kForestSpacingFar = 11.0f;    // ... on the mountains
 	// Terrain chunks: 0.25 m blocks on the valley floor and around the cave mouth, 1 m blocks
@@ -176,6 +191,7 @@ namespace cfg
 	constexpr uint32_t kTerrainRock = 0x7a7064;
 	constexpr uint32_t kTerrainRock2 = 0x6a6258;
 	constexpr uint32_t kTerrainSnow = 0xe8eef4;
+	constexpr uint32_t kTerrainPath = 0x8a7656;
 	constexpr uint32_t kWaterColor = 0x2f6f8a;
 	constexpr float kWaterOpacity = 0.72f;
 

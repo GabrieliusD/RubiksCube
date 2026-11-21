@@ -19,7 +19,17 @@ enum class Ground : uint8_t
 	Rock,
 	Rock2,
 	Snow,
+	Path,       // trodden trails between places
 	Count
+};
+
+// Flat ground under a building or plot: inside the rectangle the ground is at `height`,
+// blending back into the land over cfg::kPadBlend metres around it.
+struct GroundPad
+{
+	float x = 0, z = 0;           // centre
+	float halfX = 1, halfZ = 1;   // half size (axis-aligned)
+	float height = 0;
 };
 
 struct TreeSpot
@@ -45,6 +55,10 @@ public:
 	// Built from 0.25 m blocks here (the valley floor and the cave mouth), or 1 m blocks.
 	// Decided per terrain chunk (cfg::kTerrainChunk), so trees and ground always agree.
 	bool Detailed(float x, float z) const;
+
+	// Flat pads under the town's buildings (applied by Height/Sample; empty by default).
+	void SetPads(std::vector<GroundPad> pads) { mPads = std::move(pads); }
+	const std::vector<GroundPad>& Pads() const { return mPads; }
 	// Over the cave grid: the ground there starts at the grid's top (the grid is the rock below).
 	static bool OverCave(float x, float z);
 	// What the top of a column is made of. `drop`: the biggest height difference to its
@@ -61,6 +75,8 @@ public:
 	float BaseHeight(float x, float z) const;
 	// 0 in the middle of the valley floor, 1 at its edge, more in the mountains.
 	float ValleyDistance(float x, float z) const;
+	// Distance to the nearest trail (cfg::kPathSegments).
+	static float PathDistance(float x, float z);
 	// Is a tree allowed here? (clearings, water, steepness, tree line)
 	bool TreeAllowed(float x, float z) const;
 
@@ -71,4 +87,5 @@ private:
 	std::vector<float> mRiverLength;   // cumulative length at each point of cfg::kRiverPoints
 	std::vector<float> mRiverLevel;    // water level per metre along the river (never rises downstream)
 	float mLakeLevel = 0.0f;
+	std::vector<GroundPad> mPads;
 };

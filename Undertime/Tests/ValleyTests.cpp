@@ -116,6 +116,31 @@ int ValleyTests()
 		Check(clear, "trees: none in clearings or over the cave");
 		Check(dry, "trees: none in water");
 		Check(fineFlag, "trees: far ones are exactly those outside the detailed valley");
+		bool offPaths = true;
+		for (const TreeSpot& t : trees) offPaths &= Valley::PathDistance(t.x, t.z) >= cfg::kPathHalfWidth + 2.0f;
+		Check(offPaths, "trees: none on the trails");
+	}
+
+	// ---- Building pads -------------------------------------------------------------------------
+	{
+		Valley padded;
+		const float x = -70.5f, z = -24.0f;   // a slope below the founders' house
+		GroundPad pad{ x, z, 6.0f, 5.0f, std::round(padded.Height(x, z) * 4.0f) / 4.0f };
+		padded.SetPads({ pad });
+		bool flat = true;
+		for (float dz = -4.5f; dz <= 4.5f; dz += 1.5f)
+			for (float dx = -5.5f; dx <= 5.5f; dx += 1.5f) flat &= std::fabs(padded.Height(x + dx, z + dz) - pad.height) < 1e-4f;
+		Check(flat, "pads: the ground under a building is level");
+		const float far = x + 6.0f + cfg::kPadBlend + 1.0f;
+		Check(std::fabs(padded.Height(far, z) - valley.Height(far, z)) < 1e-4f, "pads: the land beyond the blend is untouched");
+	}
+
+	// ---- Trails ----------------------------------------------------------------------------------
+	{
+		const auto& seg = cfg::kPathSegments[1];
+		const float x = 0.5f * (seg[0] + seg[2]), z = 0.5f * (seg[1] + seg[3]);
+		Check(Valley::PathDistance(x, z) < 1e-3f, "trails: a segment's midpoint is on the trail");
+		Check(valley.GroundAt(x, z, valley.Height(x, z), 0.0f, 0.25f) == Ground::Path, "trails: the ground there is trodden path");
 	}
 
 	// ---- Terrain meshes ------------------------------------------------------------------------

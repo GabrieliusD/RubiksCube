@@ -130,7 +130,10 @@ The game is first-person mining in a procedurally generated mountain. One world 
   - **Layout:** from Design.md's map, with numbers in `Config.h` (valley section). `Valley` gives heights, the river (water level never rises downstream, so it steps down in falls), the lake, ground types and tree spots. The mountain over the cave grid starts at the grid's top.
   - **Terrain:** 16 m chunks, using 0.25 m blocks where `Valley::Detailed` and 1 m blocks elsewhere, with skirts where the two meet. Chunks are built on worker threads and merged 4×4 into one mesh and one collision body; remote mountains get 4 m collision.
   - **Trees** are placeholder `.vox` models in `Content/Models/Placeholders/`, written by the `UndertimePlaceholders` tool (`Undertime/Tools/Placeholders.cpp`); rerun it after changing a generator. Trees have trunk collision.
-  - **The valley is not shown in the editor yet;** it's only built on Play.
+  - **Scenery** (`ValleyScenery`): terrain, water and trees as entities without EntityInfo, under one root (one folded row in the hierarchy). Built by the module on Play (with collision), and by `ValleyPreviewSystem` in the editor while the scene has a `ValleyWorld` (no collision; its entities are tagged `ValleyPreview` and dropped from the play world in `OnPlayBegin`).
+  - **The town is authored in `Content/Scenes/Mine.scene`** as entities with a `.vox` `MeshRenderer` and a `ValleyProp` (`ValleyProps.h`): `eraFrom`/`eraTo` (1 Camp to 6 Gone), `snapToGround` with `groundOffset`, `collide` (boxes baked from the model; exact for quarter turns). Lights and spinning parts can be ValleyProps too. `ValleyWorld.previewEra` picks which era the editor shows and play starts in; **N** cycles the era while playing (debug, until the clock exists).
+  - **Trails** are `cfg::kPathSegments` (trodden ground, no trees).
+  - **Building pads:** every ValleyProp with `collide` and `flattenGround` levels the ground under its footprint (`Valley::SetPads`, from `ValleyProps::Pads`, before the terrain is built; a house inside its plot takes the plot's height). Pads cover all eras. In the editor, moving a building needs "Rebuild valley" to re-level the ground. Turn `flattenGround` off for things over water (the footbridge).
   - **Dev screenshots:** the environment variable `UNDERTIME_DEV_VIEW="x y z yaw pitch"` skips the title and starts there; `UNDERTIME_DEV_SUN="x y z"` overrides the sun direction (e.g. a low sun to check shadows).
 - **How every grid edit is applied:** `UndertimeModule::ApplyWorldChange(box, checkSupport)` uploads to the GPU, marks collision dirty, rebuilds meshes in mesh-render mode, and optionally runs the support check, spawning fragments. Route edits through it.
 - **Scene components (`SceneComponents.h`):** `CaveWorld` (seed, 0 = random; `rockMaterial`, an optional material for the world volume and boulders, e.g. `Materials/Rock.mat`) and `PlayerStart`, placed in `Content/Scenes/Mine.scene`. `CavePreviewSystem` shows a CaveWorld's mountain in the editor ("Generate preview" in the inspector).
@@ -144,6 +147,7 @@ The game is first-person mining in a procedurally generated mountain. One world 
     - **F8:** new world.
     - **F9:** next zone.
     - **F10:** look down (for scripted tests, which can't move the mouse).
+    - **N:** next era (the town's props change).
     - **M:** cave map.
     - **V:** switch between ray-marched and mesh rendering.
 
@@ -156,15 +160,19 @@ The game is first-person mining in a procedurally generated mountain. One world 
   2. Engine visuals I (sky, shader globals, nearest-8 lights, instancing). **Done.**
   3. The valley (terrain, river, lake, forest). **Done.**
   4. Engine visuals II (sun shadows, bloom). **Done.**
-  5. Camp era. **Next.**
-  6. Settlement era.
+  5. Camp era (with the valley shown in the editor). **Done.**
+  6. Settlement era. **Done.**
+  7. Fixes. **Next.**
+     Fixes: loose-block slowdown (profile first), voxel shadow casting, anti-aliasing.
 
   The time clock comes later.
 - **Waiting for the user to test** (remind them at the end of each milestone):
   - Milestone 2: the sky outside, instanced loose blocks, the Global Input node.
   - Milestone 3: walking the valley (cave to the square), the river and lake up close, cracks at the fine/coarse edge, the cave still working, the frame rate.
+  - Milestone 6: the Settlement town (N to era 2): the square's shops, homes and plots, the founders' house, chapel and footbridge, sawmill; walking around and into buildings; the flattened ground under buildings.
+  - Milestone 5: the valley in the editor (placing and moving props, they stay on the ground), the camp and the clockmaker in play, N switching eras.
   - Milestone 4: sun shadows outside (shimmer when moving, acne, the frame rate), bloom on bright things (sun, lantern, crystals in the cave).
-- **Nothing is committed since `15cb46d`.** The user commits when they ask.
+- **Commits:** the user commits when they ask. Milestones 1–4 are in `813c198`.
 - **Style:** everything is 0.25 m voxels. The cave is real (diggable) voxels; everything outside is voxel models baked to meshes. Placeholder art is generated as `.vox` files; MagicaVoxel is the editor for now, and a built-in voxel designer may replace it later.
 
 ## Working rules for UNDERTIME (from the user)

@@ -249,8 +249,9 @@ Each one must build and run. The time clock was moved later at the user's reques
 2. **Engine visuals I:** sky, global shader inputs, nearest-8 lights, instancing. **Done.**
 3. **The valley:** terrain, collision, water, forest; walkable from the cave mouth. **Done.**
 4. **Engine visuals II:** sun shadows (meshes and voxels), bloom. **Done.** Voxel volumes receive shadows but don't cast them yet.
-5. **Camp era:** generated placeholder `.vox` set, the era component, the camp placed in the editor.
-6. **Settlement era:** its content and the switch between eras.
+5. **Camp era:** the valley shown in the editor, generated placeholder `.vox` set, the era component, the camp placed in the editor. **Done.** The clockmaker's cottage moved to the river east of the square (with a water wheel), and trails lead from the mine to the camp and on to the clockmaker.
+6. **Settlement era:** its content and the switch between eras. **Done** (the era switch is the N key until the clock exists). Buildings get flat ground pads. Not yet: the forest isn't cut back per era (stumps are placed instead), lanes exist in every era, no lit windows at night (no day/night yet).
+7. **Fixes:** the loose-block slowdown (profile first: physics, draw calls, per-entity work), voxel volumes casting shadows, anti-aliasing.
 7. Later: the time clock and HUD watch, the shops and economy, the run reset, story (letters, watches, NPCs), the heart and the ending, the remaining eras.
 
 ---

@@ -29,21 +29,21 @@
 				},
 				"Environment": {
 					"skyColor": [
-						0.41999998688697815,
-						0.550000011920929,
-						0.75,
+						0.2747,
+						0.4793,
+						0.807,
 						1.0
 					],
 					"ambient": [
-						0.25,
-						0.25,
-						0.3199999928474426
+						0.3,
+						0.306,
+						0.324
 					],
 					"ambientContrast": 0.3499999940395355,
 					"sunDirection": [
-						0.4000000059604645,
-						-0.75,
-						0.5
+						-0.35,
+						-0.8,
+						0.45
 					],
 					"sunColor": [
 						1.0,
@@ -51,15 +51,41 @@
 						0.8500000238418579
 					],
 					"fillLightScale": 1.0,
-					"fogEnabled": false,
+					"fogEnabled": true,
 					"fogColor": [
-						0.3499999940395355,
-						0.47999998927116394,
-						0.75
+						0.4851,
+						0.6105,
+						0.7454
 					],
-					"fogStart": 50.0,
-					"fogEnd": 200.0,
-					"exposure": 1.0
+					"fogStart": 110.0,
+					"fogEnd": 520.0,
+					"exposure": 1.0,
+					"skyEnabled": true,
+					"skyZenith": [
+						0.0497,
+						0.1746,
+						0.6038
+					],
+					"skyHorizon": [
+						0.4851,
+						0.6105,
+						0.7454
+					],
+					"skyGround": [
+						0.159,
+						0.1746,
+						0.0976
+					],
+					"skyGradientPower": 0.45,
+					"sunSize": 0.7,
+					"sunIntensity": 25.0,
+					"starIntensity": 0.0,
+					"shadowsEnabled": true,
+					"shadowNearDistance": 40.0,
+					"shadowFarDistance": 240.0,
+					"bloomEnabled": true,
+					"bloomIntensity": 0.06,
+					"bloomThreshold": 1.2
 				}
 			}
 		},
@@ -120,6 +146,1805 @@
 					]
 				},
 				"PlayerStart": {}
+			}
+		},
+		{
+			"guid": "5a11e7c000000001",
+			"components": {
+				"EntityInfo": {
+					"name": "Valley",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyWorld": {
+					"previewEra": 1
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000002",
+			"components": {
+				"EntityInfo": {
+					"name": "Trading Post",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-15.5,
+						0.0,
+						-119.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 1,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/TradingPost.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000003",
+			"components": {
+				"EntityInfo": {
+					"name": "Campfire",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-15.5,
+						0.0,
+						-133.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 1,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Campfire.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000004",
+			"components": {
+				"EntityInfo": {
+					"name": "Campfire Light",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-15.5,
+						0.0,
+						-133.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 1,
+					"snapToGround": true,
+					"groundOffset": 1.0,
+					"collide": false
+				},
+				"PointLight": {
+					"color": [
+						1.0,
+						0.6,
+						0.3
+					],
+					"intensity": 6.0,
+					"range": 12.0
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000005",
+			"components": {
+				"EntityInfo": {
+					"name": "Tent (west)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-29.0,
+						0.0,
+						-130.0
+					],
+					"rotation": [
+						0.0,
+						-0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Tent.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000006",
+			"components": {
+				"EntityInfo": {
+					"name": "Tent (south-west)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-23.0,
+						0.0,
+						-145.0
+					],
+					"rotation": [
+						0.0,
+						1.0,
+						0.0,
+						0.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 1,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Tent.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000007",
+			"components": {
+				"EntityInfo": {
+					"name": "Tent (south)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-8.0,
+						0.0,
+						-146.0
+					],
+					"rotation": [
+						0.0,
+						1.0,
+						0.0,
+						0.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 1,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Tent.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000008",
+			"components": {
+				"EntityInfo": {
+					"name": "Tent (east)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-1.0,
+						0.0,
+						-131.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Tent.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c000000009",
+			"components": {
+				"EntityInfo": {
+					"name": "Crates",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-6.0,
+						0.0,
+						-116.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Crates.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c00000000a",
+			"components": {
+				"EntityInfo": {
+					"name": "Log Pile",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-26.0,
+						0.0,
+						-117.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/LogPile.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c00000000b",
+			"components": {
+				"EntityInfo": {
+					"name": "Smithy Lean-to",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						5.0,
+						0.0,
+						-124.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 1,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/SmithyLeanTo.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c00000000c",
+			"components": {
+				"EntityInfo": {
+					"name": "Clockmaker Cottage",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						96.8,
+						0.0,
+						-121.1
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 6,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/ClockmakerCottage.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c00000000d",
+			"components": {
+				"EntityInfo": {
+					"name": "Water Wheel Axle",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						103.95,
+						0.0,
+						-125.6
+					],
+					"rotation": [
+						0.0,
+						-0.961262,
+						0.0,
+						0.275637
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 6,
+					"snapToGround": true,
+					"groundOffset": 2.125,
+					"collide": false
+				},
+				"Spinner": {
+					"axis": [
+						1.0,
+						0.0,
+						0.0
+					],
+					"degreesPerSecond": 25.0
+				}
+			}
+		},
+		{
+			"guid": "5a11e7c00000000e",
+			"components": {
+				"EntityInfo": {
+					"name": "Water Wheel",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						0.0,
+						-2.125,
+						0.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 1,
+					"eraTo": 6,
+					"snapToGround": false,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/WaterWheel.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				},
+				"Parent": {
+					"parent": "5a11e7c00000000d"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000001",
+			"components": {
+				"EntityInfo": {
+					"name": "General Store",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-15.5,
+						0.0,
+						-117.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/GeneralStore.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000002",
+			"components": {
+				"EntityInfo": {
+					"name": "Assay Office",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						4.0,
+						0.0,
+						-112.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/AssayOffice.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000003",
+			"components": {
+				"EntityInfo": {
+					"name": "Post Office",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-36.0,
+						0.0,
+						-131.0
+					],
+					"rotation": [
+						0.0,
+						-0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/PostOffice.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000004",
+			"components": {
+				"EntityInfo": {
+					"name": "Saloon",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-15.5,
+						0.0,
+						-153.0
+					],
+					"rotation": [
+						0.0,
+						1.0,
+						0.0,
+						0.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Saloon.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000005",
+			"components": {
+				"EntityInfo": {
+					"name": "Blacksmith",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						8.0,
+						0.0,
+						-136.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Blacksmith.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000006",
+			"components": {
+				"EntityInfo": {
+					"name": "Clock Tower (scaffolding)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-15.5,
+						0.0,
+						-133.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/ClockTowerScaffold.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000007",
+			"components": {
+				"EntityInfo": {
+					"name": "Home Plot (widow)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-52.0,
+						0.0,
+						-116.0
+					],
+					"rotation": [
+						0.0,
+						-0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/GardenPlot.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000008",
+			"components": {
+				"EntityInfo": {
+					"name": "Home (widow)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-48.5,
+						0.0,
+						-116.0
+					],
+					"rotation": [
+						0.0,
+						-0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Home.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000009",
+			"components": {
+				"EntityInfo": {
+					"name": "Home Plot (family)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-50.0,
+						0.0,
+						-150.0
+					],
+					"rotation": [
+						0.0,
+						-0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/GardenPlot.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000000a",
+			"components": {
+				"EntityInfo": {
+					"name": "Home (family)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-46.5,
+						0.0,
+						-150.0
+					],
+					"rotation": [
+						0.0,
+						-0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/HomeWhite.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000000b",
+			"components": {
+				"EntityInfo": {
+					"name": "Home Plot (doctor)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-30.0,
+						0.0,
+						-172.0
+					],
+					"rotation": [
+						0.0,
+						1.0,
+						0.0,
+						0.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/GardenPlot.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000000c",
+			"components": {
+				"EntityInfo": {
+					"name": "Home (doctor)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-30.0,
+						0.0,
+						-168.5
+					],
+					"rotation": [
+						0.0,
+						1.0,
+						0.0,
+						0.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Home.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000000d",
+			"components": {
+				"EntityInfo": {
+					"name": "Founders' Plot",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-70.5,
+						0.0,
+						-22.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 5,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/FoundersPlot.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000000e",
+			"components": {
+				"EntityInfo": {
+					"name": "Founders' House",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-70.5,
+						0.0,
+						-26.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 5,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/FoundersHouse.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000000f",
+			"components": {
+				"EntityInfo": {
+					"name": "Footbridge",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						117.0,
+						0.0,
+						-111.5
+					],
+					"rotation": [
+						0.0,
+						0.87462,
+						0.0,
+						0.48481
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 5,
+					"snapToGround": true,
+					"groundOffset": -0.25,
+					"collide": true,
+					"flattenGround": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Footbridge.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000010",
+			"components": {
+				"EntityInfo": {
+					"name": "Chapel",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						159.5,
+						0.0,
+						-104.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 5,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Chapel.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000011",
+			"components": {
+				"EntityInfo": {
+					"name": "Grave",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						168.0,
+						0.0,
+						-100.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 6,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Grave.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000012",
+			"components": {
+				"EntityInfo": {
+					"name": "Grave",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						168.0,
+						0.0,
+						-103.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 6,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Grave.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000013",
+			"components": {
+				"EntityInfo": {
+					"name": "Saw Pit",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						67.0,
+						0.0,
+						-168.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/SawPit.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000014",
+			"components": {
+				"EntityInfo": {
+					"name": "Log Pile (sawmill)",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						61.0,
+						0.0,
+						-163.0
+					],
+					"rotation": [
+						0.0,
+						0.707107,
+						0.0,
+						0.707107
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": true
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/LogPile.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000015",
+			"components": {
+				"EntityInfo": {
+					"name": "Mine Frame",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						24.5,
+						0.0,
+						-0.3
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/MineFrame.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000016",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						32.8,
+						0.0,
+						-119.56
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000017",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						15.97,
+						0.0,
+						-93.64
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000018",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-12.88,
+						0.0,
+						-82.57
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e0000000019",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-42.73,
+						0.0,
+						-90.57
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000001a",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-62.18,
+						0.0,
+						-114.58
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000001b",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-63.8,
+						0.0,
+						-145.44
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000001c",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-46.97,
+						0.0,
+						-171.36
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000001d",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						-18.12,
+						0.0,
+						-182.43
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000001e",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						11.73,
+						0.0,
+						-174.43
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e000000001f",
+			"components": {
+				"EntityInfo": {
+					"name": "Stump",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						31.18,
+						0.0,
+						-150.42
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 4,
+					"snapToGround": true,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"MeshRenderer": {
+					"mesh": "Models/Placeholders/Stump.vox",
+					"material": "",
+					"visible": true,
+					"layer": "World"
+				}
 			}
 		}
 	]

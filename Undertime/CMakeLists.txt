@@ -26,6 +26,11 @@ set(UndertimeSrc
     Valley.cpp
     TerrainMesh.h
     TerrainMesh.cpp
+    ValleyScenery.h
+    ValleyScenery.cpp
+    ValleyProps.h
+    ValleyProps.cpp
+    ValleyPreview.cpp
     Player.h
     Player.cpp
     Meshes.h

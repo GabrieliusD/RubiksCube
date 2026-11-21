@@ -126,6 +126,13 @@ void Valley::Sample(float x, float z, float& height, float& water) const
 	water = kNoWater;
 	if (OverCave(x, z)) return;
 
+	// Building pads, later ones over earlier ones.
+	for (const GroundPad& pad : mPads)
+	{
+		const float d = std::max(std::fabs(x - pad.x) - pad.halfX, std::fabs(z - pad.z) - pad.halfZ);
+		if (d < cfg::kPadBlend) height = pad.height + (height - pad.height) * Smooth(0.0f, cfg::kPadBlend, d);
+	}
+
 	float along = 0.0f;
 	const float d = RiverDistance(x, z, &along);
 	if (d < cfg::kRiverHalfWidth + cfg::kRiverBank)
@@ -180,6 +187,8 @@ Ground Valley::GroundAt(float x, float z, float height, float drop, float block)
 	if (height > cfg::kTreeLine + 6.0f * n) return n > 0.15f ? Ground::Rock2 : Ground::Grass2;
 	if (!OverCave(x, z))
 	{
+		// Trails: worn ground with ragged edges.
+		if (PathDistance(x, z) < cfg::kPathHalfWidth + 0.4f * Noise2(x / 3.0f, z / 3.0f, 1)) return Ground::Path;
 		if (RiverDistance(x, z) < cfg::kRiverHalfWidth + 1.5f) return Ground::Sand;
 		const float lx = (x - cfg::kLakeCenter[0]) / cfg::kLakeRadius[0], lz = (z - cfg::kLakeCenter[1]) / cfg::kLakeRadius[1];
 		if (std::sqrt(lx * lx + lz * lz) < 1.15f) return Ground::Sand;
@@ -187,8 +196,22 @@ Ground Valley::GroundAt(float x, float z, float height, float drop, float block)
 	return Noise2(x / 30.0f + 11.0f, z / 30.0f, 2) > 0.1f ? Ground::Grass2 : Ground::Grass;
 }
 
+float Valley::PathDistance(float x, float z)
+{
+	float best = 1e9f;
+	for (const auto& seg : cfg::kPathSegments)
+	{
+		const float vx = seg[2] - seg[0], vz = seg[3] - seg[1];
+		const float t = std::clamp(((x - seg[0]) * vx + (z - seg[1]) * vz) / (vx * vx + vz * vz), 0.0f, 1.0f);
+		const float dx = x - seg[0] - vx * t, dz = z - seg[1] - vz * t;
+		best = std::min(best, std::sqrt(dx * dx + dz * dz));
+	}
+	return best;
+}
+
 bool Valley::TreeAllowed(float x, float z) const
 {
+	if (PathDistance(x, z) < cfg::kPathHalfWidth + 2.5f) return false;
 	if (OverCave(x, z) || (z > -2.0f && std::fabs(x - kMouthX) < 40.0f)) return false;
 	for (const auto& c : cfg::kClearings)
 	{
