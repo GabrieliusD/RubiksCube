@@ -39,10 +39,10 @@ namespace
 	}
 
 	// Compiles generated code with DXC; prints the errors when it fails.
-	bool CompilesWithDxc(const std::string& name, const CompiledGraph& compiled)
+	bool CompilesWithDxc(const std::string& name, const CompiledGraph& compiled, bool voxel = false)
 	{
 		std::string errors;
-		const bool ok = CompileSurfaceShaderOffline(name, compiled.hlsl, CHERRY_TEST_SHADER_DIR, errors);
+		const bool ok = CompileSurfaceShaderOffline(name, compiled.hlsl, CHERRY_TEST_SHADER_DIR, errors, voxel);
 		if (!ok) std::printf("      DXC: %s\n----\n%s----\n", errors.c_str(), compiled.hlsl.c_str());
 		return ok;
 	}
@@ -330,6 +330,31 @@ int RunShaderGraphTests()
 		Check(CompilesWithDxc("NormalDx.shadergraph", dx), "  ...and its HLSL compiles with DXC");
 	}
 
+	// ---- Voxel graphs: Block Index, Local Position, If; World Position Offset is ignored ------
+	{
+		Graph graph;
+		const uint32_t output = Add(graph, "Output");
+		const uint32_t block = Add(graph, "BlockIndex");
+		const uint32_t local = Add(graph, "LocalPosition");
+		const uint32_t color = Add(graph, "VertexColor");
+		const uint32_t noise = Add(graph, "Noise");
+		const uint32_t ifNode = Add(graph, "If");
+		graph.Find(ifNode)->inputs[1] = { 99.5f, 0, 0, 0 };   // B
+		graph.Find(ifNode)->inputs[3] = { 0, 0, 0, 0 };       // A = B
+		graph.Connect(block, 0, ifNode, 0);
+		graph.Connect(noise, 0, ifNode, 2);                   // A > B: ore glints
+		graph.Connect(local, 0, noise, 0);
+		graph.Connect(ifNode, 0, output, Emissive);
+		graph.Connect(color, 1, output, BaseColor);
+		const uint32_t offset = Add(graph, "WorldNormal");
+		graph.Connect(offset, 0, output, WorldPositionOffset);
+		const CompiledGraph compiled = CompileGraph(graph, noLoader);
+		Check(compiled.ok && compiled.hlsl.find("input.blockId") != std::string::npos && compiled.hlsl.find("input.positionL") != std::string::npos,
+			"Block Index and Local Position read the voxel inputs" + Errors(compiled));
+		Check(CompilesWithDxc("Ore.shadergraph", compiled) && CompilesWithDxc("Ore.shadergraph (voxel)", compiled, true),
+			"  ...and it compiles for meshes and voxels (with World Position Offset)");
+	}
+
 	// ---- Every node type produces code DXC accepts ---------------------------------------------
 	{
 		int compiledTypes = 0, failedTypes = 0;
@@ -346,11 +371,12 @@ int RunShaderGraphTests()
 			graph.Connect(node, 0, dot, 1);
 			graph.Connect(dot, 0, output, Roughness);
 			const CompiledGraph compiled = CompileGraph(graph, noLoader);
-			const bool ok = compiled.ok && CompilesWithDxc(def.type + ".shadergraph", compiled);
+			const bool ok = compiled.ok && CompilesWithDxc(def.type + ".shadergraph", compiled)
+				&& CompilesWithDxc(def.type + ".shadergraph (voxel)", compiled, true);
 			if (!ok) std::printf("      %s failed%s\n", def.type.c_str(), Errors(compiled).c_str());
 			ok ? ++compiledTypes : ++failedTypes;
 		}
-		Check(failedTypes == 0, "every node type compiles through DXC (" + std::to_string(compiledTypes) + " types)");
+		Check(failedTypes == 0, "every node type compiles through DXC, for meshes and voxels (" + std::to_string(compiledTypes) + " types)");
 	}
 
 	return gGraphFailures;

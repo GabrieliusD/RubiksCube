@@ -77,9 +77,10 @@ std::vector<PhysicsBox> DecomposeIntoBoxes(const FragmentVoxels& fragment, int m
 
 // =============================================================================
 
-void FragmentSystem::Initialize(VoxelVolumeHandle worldVolume)
+void FragmentSystem::Initialize(VoxelVolumeHandle worldVolume, MaterialHandle material)
 {
 	mWorldVolume = worldVolume;
+	mMaterial = material;
 }
 
 bool FragmentSystem::Spawn(Engine& engine, FragmentVoxels&& fragment, const XMFLOAT3& position,
@@ -119,6 +120,7 @@ bool FragmentSystem::Spawn(Engine& engine, FragmentVoxels&& fragment, const XMFL
 	volume.colorJitter = cfg::kStoneJitter;
 	volume.aoStrength = cfg::kVoxelAoStrength;
 	volume.jitterOffset = fragment.worldOrigin;
+	volume.material = mMaterial;   // jitterOffset also keeps Local Position patterns in place
 	scene.Add(f.entity, volume);
 	scene.Add(f.entity, RigidBody{ body });
 

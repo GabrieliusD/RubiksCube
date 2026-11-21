@@ -5,35 +5,120 @@
 		{
 			"guid": "3c7e51a0d24b9f01",
 			"components": {
-				"EntityInfo": { "name": "Environment" },
-				"Transform": { "position": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },
+				"EntityInfo": {
+					"name": "Environment",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
 				"Environment": {
-					"skyColor": [0.42, 0.55, 0.75, 1],
-					"ambient": [0.25, 0.25, 0.32],
-					"sunDirection": [0.4, -0.75, 0.5],
-					"sunColor": [1, 0.95, 0.85],
-					"fillLightScale": 1,
+					"skyColor": [
+						0.41999998688697815,
+						0.550000011920929,
+						0.75,
+						1.0
+					],
+					"ambient": [
+						0.25,
+						0.25,
+						0.3199999928474426
+					],
+					"ambientContrast": 0.3499999940395355,
+					"sunDirection": [
+						0.4000000059604645,
+						-0.75,
+						0.5
+					],
+					"sunColor": [
+						1.0,
+						0.949999988079071,
+						0.8500000238418579
+					],
+					"fillLightScale": 1.0,
 					"fogEnabled": false,
-					"fogColor": [0.35, 0.48, 0.75],
-					"fogStart": 50,
-					"fogEnd": 200,
-					"exposure": 1
+					"fogColor": [
+						0.3499999940395355,
+						0.47999998927116394,
+						0.75
+					],
+					"fogStart": 50.0,
+					"fogEnd": 200.0,
+					"exposure": 1.0
 				}
 			}
 		},
 		{
 			"guid": "3c7e51a0d24b9f02",
 			"components": {
-				"EntityInfo": { "name": "Cave World" },
-				"Transform": { "position": [0, 0, 0], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },
-				"CaveWorld": { "seed": 0 }
+				"EntityInfo": {
+					"name": "Cave World",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"CaveWorld": {
+					"seed": 0,
+					"rockMaterial": "Materials/Rock.mat"
+				}
 			}
 		},
 		{
 			"guid": "3c7e51a0d24b9f03",
 			"components": {
-				"EntityInfo": { "name": "Player Start" },
-				"Transform": { "position": [24.5, 1, -8], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },
+				"EntityInfo": {
+					"name": "Player Start",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						24.5,
+						1.0,
+						-8.0
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
 				"PlayerStart": {}
 			}
 		}

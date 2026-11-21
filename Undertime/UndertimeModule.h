@@ -89,8 +89,9 @@ private:
 
 	VoxelWorld world;
 	uint32_t seed = 0;
-	// From the scene: the CaveWorld's seed (0 = random) and the PlayerStart, if any.
+	// From the scene: the CaveWorld's seed (0 = random) and rock material, and the PlayerStart, if any.
 	uint32_t sceneSeed = 0;
+	std::string sceneRockMaterial;
 	bool hasSceneSpawn = false;
 	DirectX::XMFLOAT3 sceneSpawn{ 0, 0, 0 };
 	float sceneSpawnYaw = 0.0f;

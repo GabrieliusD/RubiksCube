@@ -140,15 +140,18 @@ namespace
 		std::string name;        // for diagnostics (e.g. the asset path)
 		std::string pipeline;    // PipelineLibrary name
 		SurfaceShaderOptions options;
+		std::string source;      // the latest source (for the voxel pipeline)
+		std::string voxelPipeline;   // PipelineLibrary name of the voxel variant ("" until a volume uses it)
 	};
 
 	// Wraps a surface shader's EvaluateSurface into a whole mesh-pass shader. #line keeps
 	// compiler errors pointing at the surface shader's own lines.
-	std::string WrapSurfaceSource(const std::string& name, const std::string& source)
+	std::string WrapSurfaceSource(const std::string& name, const std::string& source, bool voxel = false)
 	{
 		std::string escaped;
 		for (char c : name) escaped += (c == '"' || c == '\\') ? '/' : c;
-		return "#include \"Surface.hlsli\"\n#line 1 \"" + escaped + "\"\n" + source + "\n#include \"MeshPass.hlsli\"\n";
+		return "#include \"Surface.hlsli\"\n#line 1 \"" + escaped + "\"\n" + source
+			+ (voxel ? "\n#include \"VoxelPass.hlsli\"\n" : "\n#include \"MeshPass.hlsli\"\n");
 	}
 
 	// GPU timestamp markers written each frame (see GpuTimer).
@@ -254,6 +257,7 @@ struct Renderer::Impl
 	ResourcePool<SurfaceShaderResource, SurfaceShaderHandle> surfaceShaders;
 	uint32_t nextSurfacePipeline = 0;
 	rhi::GraphicsPipelineDesc meshPipelineDesc;   // what surface shader pipelines are built from
+	rhi::GraphicsPipelineDesc voxelPipelineDesc;  // ... and their voxel variants
 	MaterialHandle defaultMaterial;
 	GpuTimer gpuTimer;
 
@@ -292,6 +296,9 @@ struct Renderer::Impl
 	void CreatePipelines();
 	// The PSO for DrawItem::pipeline (the error stand-in for surface shaders that never compiled).
 	ID3D12PipelineState* SurfacePipeline(uint32_t pipeline);
+	// The same for the voxel pass (0 = built-in); asks for the voxel variant the first time.
+	ID3D12PipelineState* VoxelPipeline(uint32_t pipeline);
+	void BuildVoxelVariant(SurfaceShaderResource& shader);
 	void CreateViewTargets(uint32_t width, uint32_t height);
 	void InitImGui();
 	void ShutdownImGui();
@@ -393,6 +400,11 @@ void Renderer::Impl::CreatePipelines()
 	// camera inside the volume.
 	voxel.cullMode = D3D12_CULL_MODE_BACK;
 	pipelines.AddGraphics("voxel", voxel);
+	voxelPipelineDesc = voxel;
+
+	rhi::GraphicsPipelineDesc voxelError = voxel;
+	voxelError.defines = { "CHERRY_ERROR_SURFACE" };
+	pipelines.AddGraphics("voxel_error", voxelError);
 
 	rhi::ComputePipelineDesc tonemap;
 	tonemap.shaderFile = "Tonemap.hlsl";
@@ -429,6 +441,25 @@ ID3D12PipelineState* Renderer::Impl::SurfacePipeline(uint32_t pipeline)
 		return shader && pipelines.IsPending(shader->pipeline) ? pipelines.Get("mesh") : pipelines.Get("mesh_error");
 	}
 	return pipelines.Get("mesh");
+}
+
+ID3D12PipelineState* Renderer::Impl::VoxelPipeline(uint32_t pipeline)
+{
+	SurfaceShaderResource* shader = pipeline > 0 ? surfaceShaders.AtSlot(pipeline - 1) : nullptr;
+	if (!shader) return pipelines.Get("voxel");
+	if (shader->voxelPipeline.empty()) BuildVoxelVariant(*shader);
+	if (ID3D12PipelineState* pso = pipelines.Get(shader->voxelPipeline)) return pso;
+	// Never built: the built-in look while the first build runs, the checker if it failed.
+	return pipelines.IsPending(shader->voxelPipeline) ? pipelines.Get("voxel") : pipelines.Get("voxel_error");
+}
+
+void Renderer::Impl::BuildVoxelVariant(SurfaceShaderResource& shader)
+{
+	if (shader.voxelPipeline.empty()) shader.voxelPipeline = shader.pipeline + ":voxel";
+	rhi::GraphicsPipelineDesc desc = voxelPipelineDesc;
+	desc.shaderFile = shader.name;
+	desc.source = WrapSurfaceSource(shader.name, shader.source, true);
+	pipelines.SetGraphicsAsync(shader.voxelPipeline, desc, {});
 }
 
 void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
@@ -807,6 +838,8 @@ void Renderer::SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::str
 	Impl& r = *mImpl;
 	SurfaceShaderResource* resource = r.surfaceShaders.Get(shader);
 	if (!resource) return;
+	resource->source = source;
+	if (!resource->voxelPipeline.empty()) r.BuildVoxelVariant(*resource);   // a volume uses it
 	rhi::GraphicsPipelineDesc desc = r.meshPipelineDesc;
 	desc.shaderFile = resource->name;
 	desc.source = WrapSurfaceSource(resource->name, source);
@@ -830,13 +863,13 @@ bool Renderer::IsSurfaceShaderCompiling(SurfaceShaderHandle shader) const
 	return resource && mImpl->pipelines.IsPending(resource->pipeline);
 }
 
-bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source, const std::filesystem::path& shaderRoot, std::string& errors)
+bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source, const std::filesystem::path& shaderRoot, std::string& errors, bool voxel)
 {
 	ShaderCompiler compiler;
 	compiler.Initialize();
 	ShaderDesc desc;
 	desc.filePath = shaderRoot / name;
-	desc.source = WrapSurfaceSource(name, source);
+	desc.source = WrapSurfaceSource(name, source, voxel);
 	desc.includeDirs.push_back(shaderRoot);
 	errors.clear();
 	for (ShaderType type : { ShaderType::Vertex, ShaderType::Pixel })
@@ -859,6 +892,7 @@ void Renderer::DestroySurfaceShader(SurfaceShaderHandle shader)
 	if (const SurfaceShaderResource* resource = r.surfaceShaders.Get(shader))
 	{
 		r.pipelines.Remove(resource->pipeline);
+		if (!resource->voxelPipeline.empty()) r.pipelines.Remove(resource->voxelPipeline);
 		r.surfaceShaders.Remove(shader);
 	}
 }
@@ -866,7 +900,9 @@ void Renderer::DestroySurfaceShader(SurfaceShaderHandle shader)
 const std::string& Renderer::SurfaceShaderError(SurfaceShaderHandle shader) const
 {
 	const SurfaceShaderResource* resource = mImpl->surfaceShaders.Get(shader);
-	return resource ? mImpl->pipelines.Error(resource->pipeline) : mImpl->emptyString;
+	if (!resource) return mImpl->emptyString;
+	const std::string& error = mImpl->pipelines.Error(resource->pipeline);
+	return error.empty() && !resource->voxelPipeline.empty() ? mImpl->pipelines.Error(resource->voxelPipeline) : error;
 }
 
 VoxelVolumeHandle Renderer::CreateVoxelVolume(const VoxelVolumeDesc& desc)
@@ -1252,6 +1288,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 
 	// ---- Voxel volumes ------------------------------------------------------
 	r.voxelScratch.clear();
+	r.voxelDrawScratch.clear();
 	for (Entity entity : scene.VoxelEntities())
 	{
 		const VoxelVolumeRenderer& renderer = scene.Get<VoxelVolumeRenderer>(entity);
@@ -1280,6 +1317,10 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		data.colorJitter = renderer.colorJitter;
 		data.aoStrength = renderer.aoStrength;
 		data.jitterOffset = renderer.jitterOffset;
+		const MaterialHandle material = r.materials.IsValid(renderer.material) ? renderer.material : r.defaultMaterial;
+		data.materialIndex = material.index;
+		const MaterialDesc* materialDesc = r.materials.Get(material);
+		r.voxelDrawScratch.push_back(materialDesc && r.surfaceShaders.IsValid(materialDesc->shader) ? materialDesc->shader.index + 1 : 0);
 		r.voxelScratch.push_back(data);
 	}
 
@@ -1374,9 +1415,14 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	// ---- Voxel pass (ray-marched, same HDR + depth targets) -----------------
 	if (!r.voxelScratch.empty())
 	{
-		cmd->SetPipelineState(r.pipelines.Get("voxel"));
+		uint32_t boundPipeline = UINT32_MAX;
 		for (uint32_t i = 0; i < r.voxelScratch.size(); ++i)
 		{
+			if (r.voxelDrawScratch[i] != boundPipeline)
+			{
+				boundPipeline = r.voxelDrawScratch[i];
+				cmd->SetPipelineState(r.VoxelPipeline(boundPipeline));
+			}
 			gpu::VoxelDrawConstants constants{ i };
 			cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
 			cmd->DrawInstanced(36, 1, 0, 0);

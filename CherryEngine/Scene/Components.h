@@ -112,6 +112,11 @@ struct VoxelVolumeRenderer
 	float aoStrength = 0.0f;    // corner ambient occlusion, 0..1
 	DirectX::XMINT3 jitterOffset{ 0, 0, 0 };   // added to voxel coords for the jitter pattern (keeps a
 	                                           // fragment's look when it breaks off a larger volume)
+	// Optional material: its surface shader (e.g. a shader graph) shades the voxels, with the
+	// palette colour as its Vertex Color. Without one, the built-in look (palette colour, rough
+	// stone). As with MeshRenderer, the engine fills `material` from `materialAsset` when unset.
+	MaterialHandle material;
+	std::string materialAsset;
 };
 
 // A point light at the entity's world position (added to RenderSettings::pointLights).

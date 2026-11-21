@@ -243,6 +243,18 @@ working version. One that never compiled draws as a magenta checker. Surface sha
 on worker threads, so editing a graph doesn't stall the editor. While a shader's first build
 runs, meshes using it draw with the built-in shader.
 
+**Voxels.** A `VoxelVolumeRenderer` can have a material too (`material` / `materialAsset`). Its
+surface shader then shades the ray-marched voxels, in a second pipeline built the first time a
+volume uses it. In a voxel graph:
+- **Vertex Color** is the palette colour.
+- **Block Index** is the palette index; compare it with an **If** node or Custom HLSL.
+- **Local Position** is the position in the volume's grid, so patterns stay on pieces that break off.
+- **UV** is the position on the voxel's face.
+
+Opacity Mask and World Position Offset don't apply to voxels. In UNDERTIME, set the CaveWorld's
+`rockMaterial` (e.g. `Materials/Rock.mat`, an example graph with ore glints) to shade the
+mountain and its boulders.
+
 Texture Sample nodes read normal maps in either convention: "+Y" (glTF, Blender, OpenGL) or
 "-Y" (DirectX, Unreal). If bumps light up like dents from one side, switch the kind.
 

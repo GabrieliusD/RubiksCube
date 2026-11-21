@@ -1,0 +1,26 @@
+{
+  "baseColor": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "roughness": 0.5,
+  "metallic": 0.0,
+  "albedoTexture": "",
+  "shader": "Shaders/NewShaderGraph.shadergraph",
+  "parameters": {
+    "Base Color": [
+      0.9867109656333923,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "Roughness": [
+      0.20999999344348907,
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

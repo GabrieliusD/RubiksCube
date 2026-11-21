@@ -71,7 +71,8 @@ std::string UndertimeModule::BuildStamp()
 void UndertimeModule::RegisterTypes(GameTypes& types)
 {
 	types.Component<CaveWorld>("CaveWorld")
-		.Field("seed", &CaveWorld::seed);
+		.Field("seed", &CaveWorld::seed)
+		.Asset("rockMaterial", &CaveWorld::rockMaterial, "material");
 	types.Component<PlayerStart>("PlayerStart");
 	types.System<CavePreviewSystem>();
 }
@@ -105,7 +106,12 @@ void UndertimeModule::OnStartup(Engine& engine)
 	Scene& startScene = engine.GetScene();
 	sceneSeed = 0;
 	hasSceneSpawn = false;
-	startScene.Each<CaveWorld>([&](Entity, CaveWorld& caveWorld) { sceneSeed = caveWorld.seed; });
+	sceneRockMaterial.clear();
+	startScene.Each<CaveWorld>([&](Entity, CaveWorld& caveWorld)
+	{
+		sceneSeed = caveWorld.seed;
+		sceneRockMaterial = caveWorld.rockMaterial;
+	});
 	startScene.Each<PlayerStart>([&](Entity entity, PlayerStart&)
 	{
 		if (hasSceneSpawn) return;
@@ -214,8 +220,10 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	desc.voxels = world.PaletteVoxels();
 	desc.palette = VoxelWorld::BuildPalette();
 	voxelVolume = renderer.CreateVoxelVolume(desc);
+	const MaterialHandle rock = sceneRockMaterial.empty() ? MaterialHandle{} : engine.GetAssets().GetMaterial(sceneRockMaterial);
 	scene.Get<VoxelVolumeRenderer>(voxelEntity).volume = voxelVolume;
-	fragments.Initialize(voxelVolume);
+	scene.Get<VoxelVolumeRenderer>(voxelEntity).material = rock;
+	fragments.Initialize(voxelVolume, rock);
 
 	// Physics and meshes.
 	collision.Build(physics, world);

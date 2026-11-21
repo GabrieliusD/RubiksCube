@@ -67,7 +67,8 @@ namespace
 			.Field("visible", &VoxelVolumeRenderer::visible, Field_NotSaved)
 			.Field("colorJitter", &VoxelVolumeRenderer::colorJitter, 0.0f, 1.0f, Field_NotSaved)
 			.Field("aoStrength", &VoxelVolumeRenderer::aoStrength, 0.0f, 1.0f, Field_NotSaved)
-			.Field("jitterOffset", &VoxelVolumeRenderer::jitterOffset, Field_NotSaved);
+			.Field("jitterOffset", &VoxelVolumeRenderer::jitterOffset, Field_NotSaved)
+			.Asset("material", &VoxelVolumeRenderer::materialAsset, "material", Field_NotSaved);
 
 		registry.Component<RigidBody>("RigidBody", Component_Transient | Component_NotAddable)
 			.Field("body", &RigidBody::body, Field_ReadOnly | Field_NotSaved);

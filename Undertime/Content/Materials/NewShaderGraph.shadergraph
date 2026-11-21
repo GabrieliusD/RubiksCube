@@ -1,0 +1,50 @@
+{
+	"format": "cherry-shadergraph",
+	"version": 1,
+	"blend": "Opaque",
+	"boundsPadding": 0.0,
+	"nodes": [
+		{
+			"id": 4,
+			"type": "FunctionInput",
+			"pos": [
+				-96.0,
+				-10.0
+			],
+			"name": "In",
+			"option": 1,
+			"value": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			]
+		},
+		{
+			"id": 5,
+			"type": "FunctionOutput",
+			"pos": [
+				472.0,
+				2.0
+			],
+			"inputs": [
+				[
+					0.0,
+					0.0,
+					0.0,
+					0.0
+				]
+			],
+			"name": "Out",
+			"option": 1
+		}
+	],
+	"links": [
+		[
+			4,
+			0,
+			5,
+			0
+		]
+	]
+}

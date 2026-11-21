@@ -2,6 +2,7 @@
 #include <Game/GameModule.h>
 #include <Renderer/RenderTypes.h>
 #include <cstdint>
+#include <string>
 
 // UNDERTIME's scene components (registered in UndertimeModule::RegisterTypes).
 
@@ -10,6 +11,9 @@
 struct CaveWorld
 {
 	uint32_t seed = 0;   // 0: a new random mountain every play
+	// Optional material for the rock (world volume and boulders), e.g. one using a shader graph
+	// with Block Index / Local Position nodes. Empty: the built-in look.
+	std::string rockMaterial;
 };
 
 // Where the player starts (feet position and facing from the Transform). Without one,
