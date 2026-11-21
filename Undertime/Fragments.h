@@ -37,7 +37,7 @@ struct ChipResult
 class FragmentSystem
 {
 public:
-	void Initialize(VoxelVolumeHandle worldVolume);
+	void Initialize(VoxelVolumeHandle worldVolume, MaterialHandle material = {});
 
 	bool Spawn(Engine& engine, FragmentVoxels&& fragment, const DirectX::XMFLOAT3& position,
 		const DirectX::XMFLOAT3& linearVelocity, const DirectX::XMFLOAT3& angularVelocity,
@@ -74,4 +74,5 @@ private:
 
 	std::vector<Fragment> mFragments;
 	VoxelVolumeHandle mWorldVolume;
+	MaterialHandle mMaterial;   // the rock material, if the scene sets one
 };

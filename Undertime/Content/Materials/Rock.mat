@@ -1,0 +1,32 @@
+{
+  "baseColor": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "roughness": 0.5,
+  "metallic": 0.0,
+  "albedoTexture": "",
+  "shader": "Shaders/Rock.shadergraph",
+  "parameters": {
+    "Glint": [
+      6.210000038146973,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "Noise Scale": [
+      22.170000076293945,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "Power": [
+      29.770000457763672,
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

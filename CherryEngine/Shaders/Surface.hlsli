@@ -6,7 +6,7 @@
 //     SurfaceOutput EvaluateSurface(SurfaceInput input)
 //
 // The engine compiles it between this file and MeshPass.hlsli (vertex shader, lighting,
-// fog). Optional, defined by the surface shader before MeshPass.hlsli:
+// fog), and for voxel volumes using it between this file and VoxelPass.hlsli. Optional, defined by the surface shader before MeshPass.hlsli:
 //   #define CHERRY_SURFACE_MASKED          discard pixels whose opacityMask is below 1/3
 //   #define CHERRY_SURFACE_VERTEX_OFFSET   and define float3 EvaluateVertexOffset(SurfaceInput),
 //                                          a world-space offset per vertex (fragment-only
@@ -28,6 +28,8 @@ struct SurfaceInput
 	float2 screenUV;       // 0..1 across the view, (0, 0) top left
 	float  time;           // seconds
 	MaterialData material; // the material's fixed fields (see Shared/ShaderInterop.h)
+	float3 positionL;      // meshes: object-space position; voxels: position in the volume's grid, metres
+	float  blockId;        // voxels: the palette index; meshes: 0
 };
 
 struct SurfaceOutput

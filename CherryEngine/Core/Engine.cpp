@@ -389,6 +389,11 @@ void Engine::Impl::ResolveAssets(Scene& scene)
 		if (!renderer.mesh.IsValid() && !renderer.meshAsset.empty()) renderer.mesh = assets.GetMesh(renderer.meshAsset);
 		if (!renderer.material.IsValid() && !renderer.materialAsset.empty()) renderer.material = assets.GetMaterial(renderer.materialAsset);
 	}
+	for (Entity entity : scene.VoxelEntities())
+	{
+		VoxelVolumeRenderer& renderer = scene.Get<VoxelVolumeRenderer>(entity);
+		if (!renderer.material.IsValid() && !renderer.materialAsset.empty()) renderer.material = assets.GetMaterial(renderer.materialAsset);
+	}
 }
 
 void Engine::Impl::ApplyEnvironment(Scene& scene)

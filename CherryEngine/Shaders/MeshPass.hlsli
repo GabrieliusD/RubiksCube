@@ -22,6 +22,7 @@ struct VertexOut
 	float4 positionH : SV_POSITION;
 	float3 positionW : POSITION;
 	float3 normalW   : NORMAL;
+	float3 positionL : LOCAL;
 	float2 uv        : TEXCOORD;
 	float4 color     : COLOR;
 	nointerpolation uint materialIndex : MATERIAL;
@@ -47,11 +48,14 @@ VertexOut VSMain(VertexIn vin)
 		input.screenUV = 0.0;
 		input.time = gFrame.time;
 		input.material = materials[instance.materialIndex];
+		input.positionL = vin.position;
+		input.blockId = 0.0;
 		positionW.xyz += EvaluateVertexOffset(input);
 	}
 #endif
 	vout.positionW = positionW.xyz;
 	vout.positionH = mul(positionW, gView.viewProj);
+	vout.positionL = vin.position;
 	vout.uv = vin.uv;
 	vout.color = vin.color;
 	vout.materialIndex = instance.materialIndex;
@@ -71,6 +75,8 @@ float4 PSMain(VertexOut pin) : SV_Target
 	input.screenUV = pin.positionH.xy * gView.invRenderTargetSize;
 	input.time = gFrame.time;
 	input.material = materials[pin.materialIndex];
+	input.positionL = pin.positionL;
+	input.blockId = 0.0;
 
 	SurfaceOutput s = EvaluateSurface(input);
 #ifdef CHERRY_SURFACE_MASKED

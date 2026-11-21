@@ -127,7 +127,7 @@ struct VoxelVolumeData
 	uint  paletteBufferIndex;      // StructuredBuffer<float4>
 	float colorJitter;             // +- relative brightness per voxel (0 = off)
 	float aoStrength;              // corner ambient occlusion, 0..1 (0 = off)
-	uint  pad0;
+	uint  materialIndex;           // into the material buffer (its surface shader is the pipeline)
 	int3  jitterOffset;            // added to voxel coords for the jitter hash
 	uint  pad1;
 };

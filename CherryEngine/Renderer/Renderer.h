@@ -75,7 +75,9 @@ public:
 	// A build of this shader is still running.
 	bool IsSurfaceShaderCompiling(SurfaceShaderHandle shader) const;
 	void DestroySurfaceShader(SurfaceShaderHandle shader);
-	// Compiler output of the last build ("" when it compiled).
+	// Compiler output of the last build ("" when it compiled). Voxel volumes using a surface
+	// shader get a second pipeline from it, built the first time one draws; its errors are
+	// reported here too.
 	const std::string& SurfaceShaderError(SurfaceShaderHandle shader) const;
 
 	VoxelVolumeHandle CreateVoxelVolume(const VoxelVolumeDesc& desc);
@@ -122,6 +124,7 @@ private:
 };
 
 // Compiles a surface shader the way CreateSurfaceShader does (vertex and pixel shader), with
-// DXC only: no device needed. For tests and tools. `shaderRoot` is the engine's Shaders folder.
+// DXC only: no device needed. For tests and tools. `shaderRoot` is the engine's Shaders folder;
+// `voxel` compiles it for the voxel pass instead of the mesh pass.
 CHERRY_API bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source,
-	const std::filesystem::path& shaderRoot, std::string& errors);
+	const std::filesystem::path& shaderRoot, std::string& errors, bool voxel = false);

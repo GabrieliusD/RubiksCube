@@ -52,6 +52,15 @@ void CavePreviewSystem::OnEditUpdate(Engine& engine, float)
 		renderer.aoStrength = cfg::kVoxelAoStrength;
 		scene.Add(mEntity, renderer);
 	}
+	// Show the CaveWorld's rock material (the engine loads it from the path).
+	std::string rockMaterial;
+	if (scene.IsRegistered<CaveWorld>()) scene.Each<CaveWorld>([&](Entity, CaveWorld& caveWorld) { rockMaterial = caveWorld.rockMaterial; });
+	VoxelVolumeRenderer& renderer = scene.Get<VoxelVolumeRenderer>(mEntity);
+	if (renderer.materialAsset != rockMaterial)
+	{
+		renderer.materialAsset = rockMaterial;
+		renderer.material = {};
+	}
 }
 
 void CavePreviewSystem::OnInspectorGui(Engine& engine, Entity entity)

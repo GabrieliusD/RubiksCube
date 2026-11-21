@@ -105,6 +105,13 @@ namespace sg
 				{}, { P("Time", F1) }, fixed({ "input.time" }));
 			add("ScreenPosition", "Screen Position", "Inputs", "0..1 across the view, (0, 0) top left.",
 				{}, { P("UV", F2) }, fixed({ "input.screenUV" })).pixelOnly = true;
+			add("LocalPosition", "Local Position", "Inputs",
+				"Meshes: the position in the mesh's own space. Voxels: the position in the volume's grid in metres "
+				"(it moves with pieces that break off, so patterns stay put on them).",
+				{}, { P("Position", F3) }, fixed({ "input.positionL" }));
+			add("BlockIndex", "Block Index", "Inputs",
+				"Voxels: the palette index of the voxel (which block it is). Meshes: 0. Compare it with an If node.",
+				{}, { P("Index", F1) }, fixed({ "input.blockId" }));
 
 			// ---- Constants ---------------------------------------------------------------
 			{
@@ -252,6 +259,13 @@ namespace sg
 				[](EmitContext& c)
 			{
 				c.out[0] = "lerp(" + c.in[3] + ", " + c.in[4] + ", (" + c.in[0] + " - " + c.in[1] + ") / (" + c.in[2] + " - " + c.in[1] + "))";
+			});
+			add("If", "If", "Math", "Compares A with B and passes on one of three inputs (equal within 0.0001).",
+				{ P("A", F1), P("B", F1), P("A > B", Dyn, 1), P("A = B", Dyn, 0), P("A < B", Dyn, 0) }, { P("Result", Dyn) },
+				[](EmitContext& c)
+			{
+				c.out[0] = "select(" + c.in[0] + " > " + c.in[1] + " + 0.0001, " + c.in[2] + ", select(" + c.in[0] + " < " + c.in[1] + " - 0.0001, "
+					+ c.in[4] + ", " + c.in[3] + "))";
 			});
 			add("Dot", "Dot", "Math", "Dot product of A and B.",
 				{ P("A", Dyn), P("B", Dyn) }, { P("Result", F1) },
