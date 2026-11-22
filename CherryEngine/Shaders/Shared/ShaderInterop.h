@@ -99,6 +99,12 @@ struct FrameConstants
 	uint   shadowMap1;             // ... and cascade 1 (not an array: cbuffer arrays pad each element to 16 bytes)
 	uint   shadowEnabled;
 	float  shadowNormalBias;       // texels of push along the normal before the lookup
+	// The shadows before the sun's last step (ShadowSettings::fadeSeconds), fading out.
+	CHERRY_MATRIX shadowMatrixPrevious[CHERRY_SHADOW_CASCADES];
+	uint   shadowMapPrevious0;
+	uint   shadowMapPrevious1;
+	float  shadowFade;             // weight of the previous shadows, 1 just after a step .. 0
+	float  pad8;
 
 	// An enclosed space with its own lighting (RenderSettings::interior; InteriorAmount in
 	// LightingUtil.hlsl). A world-axis box whose opening is its min-z face.
@@ -247,6 +253,8 @@ struct TonemapConstants
 	float aoStrength;
 	uint shaftTextureIndex;        // Texture2D<float4> light shafts at half size, or CHERRY_INVALID_INDEX
 	uint exposureTextureIndex;     // Texture2D<float> 1x1 eye adaptation exposure, or CHERRY_INVALID_INDEX
+	uint edgeTextureIndex;         // Texture2D<float> edge highlights (Edges.hlsl), or CHERRY_INVALID_INDEX
+	float edgeStrength;
 };
 
 // Eye adaptation (EyeAdaptation.hlsl): CSReduce sums the view per 16x16 block, CSAdapt eases

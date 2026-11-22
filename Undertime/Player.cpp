@@ -51,8 +51,21 @@ void PlayerController::Update(const Input& input, float dt, float speedScale, bo
 		forward /= length;
 		strafe /= length;
 	}
-	const float speed = cfg::kWalkSpeed * speedScale;
+	const bool run = input.IsKeyDown(VK_SHIFT);
 	const float s = std::sin(yaw), c = std::cos(yaw);
+	if (flying)
+	{
+		// Debug flight: along the view, straight through walls.
+		const XMFLOAT3 look = LookDirection();
+		const float up = (input.IsKeyDown(VK_SPACE) ? 1.0f : 0.0f) - (input.IsKeyDown(VK_CONTROL) ? 1.0f : 0.0f);
+		const float fly = cfg::kFlySpeed * (run ? cfg::kDebugRunMultiplier : 1.0f);
+		velocity = { (look.x * forward + c * strafe) * fly, (look.y * forward + up) * fly, (look.z * forward - s * strafe) * fly };
+		position = { position.x + velocity.x * dt, position.y + velocity.y * dt, position.z + velocity.z * dt };
+		mBody->SetPosition(position);
+		grounded = false;
+		return;
+	}
+	const float speed = cfg::kWalkSpeed * speedScale * (run ? cfg::kDebugRunMultiplier : 1.0f);
 	const XMFLOAT3 walk{ (s * forward + c * strafe) * speed, 0.0f, (c * forward - s * strafe) * speed };
 
 	const bool jump = mBody->IsGrounded() && input.WasKeyPressed(VK_SPACE);

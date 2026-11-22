@@ -43,26 +43,24 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 	colours[static_cast<int>(Ground::Path)] = color::Linear(cfg::kTerrainPath);
 	colours[static_cast<int>(Ground::Moss)] = color::Linear(cfg::kTerrainMoss);
 
-	// Water: translucent, each block of the surface slowly brightening and dimming.
-	SurfaceShaderOptions waterOptions;
-	waterOptions.translucent = true;
-	mWaterShader = renderer.CreateSurfaceShader("UNDERTIME water",
-		"SurfaceOutput EvaluateSurface(SurfaceInput input)\n"
-		"{\n"
-		"\tSurfaceOutput s = DefaultSurfaceOutput(input);\n"
-		"\tconst float2 cell = floor(input.positionW.xz * 4.0);\n"
-		"\tconst float h = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453);\n"
-		"\ts.baseColor *= 0.85 + 0.3 * (0.5 + 0.5 * sin(input.time * (0.8 + h) + h * 6.2831));\n"
-		"\tconst float facing = saturate(dot(input.normalW, input.viewDirW));\n"
-		"\ts.alpha = lerp(0.95, s.alpha, facing);\n"
-		"\treturn s;\n"
-		"}\n", waterOptions);
-	MaterialDesc water;
-	const XMFLOAT3 waterColour = color::Linear(cfg::kWaterColor);
-	water.baseColor = { waterColour.x, waterColour.y, waterColour.z, cfg::kWaterOpacity };
-	water.roughness = 0.08f;
-	water.shader = mWaterShader;
-	mWaterMaterial = renderer.CreateMaterial(water);
+	// Water that flows (Content/Shaders/Water.hlsl), steered by a flow map of the river and
+	// the lake: which way and how fast the water runs, how deep it is, and the foam below
+	// the falls. Spray rises at the falls nearest the town.
+	{
+		float x0, z0, x1, z1;
+		std::vector<uint8_t> texels = BuildFlowMap(valley, x0, z0, x1, z1);
+		mFlowMap = renderer.CreateTexture(static_cast<uint32_t>(x1 - x0), static_cast<uint32_t>(z1 - z0), texels.data(), false);
+		MaterialDesc water;
+		const XMFLOAT3 waterColour = color::Linear(cfg::kWaterColor);
+		water.baseColor = { waterColour.x, waterColour.y, waterColour.z, cfg::kWaterOpacity };
+		water.roughness = 0.05f;
+		water.shader = assets.GetSurfaceShader("Shaders/Water.hlsl");
+		const XMFLOAT3 deep = color::Linear(cfg::kWaterDeep), shallow = color::Linear(cfg::kWaterShallow);
+		water.params = { x0, z0, x1 - x0, z1 - z0, deep.x, deep.y, deep.z, shallow.x, shallow.y, shallow.z, cfg::kRiverMaxSpeed };
+		water.textures = { mFlowMap };
+		mWaterMaterial = renderer.CreateMaterial(water);
+		mSprays = FallSprays(valley);
+	}
 
 	auto addMesh = [&](const MeshData& data, MaterialHandle material)
 	{
@@ -369,6 +367,166 @@ void ValleyScenery::Spawn(Scene& scene)
 		scene.Add(entity, renderer);
 		mEntities.push_back(entity);
 	}
+	// Spray at the falls: fine white mist rising off the foam.
+	for (const XMFLOAT3& at : mSprays)
+	{
+		const Entity entity = scene.CreateEntity();
+		Transform transform;
+		transform.position = at;
+		scene.Add(entity, transform);
+		scene.Add(entity, Parent{ mRoot });
+		ParticleEmitter spray;
+		spray.enabled = mVisible;
+		spray.rate = 14.0f;
+		spray.maxParticles = 60;
+		spray.lifetime = 1.6f;
+		spray.lifetimeJitter = 0.4f;
+		spray.spawnBox = { cfg::kRiverHalfWidth * 0.8f, 0.1f, cfg::kRiverHalfWidth * 0.8f };
+		spray.velocity = { 0.0f, 0.6f, 0.0f };
+		spray.velocityJitter = { 0.4f, 0.3f, 0.4f };
+		spray.gravity = 0.3f;
+		spray.drag = 1.2f;
+		spray.turbulence = 0.4f;
+		spray.sizeStart = 0.12f;
+		spray.sizeEnd = 0.45f;
+		spray.colorStart = { 0.92f, 0.95f, 0.97f, 0.35f };
+		spray.colorEnd = { 0.92f, 0.95f, 0.97f, 0.0f };
+		scene.Add(entity, spray);
+		mEntities.push_back(entity);
+	}
+}
+
+std::vector<uint8_t> ValleyScenery::BuildFlowMap(const Valley& valley, float& x0, float& z0, float& x1, float& z1)
+{
+	// Over the river and the lake (one texel per metre), with a margin for the banks.
+	const float margin = cfg::kRiverHalfWidth + cfg::kRiverBank + 4.0f;
+	x0 = cfg::kLakeCenter[0] - cfg::kLakeRadius[0] * 1.6f;
+	x1 = cfg::kLakeCenter[0] + cfg::kLakeRadius[0] * 1.6f;
+	z0 = cfg::kLakeCenter[1] - cfg::kLakeRadius[1] * 1.6f;
+	z1 = cfg::kLakeCenter[1] + cfg::kLakeRadius[1] * 1.6f;
+	for (const auto& point : cfg::kRiverPoints)
+	{
+		x0 = std::min(x0, point[0] - margin); x1 = std::max(x1, point[0] + margin);
+		z0 = std::min(z0, point[1] - margin); z1 = std::max(z1, point[1] + margin);
+	}
+	x0 = std::floor(x0); z0 = std::floor(z0); x1 = std::ceil(x1); z1 = std::ceil(z1);
+	const int width = static_cast<int>(x1 - x0), height = static_cast<int>(z1 - z0);
+	std::vector<uint8_t> texels(static_cast<size_t>(width) * height * 4, 0);
+	auto encode = [](float v) { return static_cast<uint8_t>(std::clamp(std::lround((0.5f + 0.5f * v / cfg::kRiverMaxSpeed) * 255.0f), 0l, 255l)); };
+	auto row = [&](int j)
+	{
+		for (int i = 0; i < width; ++i)
+		{
+			uint8_t* out = &texels[(static_cast<size_t>(j) * width + i) * 4];
+			out[0] = out[1] = 128;   // still
+			const float x = x0 + i + 0.5f, z = z0 + j + 0.5f;
+			float along = 0.0f;
+			const float distance = valley.RiverDistance(x, z, &along);
+			const float lx = (x - cfg::kLakeCenter[0]) / cfg::kLakeRadius[0], lz = (z - cfg::kLakeCenter[1]) / cfg::kLakeRadius[1];
+			const bool nearLake = lx * lx + lz * lz < 2.0f;
+			if (distance > margin && !nearLake) continue;
+			float ground, water;
+			valley.Sample(x, z, ground, water);
+			if (water == Valley::kNoWater) continue;
+			// Downstream: the way the distance along the river grows.
+			float a, b, c, d;
+			valley.RiverDistance(x + 0.5f, z, &a);
+			valley.RiverDistance(x - 0.5f, z, &b);
+			valley.RiverDistance(x, z + 0.5f, &c);
+			valley.RiverDistance(x, z - 0.5f, &d);
+			float dx = a - b, dz = c - d;
+			const float length = std::sqrt(dx * dx + dz * dz);
+			if (length > 1e-4f) { dx /= length; dz /= length; }
+			float speed = cfg::kLakeSpeed;
+			if (distance < cfg::kRiverHalfWidth + 1.0f)
+			{
+				const float slope = (valley.RiverLevelAt(along - 4.0f) - valley.RiverLevelAt(along + 4.0f)) / 8.0f;
+				const float middle = std::clamp(1.0f - distance / (cfg::kRiverHalfWidth + 1.0f), 0.0f, 1.0f);
+				speed = std::min(cfg::kRiverSpeed + slope * cfg::kRiverSlopeSpeed, cfg::kRiverMaxSpeed) * (0.4f + 0.6f * std::sqrt(middle));
+			}
+			out[0] = encode(dx * speed);
+			out[1] = encode(dz * speed);
+			out[2] = static_cast<uint8_t>(std::clamp(std::lround((water - ground) / 2.0f * 255.0f), 0l, 255l));
+			// Foam below a fall, fading downstream.
+			float foam = 0.0f;
+			if (distance < cfg::kRiverHalfWidth + 1.0f)
+				for (float back = -1.0f; back <= cfg::kFallFoamLength * 2.0f; back += 1.0f)
+					if (valley.RiverLevelAt(along - back - 1.0f) - valley.RiverLevelAt(along - back) > cfg::kFallDrop)
+						foam = std::max(foam, std::exp(-std::max(back, 0.0f) / cfg::kFallFoamLength));
+			out[3] = static_cast<uint8_t>(std::lround(foam * 255.0f));
+		}
+	};
+	std::atomic<int> nextRow{ 0 };
+	auto work = [&]() { for (int j = nextRow++; j < height; j = nextRow++) row(j); };
+	std::vector<std::thread> workers;
+	for (unsigned t = 1; t < std::max(1u, std::thread::hardware_concurrency()); ++t) workers.emplace_back(work);
+	work();
+	for (std::thread& worker : workers) worker.join();
+
+	// Smooth the flow (twice over 5x5 texels of water): where the river bends, the nearest
+	// stretch of its centre line switches and the direction would jump, which shows as
+	// zigzag streaks in the ripples.
+	std::vector<float> flow(static_cast<size_t>(width) * height * 2), smoothed(flow.size());
+	std::vector<uint8_t> wet(static_cast<size_t>(width) * height);
+	for (size_t k = 0; k < wet.size(); ++k)
+	{
+		wet[k] = texels[k * 4 + 0] != 128 || texels[k * 4 + 1] != 128 || texels[k * 4 + 2] != 0;
+		flow[k * 2 + 0] = (texels[k * 4 + 0] / 255.0f - 0.5f) * 2.0f;
+		flow[k * 2 + 1] = (texels[k * 4 + 1] / 255.0f - 0.5f) * 2.0f;
+	}
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		for (int j = 0; j < height; ++j)
+			for (int i = 0; i < width; ++i)
+			{
+				const size_t k = static_cast<size_t>(j) * width + i;
+				float sx = 0.0f, sz = 0.0f, n = 0.0f;
+				if (wet[k])
+					for (int dj = -2; dj <= 2; ++dj)
+						for (int di = -2; di <= 2; ++di)
+						{
+							const int ii = i + di, jj = j + dj;
+							if (ii < 0 || jj < 0 || ii >= width || jj >= height) continue;
+							const size_t q = static_cast<size_t>(jj) * width + ii;
+							if (!wet[q]) continue;
+							sx += flow[q * 2]; sz += flow[q * 2 + 1]; n += 1.0f;
+						}
+				smoothed[k * 2] = n > 0.0f ? sx / n : flow[k * 2];
+				smoothed[k * 2 + 1] = n > 0.0f ? sz / n : flow[k * 2 + 1];
+			}
+		flow.swap(smoothed);
+	}
+	for (size_t k = 0; k < wet.size(); ++k)
+	{
+		if (!wet[k]) continue;
+		texels[k * 4 + 0] = encode(flow[k * 2] * cfg::kRiverMaxSpeed);
+		texels[k * 4 + 1] = encode(flow[k * 2 + 1] * cfg::kRiverMaxSpeed);
+	}
+	return texels;
+}
+
+std::vector<XMFLOAT3> ValleyScenery::FallSprays(const Valley& valley)
+{
+	// Each fall along the river, the ones nearest the town first.
+	std::vector<XMFLOAT3> falls;
+	const float length = valley.RiverLength();
+	for (float along = 1.0f; along < length - 1.0f; along += 1.0f)
+	{
+		const float drop = valley.RiverLevelAt(along - 1.0f) - valley.RiverLevelAt(along);
+		if (drop <= cfg::kFallDrop) continue;
+		float x, z;
+		valley.RiverPointAt(along + 0.5f, x, z);
+		if (!falls.empty() && std::fabs(falls.back().x - x) + std::fabs(falls.back().z - z) < 3.0f) continue;
+		falls.push_back({ x, valley.RiverLevelAt(along) + 0.05f, z });
+	}
+	const XMFLOAT2 town{ cfg::kSpawnX, -120.0f };
+	std::sort(falls.begin(), falls.end(), [&](const XMFLOAT3& a, const XMFLOAT3& b)
+	{
+		auto d2 = [&](const XMFLOAT3& p) { const float dx = p.x - town.x, dz = p.z - town.y; return dx * dx + dz * dz; };
+		return d2(a) < d2(b);
+	});
+	if (falls.size() > static_cast<size_t>(cfg::kFallSprayMax)) falls.resize(cfg::kFallSprayMax);
+	return falls;
 }
 
 bool ValleyScenery::EnsureEntities(Scene& scene)
@@ -387,6 +545,7 @@ void ValleyScenery::SetVisible(Scene& scene, bool visible)
 	for (Entity entity : mEntities)
 	{
 		if (scene.IsAlive(entity) && scene.Has<MeshRenderer>(entity)) scene.Get<MeshRenderer>(entity).visible = visible;
+		if (scene.IsAlive(entity) && scene.Has<ParticleEmitter>(entity)) scene.Get<ParticleEmitter>(entity).enabled = visible;
 	}
 }
 
@@ -406,8 +565,9 @@ void ValleyScenery::Destroy(Engine& engine, Scene& scene, PhysicsWorld* physics)
 	if (physics) for (BodyId body : mBodies) physics->RemoveBody(body);
 	mBodies.clear();
 	if (mWaterMaterial.IsValid()) renderer.DestroyMaterial(mWaterMaterial);
-	if (mWaterShader.IsValid()) renderer.DestroySurfaceShader(mWaterShader);
+	if (mFlowMap.IsValid()) renderer.DestroyTexture(mFlowMap);
 	mWaterMaterial = {};
-	mWaterShader = {};
+	mFlowMap = {};
+	mSprays.clear();
 	mVisible = true;
 }

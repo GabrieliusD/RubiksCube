@@ -148,6 +148,8 @@ private:
 	ValleyScenery scenery;
 	ValleyProps props;
 	int era = 1;                     // which era's town stands (the clock's, once the valley is out of sight)
+	int debugTimeScale = 0;            // debug ([ and ]): outside time runs 10^this times faster
+	bool shadowFade = true;            // debug (J): shadows fade between steps
 	ColorGradeSettings grade;          // the colour grade now, easing towards the era's (or the cave's)
 	float gradeTime = -1.0f;           // `time` when the grade was last updated (-1: snap to the target)
 	OutsideClock clock;

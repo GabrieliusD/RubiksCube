@@ -53,6 +53,7 @@ struct MeshData
 struct SurfaceShaderOptions
 {
 	bool translucent = false;      // blended by the surface's alpha, drawn after opaque surfaces, back to front
+	bool depthWrite = false;       // translucent only: still writes depth, so only its nearest layer shows (water: no flicker where faces overlap)
 	float boundsPadding = 0.0f;    // metres added to mesh bounds for culling (vertex offsets move vertices)
 };
 
@@ -153,6 +154,13 @@ struct ShadowSettings
 	float nearDistance = 40.0f;     // metres from the camera covered by the sharp cascade
 	float farDistance = 220.0f;     // ... and by the second one (shadows fade out towards it)
 	float normalBias = 1.5f;        // shadow-map texels the lookup is pushed along the normal
+	// The sunlight direction the shadow maps are drawn along; (0, 0, 0) = RenderSettings::sunDirection.
+	// A game whose sun moves can step this (each change turns the maps' texel grid, which makes
+	// shadow edges shimmer) while the sun itself moves smoothly.
+	DirectX::XMFLOAT3 direction{ 0, 0, 0 };
+	// When `direction` changes, the old shadows fade into the new over this many seconds
+	// instead of jumping (0 = jump). Keeps a second set of shadow maps.
+	float fadeSeconds = 0.0f;
 };
 
 // Glow around bright pixels (windows, fire, crystals, the sun).
@@ -261,6 +269,16 @@ struct EyeAdaptationSettings
 	bool reset = false;             // jump straight to the view's exposure this frame (cuts, teleports)
 };
 
+// Edge highlights: a thin lighter line along convex edges (block corners), found from the
+// view depth, fading out with distance. Applied to the world, not view models.
+struct EdgeHighlightSettings
+{
+	bool enabled = false;
+	float strength = 0.3f;          // how much brighter an edge gets
+	float distance = 60.0f;         // metres where they've faded out
+	float sharpness = 0.004f;       // how far (relative to distance) an edge must stand out; smaller finds softer edges
+};
+
 // A colour grade over the whole view, applied by the tonemap: white balance and saturation
 // on the HDR colour, then the tone curve, then contrast, lift and gain on the displayed
 // colour, then a vignette. The defaults change nothing.
@@ -313,6 +331,7 @@ struct RenderSettings
 	LightShaftSettings lightShafts;
 	ColorGradeSettings colorGrade;
 	EyeAdaptationSettings eyeAdaptation;
+	EdgeHighlightSettings edgeHighlights;
 	std::vector<RoomSettings> rooms;
 	bool antiAliasing = true;   // FXAA after the tonemap: smooths stair-stepped edges
 

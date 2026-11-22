@@ -284,6 +284,7 @@ struct Renderer::Impl
 	std::unique_ptr<rhi::Texture> ldrBeforeAA;   // the tonemap's output when anti-aliasing is on
 	std::unique_ptr<rhi::Texture> depth;
 	std::unique_ptr<rhi::Texture> aoRaw, ao;   // screen-space ambient occlusion
+	std::unique_ptr<rhi::Texture> edges;       // edge highlights
 	std::unique_ptr<rhi::Texture> shaftRaw, shaft;   // light shafts, half size
 	std::unique_ptr<rhi::Texture> luminanceBlocks;   // eye adaptation: per 16x16 block
 	std::unique_ptr<rhi::Texture> adaptedExposure;   // eye adaptation: 1x1, kept across frames
@@ -310,6 +311,10 @@ struct Renderer::Impl
 	// Sun shadows: one depth map per cascade, and this frame's cascades.
 	static constexpr uint32_t kShadowMapSize = 2048;
 	std::unique_ptr<rhi::Texture> shadowMaps[CHERRY_SHADOW_CASCADES];
+	// Shadow fades (ShadowSettings::fadeSeconds): the maps from before the last step.
+	std::unique_ptr<rhi::Texture> previousShadowMaps[CHERRY_SHADOW_CASCADES];
+	XMFLOAT3 shadowDirectionDrawn{ 0, 0, 0 };   // the direction the current maps were drawn along
+	float shadowFade = 0.0f;                    // weight of the previous maps
 	struct ShadowCascade
 	{
 		BoundingOrientedBox box;    // world-space volume whose casters it draws
@@ -319,12 +324,14 @@ struct Renderer::Impl
 		float split = 0.0f;         // view distance it covers
 	};
 	ShadowCascade cascades[CHERRY_SHADOW_CASCADES];
+	ShadowCascade previousCascades[CHERRY_SHADOW_CASCADES];
 	struct ShadowItem { uint32_t meshSlot; uint32_t instance; };
 	std::vector<ShadowItem> shadowScratch[CHERRY_SHADOW_CASCADES];
 	std::vector<gpu::InstanceData> shadowCasterScratch;     // instances, as the casters were found
 	std::vector<gpu::InstanceData> shadowInstanceScratch;   // ... in draw order, cascade after cascade
 	std::vector<gpu::VoxelVolumeData> shadowVoxelScratch;   // voxel volumes that reach a cascade
 	void CreateShadowMaps();
+	std::unique_ptr<rhi::Texture> CreateShadowMap();
 	void SetupShadowCascades(const XMMATRIX& view, const XMMATRIX& proj, const RenderView& renderView);
 
 	// Bloom: half the view's size, then halving down the chain.
@@ -512,6 +519,10 @@ void Renderer::Impl::CreatePipelines()
 	shafts.shaderFile = "LightShafts.hlsl";
 	shafts.entry = "CSMain";
 	pipelines.AddCompute("shafts", shafts);
+	rhi::ComputePipelineDesc edgePass;
+	edgePass.shaderFile = "Edges.hlsl";
+	edgePass.entry = "CSMain";
+	pipelines.AddCompute("edges", edgePass);
 	rhi::ComputePipelineDesc shaftsBlur;
 	shaftsBlur.shaderFile = "LightShafts.hlsl";
 	shaftsBlur.entry = "CSBlur";
@@ -638,6 +649,8 @@ void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
 	aoRaw = rhi::Texture::Create(device, aoDesc);
 	aoDesc.name = "AmbientOcclusion";
 	ao = rhi::Texture::Create(device, aoDesc);
+	aoDesc.name = "EdgeHighlights";
+	edges = rhi::Texture::Create(device, aoDesc);
 
 	// Light shafts: half size, raw then blurred.
 	rhi::TextureDesc shaftDesc;
@@ -691,20 +704,22 @@ void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
 	viewHeight = height;
 }
 
+std::unique_ptr<rhi::Texture> Renderer::Impl::CreateShadowMap()
+{
+	rhi::TextureDesc desc;
+	desc.width = desc.height = kShadowMapSize;
+	desc.format = kDepthResourceFormat;
+	desc.dsvFormat = kDepthFormat;
+	desc.srvFormat = kDepthSrvFormat;
+	desc.usage = rhi::TextureUsage_DepthStencil | rhi::TextureUsage_ShaderResource;
+	desc.initialState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+	desc.name = "ShadowMap";
+	return rhi::Texture::Create(device, desc);
+}
+
 void Renderer::Impl::CreateShadowMaps()
 {
-	for (auto& map : shadowMaps)
-	{
-		rhi::TextureDesc desc;
-		desc.width = desc.height = kShadowMapSize;
-		desc.format = kDepthResourceFormat;
-		desc.dsvFormat = kDepthFormat;
-		desc.srvFormat = kDepthSrvFormat;
-		desc.usage = rhi::TextureUsage_DepthStencil | rhi::TextureUsage_ShaderResource;
-		desc.initialState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-		desc.name = "ShadowMap";
-		map = rhi::Texture::Create(device, desc);
-	}
+	for (auto& map : shadowMaps) map = CreateShadowMap();
 }
 
 // Fits each cascade around its slice of the view frustum: a sphere around the slice (so the
@@ -721,7 +736,9 @@ void Renderer::Impl::SetupShadowCascades(const XMMATRIX& view, const XMMATRIX& p
 	const float tanX = 1.0f / p._11, tanY = 1.0f / p._22;
 	const float k2 = tanX * tanX + tanY * tanY;
 
-	const XMVECTOR sun = XMVector3Normalize(XMLoadFloat3(&settings.sunDirection));
+	const XMFLOAT3& shadowSun = settings.shadows.direction;
+	const bool ownDirection = shadowSun.x != 0.0f || shadowSun.y != 0.0f || shadowSun.z != 0.0f;
+	const XMVECTOR sun = XMVector3Normalize(XMLoadFloat3(ownDirection ? &shadowSun : &settings.sunDirection));
 	const XMVECTOR up = std::fabs(XMVectorGetY(sun)) > 0.99f ? XMVectorSet(0, 0, 1, 0) : XMVectorSet(0, 1, 0, 0);
 	const XMMATRIX lightView = XMMatrixLookToLH(XMVectorZero(), sun, up);
 	const XMMATRIX lightToWorld = XMMatrixInverse(nullptr, lightView);
@@ -896,6 +913,7 @@ void Renderer::Shutdown()
 	r.shadowInstanceBuffer.Reset();
 	r.shadowVoxelBuffer.Reset();
 	for (auto& map : r.shadowMaps) map.reset();
+	for (auto& map : r.previousShadowMaps) map.reset();
 	r.bloomChain.clear();
 	r.materialBuffer.Reset();
 	r.materialParamBuffer.Reset();
@@ -1104,7 +1122,7 @@ void Renderer::SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::str
 	if (options.translucent)
 	{
 		desc.alphaBlend = true;
-		desc.depthWrite = false;
+		desc.depthWrite = options.depthWrite;
 	}
 	r.pipelines.SetGraphicsAsync(resource->pipeline, desc, [&r, shader, options, done = std::move(done)](bool ok)
 	{
@@ -1439,7 +1457,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX };
+	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((size + 7) / 8, (size + 7) / 8, 1);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1655,7 +1673,38 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	// ---- Sun shadow cascades ------------------------------------------------
 	const XMFLOAT3& sunColor = r.settings.sunColor;
 	const bool shadows = r.settings.shadows.enabled && sunColor.x + sunColor.y + sunColor.z > 0.0f;
-	if (shadows) r.SetupShadowCascades(view, proj, renderView);
+	if (shadows)
+	{
+		// A fade between shadow steps: when the shadows' direction changes, last frame's maps
+		// become the previous ones (fading out) and the other set is drawn along the new one.
+		const XMFLOAT3& own = r.settings.shadows.direction;
+		const XMFLOAT3 direction = (own.x != 0.0f || own.y != 0.0f || own.z != 0.0f) ? own : r.settings.sunDirection;
+		const float fadeSeconds = r.settings.shadows.fadeSeconds;
+		const bool moved = direction.x != r.shadowDirectionDrawn.x || direction.y != r.shadowDirectionDrawn.y || direction.z != r.shadowDirectionDrawn.z;
+		const bool drawnBefore = r.shadowDirectionDrawn.x != 0.0f || r.shadowDirectionDrawn.y != 0.0f || r.shadowDirectionDrawn.z != 0.0f;
+		if (fadeSeconds <= 0.0f)
+			r.shadowFade = 0.0f;
+		else if (moved && drawnBefore)
+		{
+			if (!r.previousShadowMaps[0])
+				for (auto& map : r.previousShadowMaps) map = r.CreateShadowMap();
+			for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c)
+			{
+				std::swap(r.shadowMaps[c], r.previousShadowMaps[c]);
+				r.previousCascades[c] = r.cascades[c];
+			}
+			r.shadowFade = 1.0f;
+		}
+		else
+			r.shadowFade = std::max(0.0f, r.shadowFade - r.deltaTime / fadeSeconds);
+		r.shadowDirectionDrawn = direction;
+		r.SetupShadowCascades(view, proj, renderView);
+	}
+	else
+	{
+		r.shadowDirectionDrawn = { 0, 0, 0 };
+		r.shadowFade = 0.0f;
+	}
 	for (auto& list : r.shadowScratch) list.clear();
 	r.shadowCasterScratch.clear();
 
@@ -1918,6 +1967,14 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		frame.shadowSplits = { r.cascades[0].split, r.cascades[1].split, r.cascades[1].split * 0.15f, 0.0f };
 		frame.shadowTexelWorld = { r.cascades[0].texelWorld, r.cascades[1].texelWorld, 0.0f, 0.0f };
 		frame.shadowNormalBias = r.settings.shadows.normalBias;
+		frame.shadowFade = r.shadowFade > 0.0f && r.previousShadowMaps[0] ? r.shadowFade : 0.0f;
+		if (frame.shadowFade > 0.0f)
+		{
+			for (auto& map : r.previousShadowMaps) map->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			frame.shadowMapPrevious0 = r.previousShadowMaps[0]->SrvIndex();
+			frame.shadowMapPrevious1 = r.previousShadowMaps[1]->SrvIndex();
+			for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c) frame.shadowMatrixPrevious[c] = r.previousCascades[c].uv;
+		}
 	}
 
 	gpu::ViewConstants viewConstants{};
@@ -2079,6 +2136,22 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_DEPTH_WRITE);
 	}
 
+	// ---- Edge highlights (compute), from the world's depth --------------------------
+	const EdgeHighlightSettings& edgeSettings = r.settings.edgeHighlights;
+	const bool edgesOn = edgeSettings.enabled && edgeSettings.strength > 0.0f && r.edges;
+	if (edgesOn)
+	{
+		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.edges->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("edges"));
+		gpu::SsaoConstants constants{ CHERRY_INVALID_INDEX, r.edges->UavIndex(), r.viewWidth, r.viewHeight, r.depth->SrvIndex(),
+			std::max(edgeSettings.distance, 1.0f), std::max(edgeSettings.sharpness, 1e-5f), 0 };
+		cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(constants) / 4, &constants, 0);
+		cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
+		r.edges->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+	}
+
 	// ---- Light shafts (compute, half size), from the world's depth ------------------
 	const LightShaftSettings& shaftSettings = r.settings.lightShafts;
 	const bool shaftsOn = shaftSettings.enabled && shaftSettings.intensity > 0.0f && r.shaft;
@@ -2168,11 +2241,12 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	rhi::Texture& tonemapped = antiAliasing ? *r.ldrBeforeAA : *r.ldr;
 	tonemapped.Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	if (ssaoOn || shaftsOn) r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	if (ssaoOn || shaftsOn || edgesOn) r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), tonemapped.UavIndex(), r.viewWidth, r.viewHeight,
 		bloomOn ? r.bloomChain[0]->SrvIndex() : CHERRY_INVALID_INDEX, bloom.intensity,
 		ssaoOn ? r.ao->SrvIndex() : CHERRY_INVALID_INDEX, r.depth->SrvIndex(), std::clamp(ssaoSettings.strength, 0.0f, 1.0f),
-		shaftsOn ? r.shaft->SrvIndex() : CHERRY_INVALID_INDEX, eyeOn ? r.adaptedExposure->SrvIndex() : CHERRY_INVALID_INDEX };
+		shaftsOn ? r.shaft->SrvIndex() : CHERRY_INVALID_INDEX, eyeOn ? r.adaptedExposure->SrvIndex() : CHERRY_INVALID_INDEX,
+		edgesOn ? r.edges->SrvIndex() : CHERRY_INVALID_INDEX, edgeSettings.strength };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
 	if (antiAliasing)

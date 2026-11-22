@@ -102,24 +102,36 @@ float SampleShadowMap(uint mapIndex, float4x4 shadowMatrix, float3 positionW)
 	return lit / 9.0;
 }
 
-// How much sun reaches a point (1 = all). The nearest cascade that covers it is used, pushed
-// a little along the normal (less acne on surfaces facing away from the sun), and the last
-// cascade fades out towards its end.
-float SunShadow(float3 positionW, float3 N)
+// The sun reaching a point through one set of cascade maps.
+float SunShadowFrom(uint map0, uint map1, float4x4 matrix0, float4x4 matrix1, float3 positionW, float3 N)
 {
-	if (gFrame.shadowEnabled == 0)
-		return 1.0;
 	const float d = distance(positionW, gView.eyePosW);
 	const float3 L = -normalize(gFrame.lights[0].Direction);
 	const float push = gFrame.shadowNormalBias * (1.5 - saturate(dot(N, L)));
 	if (d < gFrame.shadowSplits.x)
-		return SampleShadowMap(gFrame.shadowMap0, gFrame.shadowMatrix[0], positionW + N * gFrame.shadowTexelWorld.x * push);
+		return SampleShadowMap(map0, matrix0, positionW + N * gFrame.shadowTexelWorld.x * push);
 	if (d < gFrame.shadowSplits.y)
 	{
-		const float lit = SampleShadowMap(gFrame.shadowMap1, gFrame.shadowMatrix[1], positionW + N * gFrame.shadowTexelWorld.y * push);
+		const float lit = SampleShadowMap(map1, matrix1, positionW + N * gFrame.shadowTexelWorld.y * push);
 		return lerp(lit, 1.0, smoothstep(gFrame.shadowSplits.y - gFrame.shadowSplits.z, gFrame.shadowSplits.y, d));
 	}
 	return 1.0;
+}
+
+// How much sun reaches a point (1 = all). The nearest cascade that covers it is used, pushed
+// a little along the normal (less acne on surfaces facing away from the sun), and the last
+// cascade fades out towards its end. Just after the shadows step, the previous ones fade out.
+float SunShadow(float3 positionW, float3 N)
+{
+	if (gFrame.shadowEnabled == 0)
+		return 1.0;
+	float lit = SunShadowFrom(gFrame.shadowMap0, gFrame.shadowMap1, gFrame.shadowMatrix[0], gFrame.shadowMatrix[1], positionW, N);
+	if (gFrame.shadowFade > 0.0)
+	{
+		const float before = SunShadowFrom(gFrame.shadowMapPrevious0, gFrame.shadowMapPrevious1, gFrame.shadowMatrixPrevious[0], gFrame.shadowMatrixPrevious[1], positionW, N);
+		lit = lerp(lit, before, gFrame.shadowFade);
+	}
+	return lit;
 }
 
 // ---- Interior (RenderSettings::interior) ------------------------------------------------

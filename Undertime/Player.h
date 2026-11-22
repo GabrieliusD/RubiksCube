@@ -16,13 +16,15 @@ public:
 	float yaw = 0.0f;      // radians, 0 = facing +Z (into the mountain)
 	float pitch = 0.0f;    // radians, positive = looking down
 	bool grounded = false;
+	bool flying = false;   // debug (G): free flight through everything; Shift goes faster
 
 	void CreateBody(PhysicsWorld& physics);
 	// Moves the player (feet position) and sets the facing; clears velocity.
 	void Teleport(const DirectX::XMFLOAT3& feet, float facingYaw);
 	void DestroyBody();
 
-	// `speedScale` slows walking (e.g. a heavy bag). `look` enables mouse look.
+	// `speedScale` slows walking (e.g. a heavy bag). `look` enables mouse look. Debug: Shift
+	// moves faster; when flying, Space rises and Ctrl sinks.
 	void Update(const Input& input, float deltaTime, float speedScale, bool look);
 
 	DirectX::XMFLOAT3 EyePosition() const { return { position.x, position.y + cfg::kEyeHeight, position.z }; }

@@ -46,6 +46,16 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 			color += shafts.SampleLevel(gLinearClamp, uv, 0).rgb;
 		}
 	}
+	if (gDraw.edgeTextureIndex != CHERRY_INVALID_INDEX)
+	{
+		// Edge highlights (Edges.hlsl): block edges catch the light (the world only).
+		Texture2D<float> depth = ResourceDescriptorHeap[gDraw.depthTextureIndex];
+		if (depth[id.xy] >= 1.0)
+		{
+			Texture2D<float> edges = ResourceDescriptorHeap[gDraw.edgeTextureIndex];
+			color *= 1.0 + edges[id.xy] * gDraw.edgeStrength;
+		}
+	}
 	if (gDraw.aoTextureIndex != CHERRY_INVALID_INDEX)
 	{
 		// Ambient occlusion (Ssao.hlsl) darkens the world; view models (drawn after the

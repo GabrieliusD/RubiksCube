@@ -154,6 +154,23 @@ float Valley::RiverDistance(float x, float z, float* along) const
 	return best;
 }
 
+void Valley::RiverPointAt(float along, float& x, float& z) const
+{
+	for (int i = 0; i + 1 < kRiverPointCount; ++i)
+	{
+		const float length = mRiverLength[i + 1] - mRiverLength[i];
+		if (along <= mRiverLength[i + 1] || i + 2 == kRiverPointCount)
+		{
+			const float t = std::clamp((along - mRiverLength[i]) / std::max(length, 1e-3f), 0.0f, 1.0f);
+			x = cfg::kRiverPoints[i][0] + (cfg::kRiverPoints[i + 1][0] - cfg::kRiverPoints[i][0]) * t;
+			z = cfg::kRiverPoints[i][1] + (cfg::kRiverPoints[i + 1][1] - cfg::kRiverPoints[i][1]) * t;
+			return;
+		}
+	}
+	x = cfg::kRiverPoints[0][0];
+	z = cfg::kRiverPoints[0][1];
+}
+
 float Valley::RiverLevelAt(float along) const
 {
 	const int i = std::clamp(static_cast<int>(along), 0, static_cast<int>(mRiverLevel.size()) - 1);
@@ -181,6 +198,9 @@ void Valley::Sample(float x, float z, float& height, float& water) const
 		if (d < cfg::kRiverHalfWidth) height = std::min(height, level - cfg::kRiverDepth);
 		else height = std::min(height, level + 0.25f + (height - level - 0.25f) * Smooth(cfg::kRiverHalfWidth, cfg::kRiverHalfWidth + cfg::kRiverBank, d));
 		if (d < cfg::kRiverHalfWidth + 0.5f) water = level;
+		// A low lip along the bank where the land beside it is lower than the water (no
+		// standing walls of water), sloping back down into the land.
+		if (d >= cfg::kRiverHalfWidth) height = std::max(height, level + 0.25f - 0.6f * std::max(0.0f, d - cfg::kRiverHalfWidth - 1.0f));
 	}
 
 	const float lx = (x - cfg::kLakeCenter[0]) / cfg::kLakeRadius[0], lz = (z - cfg::kLakeCenter[1]) / cfg::kLakeRadius[1];
@@ -191,6 +211,7 @@ void Valley::Sample(float x, float z, float& height, float& water) const
 		if (el < 1.0f) height = std::min(height, mLakeLevel - cfg::kLakeDepth * Smooth(1.0f, 0.5f, el) - 0.5f);
 		else if (el < 1.4f) height = std::min(height, mLakeLevel + 0.25f + (height - mLakeLevel - 0.25f) * Smooth(1.0f, 1.4f, el));
 		if (el < 1.05f && water == kNoWater) water = mLakeLevel;
+		if (el >= 1.0f) height = std::max(height, mLakeLevel + 0.25f - 0.6f * std::max(0.0f, (el - 1.0f) * cfg::kLakeRadius[1] - 1.0f));
 	}
 }
 
@@ -214,7 +235,10 @@ bool Valley::Detailed(float x, float z) const
 	const float cx = cfg::kValleyWorld[0] + (std::floor((x - cfg::kValleyWorld[0]) / c) + 0.5f) * c;
 	const float cz = cfg::kValleyWorld[1] + (std::floor((z - cfg::kValleyWorld[1]) / c) + 0.5f) * c;
 	const float mx = cx - kMouthX;
-	return ValleyDistance(cx, cz) < cfg::kDetailValleyDistance || std::sqrt(mx * mx + cz * cz) < cfg::kDetailMouthReach;
+	if (ValleyDistance(cx, cz) < cfg::kDetailValleyDistance || std::sqrt(mx * mx + cz * cz) < cfg::kDetailMouthReach) return true;
+	// Wherever the river runs (its falls up the mountain too): water levels in 1 m blocks
+	// don't meet the fine ones, and the rock shows through between them.
+	return RiverDistance(cx, cz) < c * 0.75f + cfg::kRiverHalfWidth + cfg::kRiverBank;
 }
 
 Ground Valley::GroundAt(float x, float z, float height, float drop, float block) const

@@ -225,6 +225,47 @@ MeshData BuildWaterMesh(const TerrainPatch& p, const XMFLOAT3& colour)
 	MeshData mesh;
 	const int n = p.n;
 	const float b = p.block;
+	// Churn: how close each column is to a fall (one it pours over, or one landing in it),
+	// 1 at the fall fading to 0 over kChurnReach metres, in four steps (so the surface still
+	// merges into few quads). It's carried in the top's colour (red = 1 - churn) for the
+	// water shader's foam.
+	constexpr float kFallHeight = 0.45f, kChurnReach = 1.5f;
+	constexpr int kChurnSteps = 4;
+	const int reach = std::max(1, static_cast<int>(std::lround(kChurnReach / b)));
+	std::vector<int> churnDistance(static_cast<size_t>(n) * n, reach + 1);
+	std::vector<int> frontier;
+	for (int j = 0; j < n; ++j)
+		for (int i = 0; i < n; ++i)
+		{
+			const float w = p.water[p.Index(i, j)];
+			if (w == Valley::kNoWater) continue;
+			for (int d = 0; d < 4; ++d)
+			{
+				const int k = p.Index(i + kDi[d], j + kDj[d]);
+				const float other = p.water[k] == Valley::kNoWater ? p.top[k] : p.water[k];
+				if (std::fabs(other - w) > kFallHeight && (p.water[k] != Valley::kNoWater || other < w))
+				{
+					churnDistance[i + n * j] = 0;
+					frontier.push_back(i + n * j);
+					break;
+				}
+			}
+		}
+	for (size_t f = 0; f < frontier.size(); ++f)
+	{
+		const int c = frontier[f], i = c % n, j = c / n;
+		for (int d = 0; d < 4; ++d)
+		{
+			const int ii = i + kDi[d], jj = j + kDj[d];
+			if (ii < 0 || jj < 0 || ii >= n || jj >= n) continue;
+			const int q = ii + n * jj;
+			if (p.water[p.Index(ii, jj)] == Valley::kNoWater || churnDistance[q] <= churnDistance[c] + 1) continue;
+			churnDistance[q] = churnDistance[c] + 1;
+			if (churnDistance[q] < reach) frontier.push_back(q);
+		}
+	}
+	auto churnStep = [&](int c) { return churnDistance[c] > reach ? 0 : kChurnSteps - (churnDistance[c] * kChurnSteps) / (reach + 1); };
+
 	std::vector<uint64_t> keys(static_cast<size_t>(n) * n, 0);
 	bool any = false;
 	for (int j = 0; j < n; ++j)
@@ -232,13 +273,15 @@ MeshData BuildWaterMesh(const TerrainPatch& p, const XMFLOAT3& colour)
 		{
 			const float w = p.water[p.Index(i, j)];
 			if (w == Valley::kNoWater) continue;
-			keys[i + n * j] = static_cast<uint64_t>(std::llround(w / b) + (1ll << 30));
+			keys[i + n * j] = (static_cast<uint64_t>(std::llround(w / b) + (1ll << 30)) << 3) | static_cast<uint64_t>(churnStep(i + n * j));
 			any = true;
 		}
 	if (!any) return mesh;
-	Greedy2D(keys, n, [&](int i, int j, int w, int h, uint64_t)
+	Greedy2D(keys, n, [&](int i, int j, int w, int h, uint64_t key)
 	{
-		AddQuad(mesh, { p.x0 + i * b, p.water[p.Index(i, j)], p.z0 + j * b }, { 0, 0, h * b }, { w * b, 0, 0 }, { 0, 1, 0 }, colour, 0.0f);
+		const float churn = static_cast<float>(key & 7) / kChurnSteps;
+		AddQuad(mesh, { p.x0 + i * b, p.water[p.Index(i, j)], p.z0 + j * b }, { 0, 0, h * b }, { w * b, 0, 0 }, { 0, 1, 0 },
+			{ colour.x * (1.0f - 0.98f * churn), colour.y, colour.z }, 0.0f);
 	});
 	// Falls: where the water steps down to a neighbour's lower surface.
 	for (int j = 0; j < n; ++j)
@@ -252,9 +295,19 @@ MeshData BuildWaterMesh(const TerrainPatch& p, const XMFLOAT3& colour)
 				const float below = std::max(p.water[k], p.top[k]);
 				if (below >= w) continue;
 				const bool alongZ = d < 2;
-				const float plane = alongZ ? p.x0 + (i + (d == 1 ? 1 : 0)) * b : p.z0 + (j + (d == 3 ? 1 : 0)) * b;
+				// A little out from the column's edge, so it doesn't fight the riverbed's face in
+				// the same plane (6 cm: depth precision is coarse far away), with a lip of surface over
+				// the gap that leaves, and as much longer
+				// at each end so outside corners close.
+				const float out = (d == 1 || d == 3) ? 0.06f : -0.06f;
+				const float edge = alongZ ? p.x0 + (i + (d == 1 ? 1 : 0)) * b : p.z0 + (j + (d == 3 ? 1 : 0)) * b;
 				const float a0 = alongZ ? p.z0 + j * b : p.x0 + i * b;
-				AddSide(mesh, d, plane, a0, a0 + b, below, w, colour, 0.0f);
+				// Its colour's green carries how far it falls (Shaders/Water.hlsl: 1 - drop / 4 m).
+				const XMFLOAT3 fallColour{ colour.x, 1.0f - std::min((w - below) / 4.0f, 1.0f), colour.z };
+				AddSide(mesh, d, edge + out, a0 - 0.06f, a0 + b + 0.06f, below, w, fallColour, 0.0f);   // reaching round outside corners
+				const float lip = std::min(edge, edge + out);
+				if (alongZ) AddQuad(mesh, { lip, w, a0 }, { 0, 0, b }, { 0.06f, 0, 0 }, { 0, 1, 0 }, colour, 0.0f);
+				else AddQuad(mesh, { a0, w, lip }, { 0, 0, 0.06f }, { b, 0, 0 }, { 0, 1, 0 }, colour, 0.0f);
 			}
 		}
 	return mesh;

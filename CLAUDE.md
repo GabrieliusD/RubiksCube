@@ -94,6 +94,7 @@ The `.github/` folder exists but is empty: there is no CI.
   - **Light volumes, clouds, SSAO:**
     - `Renderer::CreateLightVolume` makes an R8 3D texture; `InteriorSettings::lightVolume` stretches one over the interior box. Inside, the world's ambient × level × `lightStrength` is added to the interior's, and the sun reaches in where level × `sunFromLight` ≥ 1 (its shadows decide exactly where).
     - `RenderSettings::clouds`: noise on a layer at `height`, drifting with `wind`. It shades the sun (`CloudShadow` in `LightingUtil.hlsl`) and is drawn in `SkyPass.hlsl`.
+    - `RenderSettings::edgeHighlights`: `Shaders/Edges.hlsl` finds convex block edges from the depth (after SSAO); the tonemap brightens them.
     - `RenderSettings::colorGrade` (white balance, saturation, contrast, lift, gain, vignette) and `RenderSettings::eyeAdaptation` (`Shaders/EyeAdaptation.hlsl`: a GPU-only exposure that follows the view's brightness, kept in a 1x1 texture) are applied by the tonemap. UNDERTIME sets a grade per era (`cfg::kEraGrades`) and a cave grade.
     - `RenderSettings::lightShafts`: `Shaders/LightShafts.hlsl` marches the view rays at half size through the sun's shadow maps, clouds and (inside) the light volume, after SSAO; the tonemap adds it to the world like the AO.
     - `RenderSettings::ssao`: `Shaders/Ssao.hlsl` (`CSMain`, then the depth-aware `CSBlur`) runs before the view models clear the depth. The tonemap applies it only where the final depth is at the far plane, so view models are left alone.
@@ -160,6 +161,7 @@ The game is first-person mining in a procedurally generated mountain. One world 
   - **Strata:** steep ground above the floor is shaped into layers (`kStrataHeight`, risers and near-flat ledges) in `Valley::BaseHeight`. The terrain picks rock or grass by slope, so ledges come out grassy. `BuildTerrainMesh` bands tall rock walls in three shades per layer, and the cave face (`Cliff`, `Cliff2`, `Cliff3` blocks) uses the same layers.
   - **Outcrops:** `Valley::Outcrops` gives crags on steep ground. `ValleyScenery` places the `Outcrop*.vox` placeholders: near ones with box collision, far ones baked with 1 m blocks.
   - **Trails** are `cfg::kPathSegments` (trodden ground, no trees).
+  - **Water:** the water mesh carries foam hints: a top face's red = 1 - churn (near a fall), a fall face's green = 1 - drop / 4 m (`BuildWaterMesh`). Chunks the river runs through are always fine blocks (`Valley::Detailed`). `Content/Shaders/Water.hlsl` (translucent but writing depth, `#define CHERRY_SURFACE_DEPTH_WRITE`, so overlapping falls don't flicker; fall faces sit 2 cm out from the riverbed with a lip and overlapping corners) with a flow map (`ValleyScenery::BuildFlowMap`: flow, depth, foam below falls) as the material's texture 0; spray emitters at the falls (`FallSprays`).
   - **Foliage:** trees and ground cover use `Materials/Foliage.mat` (`Content/Shaders/Foliage.hlsl`, swaying with the wind in `ShaderGlobal(2)`). Ground cover (tufts, flowers, bushes, pebbles) is scattered by `ValleyScenery` into the terrain region meshes; its vertex alpha carries the sway weight. `Ground::Moss` is the forest floor (`Valley::ForestPatch`).
   - **Houses:** the placeholder generator gives buildings open doorways, furniture (`Furnish`, by `Inside` kind) and a hanging lamp. Windows are glass. Town props use `Materials/Town.mat` and `Materials/TownGlass.mat` (`Shaders/TownGlass.hlsl`: the glass glows at night). `ValleyProps::Rooms` derives each building's room from its windows, and `UpdateLighting` passes the nearest 16 to the renderer.
   - **Building pads:** every ValleyProp with `collide` and `flattenGround` levels the ground under its footprint (`Valley::SetPads`, from `ValleyProps::Pads`, before the terrain is built; a house inside its plot takes the plot's height). Pads cover all eras. In the editor, moving a building needs "Rebuild valley" to re-level the ground. Turn `flattenGround` off for things over water (the footbridge).
@@ -167,6 +169,7 @@ The game is first-person mining in a procedurally generated mountain. One world 
 - **The outside clock (`Clock.h`, `DayNight.h`, both pure and tested in `Tests/ClockTests.cpp`):**
   - **Clock and rate:** `OutsideClock` counts outside days since you arrived. `UndertimeModule::UpdateClock` advances it at `OutsideClock::Rate` (the surface rate outside, rising through the entrance passage, then `cfg::kZoneRate` per zone).
   - **Eras and the summary:** the era follows the clock, but only changes while the valley can't be seen (deep in, or inside and facing away from the mouth). Coming out shows how much time passed.
+  - **Shadow steps:** `UpdateLighting` points the shadows (`ShadowSettings::direction`) at the sun in `kShadowStepDegrees` steps, so shadow edges don't shimmer as time passes; the sun itself moves smoothly. With `kShadowFadeSeconds` > 0 the engine keeps a second set of shadow maps and fades the old shadows into the new after each step (`ShadowSettings::fadeSeconds`); **J** toggles it while playing.
   - **Light:** `DayLightAt(hour)` gives sun or moon, sky colours, ambient, stars and `night`. When days pass faster than one per `kStrobeSlowDay` seconds, `UpdateLighting` blends towards `DayLightAverage()` (no strobing).
   - **Shader globals:** `ShaderGlobal(0).x` = night (0..1), `ShaderGlobal(1).rgb` = window light colour. The town's props use `Materials/Town.mat` (`Content/Shaders/TownVoxel.hlsl`): glow strengths under 3 light up only at night, 3 and up always (fire). Prop point lights dim by day (`ValleyProps::SetLightLevel`).
   - **The HUD watch:** `hud::Watch`, bottom right. The big dial shows outside time (cyan hands, a glowing ring when they spin too fast), the small dial your own time. Beside it: the date, the zone and pace, the time since you arrived and an era warning.
@@ -184,6 +187,9 @@ The game is first-person mining in a procedurally generated mountain. One world 
     - **F10:** look down (for scripted tests, which can't move the mouse).
     - **N:** jump the clock to the next era (after Gone, back to the arrival day).
     - **T:** skip ahead `kSkipHours` (checking the light through the day).
+    - **] / [:** outside time 10 times faster / slower (up to x1000).
+    - **J:** shadows fade between steps, or jump.
+    - **G:** fly through everything (Space up, Ctrl down); **Shift:** move `kDebugRunMultiplier` times faster, walking or flying.
     - **M:** cave map.
     - **V:** switch between ray-marched and mesh rendering.
 
@@ -206,7 +212,7 @@ The game is first-person mining in a procedurally generated mountain. One world 
   11. Houses: interiors, glass windows, indoor light. **Done**, not yet tested by the user.
   12. Particles (engine): dust in the shaft beams, smoke, sparks, mining dust. **Done**, not yet tested by the user.
   - After milestone 12: cloud seams fixed (integer hash), clouds drift with outside time (`UndertimeModule::UpdateClock`, `CloudSettings::drift`/`blur`), stronger sun against a weaker sky so cloud and object shadows read. Not committed yet.
-  13. Visual polish II (in progress; light shafts, living foliage, the era colour grade and eye adaptation done, not yet tested by the user): light shafts (sun and natural shafts), living foliage, a colour grade per era, eye adaptation, flowing water, voxel edge highlights (in that order). Details in Design.md §8, milestone 13. Seasons later.
+  13. Visual polish II (**done**, not yet tested by the user: light shafts, living foliage, the era colour grade, eye adaptation, flowing water, edge highlights): light shafts (sun and natural shafts), living foliage, a colour grade per era, eye adaptation, flowing water, voxel edge highlights (in that order). Details in Design.md §8, milestone 13. Seasons later.
 
   Valley life, activities, shops and story come after (ideas in Design.md §9).
 - **User testing:** milestones 2–7 were tested by the user (2026-11-21).

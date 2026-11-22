@@ -127,6 +127,8 @@ void UndertimeModule::OnStartup(Engine& engine)
 	// The module object lives across plays in the editor: start each one fresh.
 	state = State::Title;
 	devHold = false;
+	debugTimeScale = 0;
+	player.flying = false;
 
 	// What the scene asks for.
 	Scene& startScene = engine.GetScene();
@@ -463,6 +465,7 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	renderer.Settings().ssao.enabled = false;
 	renderer.Settings().lightShafts.enabled = false;
 	renderer.Settings().colorGrade = {};
+	renderer.Settings().edgeHighlights.enabled = false;
 	renderer.Settings().eyeAdaptation = {};
 	renderer.Settings().rooms.clear();
 }
@@ -523,6 +526,26 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 			// Debug: skip ahead a couple of hours (checking the light through the day).
 			clock.SkipHours(cfg::kSkipHours);
 			messages.Show(clock.DateText(), 1.5f);
+		}
+		if (input.WasKeyPressed('J'))
+		{
+			// Debug: shadows fading between steps (kShadowFadeSeconds) or jumping.
+			shadowFade = !shadowFade;
+			messages.Show(shadowFade ? "Shadow steps: fade" : "Shadow steps: jump", 1.5f);
+		}
+		if (input.WasKeyPressed('G'))
+		{
+			// Debug: fly through everything (Space up, Ctrl down, Shift faster).
+			player.flying = !player.flying;
+			devHold = false;
+			messages.Show(player.flying ? "Flying (G to land)" : "Walking", 1.5f);
+		}
+		if (input.WasKeyPressed(VK_OEM_6) || input.WasKeyPressed(VK_OEM_4))
+		{
+			// Debug: ] speeds outside time up ten times, [ slows it back down.
+			debugTimeScale = std::clamp(debugTimeScale + (input.WasKeyPressed(VK_OEM_6) ? 1 : -1), 0, cfg::kDebugTimeScaleMax);
+			const int factor = static_cast<int>(std::lround(std::pow(10.0, debugTimeScale)));
+			messages.Show(factor == 1 ? std::string("Time: normal") : "Time: x" + std::to_string(factor), 1.5f);
 		}
 		if (input.WasKeyPressed(VK_F10)) player.pitch = player.pitch > 0.4f ? 0.0f : 0.85f;   // debug: look at your feet (scripts can't move the mouse)
 		// Tools: 1 pick, 2 shovel, or the mouse wheel.
@@ -1178,6 +1201,17 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	settings.sky.sunIntensity = day.diskBrightness;
 	settings.sky.starIntensity = day.stars;
 	settings.sunDirection = devSun.x != 0.0f || devSun.y != 0.0f || devSun.z != 0.0f ? devSun : day.lightDirection;
+	{
+		// The shadows follow the sun in small steps, not a little every frame: each move turns
+		// the shadow maps' texel grid, which makes shadow edges shimmer while time passes. The
+		// sun (and moon) themselves move smoothly.
+		const XMFLOAT3 d = settings.sunDirection;
+		const float step = XMConvertToRadians(cfg::kShadowStepDegrees);
+		const float elevation = std::round(std::asin(std::clamp(d.y, -1.0f, 1.0f)) / step) * step;
+		const float azimuth = std::round(std::atan2(d.x, d.z) / step) * step;
+		settings.shadows.direction = { std::cos(elevation) * std::sin(azimuth), std::sin(elevation), std::cos(elevation) * std::cos(azimuth) };
+		settings.shadows.fadeSeconds = shadowFade ? cfg::kShadowFadeSeconds : 0.0f;
+	}
 	settings.sunColor = day.lightColor;
 	settings.fillLightScale = day.fill;
 	// Ambient: neutral by day, bluer at night.
@@ -1247,6 +1281,10 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	settings.ssao.radius = cfg::kSsaoRadius;
 	settings.ssao.strength = cfg::kSsaoStrength;
 	settings.ssao.bias = cfg::kSsaoBias;
+	settings.edgeHighlights.enabled = true;
+	settings.edgeHighlights.strength = cfg::kEdgeStrength;
+	settings.edgeHighlights.distance = cfg::kEdgeDistance;
+	settings.edgeHighlights.sharpness = cfg::kEdgeSharpness;
 	LightShaftSettings& shafts = settings.lightShafts;
 	shafts.enabled = true;
 	shafts.density = cfg::kShaftDensity;
@@ -1394,7 +1432,7 @@ void UndertimeModule::SetEra(Engine& engine, int newEra)
 void UndertimeModule::UpdateClock(Engine& engine, float dt)
 {
 	const bool inside = IsInside();
-	timeRate = OutsideClock::Rate(inside, player.position.z, ZoneStarts());
+	timeRate = OutsideClock::Rate(inside, player.position.z, ZoneStarts()) * std::pow(10.0f, static_cast<float>(debugTimeScale));
 	clock.Advance(dt, timeRate);
 	// Clouds drift with outside time: on the surface at the wind's speed, faster as time
 	// speeds up underground.

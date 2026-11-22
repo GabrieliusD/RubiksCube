@@ -82,6 +82,9 @@ public:
 	// Distance from the river's centre line, and how far along it (metres from its source).
 	float RiverDistance(float x, float z, float* along = nullptr) const;
 	float RiverLevelAt(float along) const;
+	// The point on the river's centre line `along` metres from its source.
+	void RiverPointAt(float along, float& x, float& z) const;
+	float RiverLength() const { return mRiverLength.empty() ? 0.0f : mRiverLength.back(); }
 	float LakeLevel() const { return mLakeLevel; }
 	// The ground without the river and lake cut into it.
 	float BaseHeight(float x, float z) const;

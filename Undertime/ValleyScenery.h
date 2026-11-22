@@ -33,14 +33,18 @@ private:
 		Transform transform;
 	};
 	void Spawn(Scene& scene);
+	// The water's flow map (RGBA8, one texel per metre over [x0, x1) x [z0, z1)).
+	static std::vector<uint8_t> BuildFlowMap(const Valley& valley, float& x0, float& z0, float& x1, float& z1);
+	static std::vector<DirectX::XMFLOAT3> FallSprays(const Valley& valley);
 
 	std::vector<Item> mItems;
 	Entity mRoot = INVALID_ENTITY;
 	std::vector<Entity> mEntities;
 	std::vector<MeshHandle> mOwnedMeshes;   // terrain, water, far trees (tree models belong to the assets)
 	std::vector<BodyId> mBodies;
-	SurfaceShaderHandle mWaterShader;
 	MaterialHandle mWaterMaterial;
+	TextureHandle mFlowMap;                  // the water's flow, depth and foam (Shaders/Water.hlsl)
+	std::vector<DirectX::XMFLOAT3> mSprays;   // where spray rises at the falls
 	bool mVisible = true;
 	float mBuildMs = 0.0f;
 };

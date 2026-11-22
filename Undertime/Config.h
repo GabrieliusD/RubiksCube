@@ -264,6 +264,16 @@ namespace cfg
 	constexpr float kWindGustSpeed = 0.9f;        // how fast gusts roll across (radians of gust phase per second)
 	constexpr uint32_t kWaterColor = 0x2f6f8a;
 	constexpr float kWaterOpacity = 0.72f;
+	// Flowing water (Content/Shaders/Water.hlsl, the flow map in ValleyScenery).
+	constexpr uint32_t kWaterDeep = 0x1f4f66;     // deep water
+	constexpr uint32_t kWaterShallow = 0x4f8f88;  // over the shallows and the banks
+	constexpr float kRiverSpeed = 0.7f;           // m/s on the flat
+	constexpr float kRiverSlopeSpeed = 10.0f;     // m/s more per metre of drop per metre (rapids)
+	constexpr float kRiverMaxSpeed = 2.5f;
+	constexpr float kLakeSpeed = 0.05f;
+	constexpr float kFallDrop = 0.3f;             // m of drop within a metre that counts as a fall
+	constexpr float kFallFoamLength = 5.0f;       // m downstream over which a fall's foam fades
+	constexpr int kFallSprayMax = 12;             // spray emitters at the falls nearest the town
 
 	// ---- Colours (sRGB 0xRRGGBB) --------------------------------------------
 	constexpr uint32_t kStoneNear = 0x7d6b58;     // warm brown at the entrance
@@ -369,6 +379,10 @@ namespace cfg
 	constexpr float kSsaoRadius = 0.8f;
 	constexpr float kSsaoStrength = 0.75f;
 	constexpr float kSsaoBias = 0.04f;
+	// Edge highlights: block edges catch the light (a thin lighter line), fading with distance.
+	constexpr float kEdgeStrength = 0.55f;
+	constexpr float kEdgeDistance = 45.0f;        // m where they've faded out
+	constexpr float kEdgeSharpness = 0.004f;
 	// Light shafts: sunlight scattered by the air (beams through trees, past rims, a column of
 	// light down each natural shaft). Density is scattering per metre.
 	constexpr float kShaftDensity = 0.0012f;      // valley air
@@ -445,7 +459,16 @@ namespace cfg
 	constexpr float kEyeSpeedBrighter = 1.6f;      // per second: dazzled coming out, for about a second
 	constexpr float kEyeSpeedDarker = 0.35f;       // per second: the cave slowly opens up
 	constexpr float kEraWarningSeconds = 20.0f;   // the watch warns when the next era is this close (real seconds at the current rate)
+	// Shadows follow the sun in steps (each move turns the shadow maps' texel grid, which makes
+	// edges shimmer if it happens every frame). Smaller steps: more often, smaller jumps.
+	constexpr float kShadowStepDegrees = 0.25f;
+	// Fade between steps: the old shadows blend into the new over this many seconds (an extra
+	// set of shadow maps). 0 = off: each step jumps. J toggles it while playing (debug).
+	constexpr float kShadowFadeSeconds = 0.5f;
 	constexpr float kSkipHours = 2.0f;            // debug: T skips ahead this far
+	constexpr float kDebugRunMultiplier = 4.0f;   // debug: holding Shift moves this much faster (walking and flying)
+	constexpr float kFlySpeed = 12.0f;            // debug: m/s flying (G), no collision
+	constexpr int kDebugTimeScaleMax = 3;         // debug: ] and [ multiply outside time by 10^0 .. 10^this
 
 	// ---- Day and night (DayNight.h) ---------------------------------------------------
 	// The sun rises in the east (+x) at 6:00, stands in the south (-z, over the valley) at
