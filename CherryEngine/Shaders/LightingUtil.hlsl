@@ -122,16 +122,124 @@ float SunShadow(float3 positionW, float3 N)
 	return 1.0;
 }
 
+// ---- Interior (RenderSettings::interior) ------------------------------------------------
+// 0 outside the interior box, rising to 1 past its fade-in from the opening (the min-z face).
+float InteriorAmount(float3 p)
+{
+	if (gFrame.interiorEnabled == 0)
+		return 0.0;
+	if (any(p < gFrame.interiorMin) || any(p > gFrame.interiorMax))
+		return 0.0;
+	return saturate((p.z - gFrame.interiorMin.z - gFrame.interiorFadeStart) / gFrame.interiorFadeLength);
+}
+
+// Length of the segment a..b inside the interior box (from its fade start on).
+float InteriorRayLength(float3 a, float3 b)
+{
+	if (gFrame.interiorEnabled == 0)
+		return 0.0;
+	const float3 boxMin = gFrame.interiorMin + float3(0.0, 0.0, gFrame.interiorFadeStart);
+	const float3 d = b - a;
+	const float3 invD = 1.0 / select(abs(d) < 1e-6, 1e-6, d);
+	const float3 t0 = (boxMin - a) * invD;
+	const float3 t1 = (gFrame.interiorMax - a) * invD;
+	const float3 tNear = min(t0, t1), tFar = max(t0, t1);
+	const float enter = max(max(max(tNear.x, tNear.y), tNear.z), 0.0);
+	const float exit = min(min(min(tFar.x, tFar.y), tFar.z), 1.0);
+	return max(exit - enter, 0.0) * length(d);
+}
+
+// How much outside light reaches this point of the interior (its light volume), 0..1:
+// sampled half a cell out from the surface, so walls take the level of the air in front.
+float InteriorLight(float3 positionW, float3 N)
+{
+	if (gFrame.interiorLightVolume == CHERRY_INVALID_INDEX)
+		return 0.0;
+	Texture3D<float> volume = ResourceDescriptorHeap[gFrame.interiorLightVolume];
+	float3 dims;
+	volume.GetDimensions(dims.x, dims.y, dims.z);
+	const float3 extent = gFrame.interiorMax - gFrame.interiorMin;
+	const float3 uvw = (positionW + N * (0.5 * extent.x / dims.x) - gFrame.interiorMin) / extent;
+	return volume.SampleLevel(gLinearClamp, uvw, 0);
+}
+
+// ---- Rooms (RenderSettings::rooms) --------------------------------------------------------
+// 0 outside every room, 1 well inside one; `ambientScale` gets that room's sky ambient.
+float RoomAmount(float3 positionW, out float ambientScale)
+{
+	float best = 0.0;
+	ambientScale = 1.0;
+	for (uint i = 0; i < min(gFrame.roomCount, (uint)CHERRY_MAX_ROOMS); ++i)
+	{
+		const RoomBox room = gFrame.rooms[i];
+		const float3 d = positionW - room.center;
+		const float3 local = float3(d.x * room.axes.x + d.z * room.axes.y, d.y, d.x * room.axes.z + d.z * room.axes.w);
+		const float3 inside = room.halfExtents - abs(local);
+		const float amount = saturate(min(min(inside.x, inside.y), inside.z) / room.fade);
+		if (amount > best)
+		{
+			best = amount;
+			ambientScale = room.ambientScale;
+		}
+	}
+	return best;
+}
+
+// ---- Cloud shadows (RenderSettings::clouds) ----------------------------------------------
+float CloudHash(float2 p)
+{
+	p = frac(p * float2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return frac(p.x * p.y);
+}
+
+float CloudValueNoise(float2 p)
+{
+	const float2 i = floor(p);
+	const float2 f = frac(p);
+	const float2 u = f * f * (3.0 - 2.0 * f);
+	return lerp(lerp(CloudHash(i), CloudHash(i + float2(1, 0)), u.x), lerp(CloudHash(i + float2(0, 1)), CloudHash(i + float2(1, 1)), u.x), u.y);
+}
+
+// Cloud density 0..1 at a point of the cloud layer (world x, z).
+float CloudDensity(float2 xz)
+{
+	float2 p = (xz + gFrame.cloudOffset) / gFrame.cloudScale;
+	const float n = CloudValueNoise(p) * 0.55 + CloudValueNoise(p * 2.03 + 17.1) * 0.3 + CloudValueNoise(p * 4.11 + 41.7) * 0.15;
+	const float edge = 1.0 - gFrame.cloudCoverage;
+	return smoothstep(edge - gFrame.cloudSoftness, edge + gFrame.cloudSoftness, n);
+}
+
+// How much sun gets past the clouds to a point (1 = all).
+float CloudShadow(float3 positionW)
+{
+	if (gFrame.cloudsEnabled == 0)
+		return 1.0;
+	const float3 toSun = -normalize(gFrame.lights[0].Direction);
+	const float2 at = positionW.xz + toSun.xz * ((gFrame.cloudHeight - positionW.y) / max(toSun.y, 0.08));
+	return 1.0 - gFrame.cloudDarkness * CloudDensity(at);
+}
+
 // Every light of the frame (directional + point) plus the flat ambient, without fog. The
-// sun (light 0) is shadowed when RenderSettings::shadows is on.
+// sun (light 0) is shadowed when RenderSettings::shadows is on, and by clouds. Inside the
+// interior the directional lights fade out, except where its light volume lets them in,
+// and its ambient (plus the outside light that reaches in) takes over.
 float3 ShadeSurface(PbrSurface s, float3 positionW, float3 N, float3 V)
 {
 	float3 color = 0.0;
+	const float interior = InteriorAmount(positionW);
+	const float inLight = interior > 0.0 ? InteriorLight(positionW, N) : 0.0;
+	const float reach = (1.0 - interior) + interior * saturate(inLight * gFrame.interiorSunFromLight);
+	float roomAmbient = 1.0;
+	const float room = gFrame.roomCount > 0 ? RoomAmount(positionW, roomAmbient) : 0.0;
 	for (uint i = 0; i < min(gFrame.numDirLights, (uint)CHERRY_MAX_LIGHTS); ++i)
 	{
+		if (reach <= 0.0)
+			break;
 		Light light = gFrame.lights[i];
-		const float shadow = i == 0 ? SunShadow(positionW, N) : 1.0;
-		color += ShadeLight(s, N, V, -light.Direction, light.Strength * shadow);
+		// The sun enters rooms where its shadows let it; the fill lights don't.
+		const float shadow = i == 0 ? SunShadow(positionW, N) * CloudShadow(positionW) : 1.0 - room;
+		color += ShadeLight(s, N, V, -light.Direction, light.Strength * shadow * reach);
 	}
 	for (uint j = 0; j < min(gFrame.numPointLights, (uint)CHERRY_MAX_POINT_LIGHTS); ++j)
 	{
@@ -147,8 +255,10 @@ float3 ShadeSurface(PbrSurface s, float3 positionW, float3 N, float3 V)
 
 	// Ambient: a sky/ground hemisphere (brighter from above). Diffuse sees it through the
 	// normal; specular reflects it, with a horizon that blurs as the surface gets rougher.
-	float3 sky = gFrame.ambientLight.rgb;
-	float3 ground = gFrame.ambientGround.rgb;
+	const float outsideShare = inLight * gFrame.interiorLightStrength;
+	const float roomScale = lerp(1.0, roomAmbient, room);
+	float3 sky = lerp(gFrame.ambientLight.rgb * roomScale, gFrame.interiorAmbientSky + gFrame.ambientLight.rgb * outsideShare, interior);
+	float3 ground = lerp(gFrame.ambientGround.rgb * roomScale, gFrame.interiorAmbientGround + gFrame.ambientGround.rgb * outsideShare, interior);
 	float3 irradiance = lerp(ground, sky, saturate(N.y * 0.5 + 0.5));
 	float3 R = reflect(-V, N);
 	float horizon = 0.03 + s.roughness;
@@ -166,6 +276,16 @@ float3 ApplyFog(float3 color, float distance, float3 fogColor, float fogStart, f
 		return color;
 	float f = saturate((distance - fogStart) / (fogEnd - fogStart));
 	return lerp(color, fogColor, f);
+}
+
+// The frame's fog between the eye and a surface: the world's fog over the part of the view
+// ray outside the interior, then the interior's over the part inside.
+float3 ApplySceneFog(float3 color, float3 eye, float3 positionW)
+{
+	const float total = distance(eye, positionW);
+	const float inside = InteriorRayLength(eye, positionW);
+	color = ApplyFog(color, total - inside, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
+	return ApplyFog(color, inside, gFrame.interiorFogColor, gFrame.interiorFogStart, gFrame.interiorFogEnd);
 }
 
 #endif

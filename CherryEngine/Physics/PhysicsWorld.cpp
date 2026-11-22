@@ -180,6 +180,11 @@ void PhysicsWorld::Initialize()
 	p.system = std::make_unique<JPH::PhysicsSystem>();
 	p.system->Init(16384, 0, 16384, 16384, p.broadPhaseLayers, p.objectVsBroadPhase, p.objectPairs);
 	p.system->SetGravity(JPH::Vec3(0.0f, -p.gravity, 0.0f));
+	// Piles of small bodies jitter a little forever at Jolt's default threshold (0.03 m/s) and
+	// never sleep; a slightly higher one lets them rest.
+	JPH::PhysicsSettings settings = p.system->GetPhysicsSettings();
+	settings.mPointVelocitySleepThreshold = 0.08f;
+	p.system->SetPhysicsSettings(settings);
 	p.initialized = true;
 	CHERRY_LOG("Physics: Jolt %d.%d.%d, %d worker threads", JPH_VERSION_MAJOR, JPH_VERSION_MINOR, JPH_VERSION_PATCH, workers);
 }
@@ -364,6 +369,12 @@ XMFLOAT3 PhysicsWorld::GetLinearVelocity(BodyId body) const
 {
 	if (!IsValid(body)) return { 0, 0, 0 };
 	return FromJolt(mImpl->Bodies().GetLinearVelocity(Impl::Id(body)));
+}
+
+void PhysicsWorld::Deactivate(BodyId body)
+{
+	if (!IsValid(body)) return;
+	mImpl->Bodies().DeactivateBody(Impl::Id(body));
 }
 
 void PhysicsWorld::AddImpulse(BodyId body, const XMFLOAT3& impulse, const XMFLOAT3& worldPoint)

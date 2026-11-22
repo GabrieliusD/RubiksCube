@@ -15,6 +15,8 @@ using namespace DirectX;
 using cfg::Block;
 
 int ValleyTests();   // ValleyTests.cpp
+int ClockTests();    // ClockTests.cpp
+int LightTests();    // LightTests.cpp
 
 namespace
 {
@@ -215,6 +217,7 @@ namespace
 		int entranceOk = 0, zonesConnected = 0, sealsHold = 0, walkable = 0, pocketsSealed = 0, solidOk = 0;
 		int oreInBand = 0, oreAllTypes = 0;
 		int zoneTotal = 0, pocketTotal = 0, walkTotal = 0;
+		int shaftsOpen = 0, shaftTotal = 0;
 		for (int i = 0; i < kSeeds; ++i)
 		{
 			VoxelWorld world;
@@ -233,6 +236,15 @@ namespace
 				const CaveRoom& exit = zone.rooms[1];
 				const auto seen = FloodAir(world, Vox(entry.center.x), Vox(entry.center.y + 0.5f), Vox(entry.center.z));
 				zonesConnected += Seen(seen, { exit.center.x, exit.center.y + 0.5f, exit.center.z }) ? 1 : 0;
+				// Its natural shafts: open at the grid's top, down to a cavern of this zone's network.
+				for (const CaveShaft& shaft : layout.shafts)
+				{
+					if (shaft.zone != static_cast<int>(zi)) continue;
+					++shaftTotal;
+					const bool top = world.Get(Vox(shaft.top.x), cfg::kVoxY - 1, Vox(shaft.top.z)) == Block::Air;
+					const bool reached = Seen(seen, { shaft.top.x, shaft.top.y - 0.1f, shaft.top.z }) && Seen(seen, shaft.bottom);
+					shaftsOpen += top && reached ? 1 : 0;
+				}
 
 				// Nothing reachable beyond this zone's far end (the seal holds).
 				bool contained = true;
@@ -275,7 +287,7 @@ namespace
 			for (size_t v = 0; v < voxels.size(); ++v)
 			{
 				const Block b = voxels[v];
-				if (b == Block::Air || b == Block::Stone || b == Block::Bedrock) continue;
+				if (b == Block::Air || b == Block::Stone || cfg::Unbreakable(b)) continue;
 				++found[static_cast<int>(b)];
 				const float depth = static_cast<float>(v / (cfg::kVoxX * cfg::kVoxY)) / cfg::kVoxZ;
 				if (b == Block::StrangeWatch)
@@ -314,6 +326,8 @@ namespace
 		Check(walkable == walkTotal, text);
 		std::snprintf(text, sizeof(text), "caves: side pockets are hollow and sealed off (%d/%d)", pocketsSealed, pocketTotal);
 		Check(pocketTotal > 0 && pocketsSealed == pocketTotal, text);
+		std::snprintf(text, sizeof(text), "caves: every natural shaft opens to the sky and down into its zone (%d/%d)", shaftsOpen, shaftTotal);
+		Check(shaftTotal == kSeeds * static_cast<int>(std::size(cfg::kShafts)) && shaftsOpen == shaftTotal, text);
 		std::snprintf(text, sizeof(text), "caves: no floating rock at the start (%d/%d seeds)", solidOk, kSeeds);
 		Check(solidOk == kSeeds, text);
 	}
@@ -461,6 +475,8 @@ int main()
 
 	CaveGenerationTests();
 	gFailures += ValleyTests();
+	gFailures += ClockTests();
+	gFailures += LightTests();
 
 	std::printf("%s (%d failure%s)\n", gFailures == 0 ? "ALL PASSED" : "FAILED", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures == 0 ? 0 : 1;

@@ -56,6 +56,7 @@ struct Engine::Impl
 	Input input;
 	Renderer renderer;
 	AssetManager assets;
+	ParticleSystem particles;
 	EditorLayer editor;
 
 	// The scene document
@@ -142,6 +143,7 @@ Scene& Engine::GetScene() { return *mImpl->active->scene; }
 Scene& Engine::GetEditScene() { return *mImpl->editWorld.scene; }
 AssetManager& Engine::GetAssets() { return mImpl->assets; }
 Renderer& Engine::GetRenderer() { return mImpl->renderer; }
+ParticleSystem& Engine::GetParticles() { return mImpl->particles; }
 Input& Engine::GetInput() { return mImpl->input; }
 Window& Engine::GetWindow() { return mImpl->window; }
 PhysicsWorld& Engine::GetPhysics() { return *mImpl->active->physics; }
@@ -393,6 +395,18 @@ void Engine::Impl::ResolveAssets(Scene& scene)
 			&& _stricmp(renderer.meshAsset.c_str() + renderer.meshAsset.size() - 4, ".vox") == 0)
 		{
 			renderer.material = assets.GetMaterial("engine/VoxelModel");
+		}
+		// ... and their glass part, if they have one.
+		if (renderer.glassCheckedFor != renderer.meshAsset)
+		{
+			renderer.glassCheckedFor = renderer.meshAsset;
+			renderer.glassMesh = {};
+			const std::string& asset = renderer.meshAsset;
+			if (asset.size() > 4 && _stricmp(asset.c_str() + asset.size() - 4, ".vox") == 0) renderer.glassMesh = assets.GetMesh(asset + "#glass");
+		}
+		if (renderer.glassMesh.IsValid() && !renderer.glassMaterial.IsValid())
+		{
+			renderer.glassMaterial = assets.GetMaterial(renderer.glassMaterialAsset.empty() ? std::string("engine/VoxelGlass") : renderer.glassMaterialAsset);
 		}
 	}
 	for (Entity entity : scene.VoxelEntities())
@@ -697,6 +711,7 @@ void Engine::Impl::DestroyWorld(World& world)
 
 void Engine::Impl::StartPlay(Engine& engine)
 {
+	particles.Clear();
 	if (!game || playState != PlayState::Edit) return;
 	editor.OnWorldChanging(engine);
 	settingsBeforePlay = renderer.Settings();
@@ -740,6 +755,7 @@ void Engine::Impl::StartPlay(Engine& engine)
 
 void Engine::Impl::StopPlay(Engine& engine)
 {
+	particles.Clear();
 	if (playState == PlayState::Edit) return;
 	StopScripts();
 	try
@@ -1096,7 +1112,11 @@ int Engine::Impl::Loop(Engine& engine)
 				for (Entity entity : world->scene->MeshEntities())
 				{
 					MeshRenderer& renderer = world->scene->Get<MeshRenderer>(entity);
-					for (const auto& [old, fresh] : replaced) if (renderer.mesh == old) renderer.mesh = fresh;
+					for (const auto& [old, fresh] : replaced)
+					{
+						if (renderer.mesh == old) renderer.mesh = fresh;
+						if (renderer.glassMesh == old) renderer.glassMesh = fresh;
+					}
 				}
 			}
 		}
@@ -1111,8 +1131,10 @@ int Engine::Impl::Loop(Engine& engine)
 		}
 		ResolveAssets(*active->scene);
 		if (playState == PlayState::Edit) ApplyEnvironment(*active->scene);
+		particles.Update(*active->scene, deltaTime);
 		if (UpdateMainView())
 		{
+			particles.Submit(*active->scene, renderer);
 			renderer.RenderScene(*active->scene, mainView);
 		}
 		renderer.EndFrame(!editorMode);

@@ -236,6 +236,38 @@ int RunVoxelModelTests()
 		Check(ok, "the voxel model surface shader compiles");
 	}
 
+	// ---- Glass ---------------------------------------------------------------------------------
+	{
+		// A 3-long wall with a glass pane in the middle.
+		VoxelModel wall = Make(3, 1, 1);
+		wall.palette[1] = { 0.5f, 0.4f, 0.3f, 1 };
+		wall.palette[2] = { 0.7f, 0.8f, 0.9f, 1 };
+		wall.materials[2].glass = 0.6f;
+		wall.Set(0, 0, 0, 1);
+		wall.Set(1, 0, 0, 2);
+		wall.Set(2, 0, 0, 1);
+		VoxelModel back;
+		std::string error;
+		const std::vector<uint8_t> bytes = WriteVox(wall);
+		Check(ParseVox(bytes.data(), bytes.size(), back, error) && Near(back.materials[2].glass, 0.6f) && HasGlass(back) && !HasGlass(Make(2, 2, 2)),
+			"glass colours survive a .vox round trip (MagicaVoxel's _glass)");
+		VoxelBakeOptions opaque, glass;
+		opaque.part = VoxelPart::Opaque;
+		glass.part = VoxelPart::Glass;
+		const MeshData solidPart = BakeVoxelMesh(wall, opaque);
+		const MeshData glassPart = BakeVoxelMesh(wall, glass);
+		// Opaque: two separate cubes (their faces towards the glass show): 12 quads. Glass: the
+		// pane's faces that aren't against the wall: 4 quads, translucent.
+		bool alphaOk = !glassPart.vertices.empty();
+		for (const Vertex& v : glassPart.vertices) alphaOk &= Near(v.color.w, 0.4f);
+		Check(solidPart.vertices.size() == 12 * 4 && glassPart.vertices.size() == 4 * 4 && alphaOk,
+			"a model with glass bakes an opaque part (faces show through) and a see-through glass part");
+		std::string errors;
+		const bool ok = CompileSurfaceShaderOffline("engine/VoxelGlassShader", "#include \"VoxelGlassSurface.hlsli\"\n", CHERRY_TEST_SHADER_DIR, errors);
+		if (!ok) std::printf("%s\n", errors.c_str());
+		Check(ok, "the voxel glass surface shader compiles");
+	}
+
 	// ---- Collision boxes -----------------------------------------------------------------------
 	{
 		VoxelModel cube = Make(3, 3, 3);

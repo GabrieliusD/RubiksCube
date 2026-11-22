@@ -26,11 +26,13 @@ struct MaterialTag {};
 struct TextureTag {};
 struct VoxelVolumeTag {};
 struct SurfaceShaderTag {};
+struct LightVolumeTag {};
 using MeshHandle = Handle<MeshTag>;
 using MaterialHandle = Handle<MaterialTag>;
 using TextureHandle = Handle<TextureTag>;
 using VoxelVolumeHandle = Handle<VoxelVolumeTag>;
 using SurfaceShaderHandle = Handle<SurfaceShaderTag>;
+using LightVolumeHandle = Handle<LightVolumeTag>;
 
 // Engine vertex format (matches VertexLayout::Mesh in RHI/Pipeline.cpp).
 struct Vertex
@@ -163,6 +165,85 @@ struct BloomSettings
 	float radius = 1.0f;            // blur spread per level
 };
 
+// An enclosed space (a cave, a mine) lit differently from the world outside. Inside it the
+// directional lights (sun and fills) fade out and its own ambient and fog take over, decided
+// per pixel: from inside, the outside world seen through the opening stays lit, and from
+// outside, the inside stays dark. The box is aligned with the world axes and its opening is
+// the face at boxMin.z; interior lighting fades in from fadeStart metres in from that face
+// over fadeLength metres. Point lights work the same everywhere.
+struct InteriorSettings
+{
+	bool enabled = false;
+	DirectX::XMFLOAT3 boxMin{ 0.0f, 0.0f, 0.0f };
+	DirectX::XMFLOAT3 boxMax{ 0.0f, 0.0f, 0.0f };
+	float fadeStart = 0.0f;
+	float fadeLength = 4.0f;
+	DirectX::XMFLOAT3 ambient{ 0.03f, 0.03f, 0.035f };       // like RenderSettings::ambient (same contrast)
+	// Fog over the length of the view ray that's inside (after fadeStart); fogEnd <= fogStart: none.
+	DirectX::XMFLOAT3 fogColor{ 0.0f, 0.0f, 0.0f };
+	float fogStart = 0.0f;
+	float fogEnd = 0.0f;
+	// Optional: how much outside light reaches each part of the interior, 0..1 per cell of
+	// a light volume (Renderer::CreateLightVolume) stretched over the box. Inside, the
+	// world's ambient x level x lightStrength is added to the interior's, and the directional
+	// lights reach in where level x sunFromLight >= 1 (their shadows decide exactly where:
+	// a patch of sun under a shaft). Sampled smoothly, half a cell out from each surface.
+	LightVolumeHandle lightVolume;
+	float lightStrength = 1.0f;
+	float sunFromLight = 0.0f;   // 0: the directional lights never reach in
+};
+
+// A room (inside a building): an upright box turned about y. Inside it the sky's ambient
+// drops to ambientScale and the two fill lights fade out, over `fade` metres in from its
+// walls; the sun still comes in where its shadows let it (through windows and doors).
+// Up to kMaxRooms per frame (more are ignored).
+constexpr uint32_t kMaxRooms = 16;
+struct RoomSettings
+{
+	DirectX::XMFLOAT3 center{ 0, 0, 0 };
+	DirectX::XMFLOAT3 halfExtents{ 1, 1, 1 };   // along the room's own axes
+	DirectX::XMFLOAT3 axisX{ 1, 0, 0 };         // the room's x axis in the world (unit, horizontal)
+	DirectX::XMFLOAT3 axisZ{ 0, 0, 1 };         // ... and its z axis
+	float ambientScale = 0.35f;
+	float fade = 0.75f;
+};
+
+// Shadows of drifting clouds (they take part of the sun): a noise pattern on a layer at
+// `height`, carried by the wind and cast along the sunlight. The sky shows the clouds too.
+struct CloudSettings
+{
+	bool enabled = false;
+	float coverage = 0.4f;          // 0 clear .. 1 overcast
+	float scale = 220.0f;           // metres across a typical cloud
+	float softness = 0.12f;         // how soft their edges are
+	float darkness = 0.65f;         // how much of the sun a cloud takes
+	float height = 320.0f;          // metres above y = 0
+	DirectX::XMFLOAT2 wind{ 5.0f, 2.0f };   // metres per second the clouds drift (x, z)
+};
+
+// Screen-space ambient occlusion: darkens creases, corners and the ground under things,
+// from the depth buffer. Applied to the world (not view models) before the tonemap.
+struct SsaoSettings
+{
+	bool enabled = false;
+	float radius = 0.7f;            // metres around each pixel that can occlude it
+	float strength = 0.8f;          // 0 off .. 1 full
+	float bias = 0.03f;             // metres: ignores occluders this close (flat surfaces)
+};
+
+// One particle to draw this frame (Renderer::Particles): a billboard facing the camera, lit
+// like the scene at its position.
+struct ParticleInstance
+{
+	DirectX::XMFLOAT3 position{ 0, 0, 0 };
+	float size = 0.1f;                         // metres across
+	DirectX::XMFLOAT4 color{ 1, 1, 1, 1 };     // linear, alpha = opacity
+	float emissive = 0.0f;                     // glow (x colour)
+	float rotation = 0.0f;                     // radians in the view plane
+	bool additive = false;                     // adds light instead of covering
+	bool square = false;                       // a square block, else a soft round puff
+};
+
 // Scene-wide lighting and presentation settings. Games may change any of these every frame.
 struct RenderSettings
 {
@@ -182,6 +263,11 @@ struct RenderSettings
 	SkySettings sky;
 	ShadowSettings shadows;
 	BloomSettings bloom;
+	InteriorSettings interior;
+	CloudSettings clouds;
+	SsaoSettings ssao;
+	std::vector<RoomSettings> rooms;
+	bool antiAliasing = true;   // FXAA after the tonemap: smooths stair-stepped edges
 
 	// Values every surface shader can read (ShaderGlobal(i) in HLSL, the Global Input graph
 	// node). Their meaning is up to the game, e.g. time of day, snow amount, wind.

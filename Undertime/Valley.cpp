@@ -87,7 +87,47 @@ float Valley::BaseHeight(float x, float z) const
 	// Rough rock wherever the ground rises above the floor.
 	const float rise = std::clamp((h - floor) / 12.0f, 0.0f, 1.0f);
 	h += rise * 7.0f * Noise2(x / 22.0f, z / 22.0f, 3);
-	if (OverCave(x, z)) h = std::max(h, cfg::kGridY + 2.0f + 2.0f * (0.5f + 0.5f * Noise2(x / 9.0f, z / 9.0f, 2)));
+	// Strata: steep ground breaks into layers, each a riser and a near-flat ledge (the
+	// ground picks grass on the ledges and rock on the risers), like the cave's face.
+	const float strata = Smooth(cfg::kStrataFrom, cfg::kStrataFull, rise);
+	if (strata > 0.0f)
+	{
+		const float thickness = cfg::kStrataHeight * (1.0f + 0.3f * Noise2(x / 45.0f, z / 45.0f, 2));
+		const float warp = cfg::kStrataWarp * Noise2(x / 13.0f + 7.0f, z / 13.0f, 2);
+		const float s = (h + warp) / thickness;
+		const float layer = std::floor(s);
+		const float shaped = (layer + std::pow(s - layer, cfg::kStrataSharpness)) * thickness - warp;
+		h += (shaped - h) * strata;
+	}
+	if (OverCave(x, z))
+	{
+		// The natural shafts open through the mountain top: no ground over them (down to the
+		// grid's top, where their grates rest).
+		for (const cfg::Shaft& s : cfg::kShafts)
+			if ((x - s.x) * (x - s.x) + (z - s.z) * (z - s.z) < (cfg::kShaftRadius + cfg::kShaftHoleMargin) * (cfg::kShaftRadius + cfg::kShaftHoleMargin))
+				return static_cast<float>(cfg::kGridY);
+		return std::max(h, cfg::kGridY + 2.0f + 2.0f * (0.5f + 0.5f * Noise2(x / 9.0f, z / 9.0f, 2)));
+	}
+
+	// Around the cave's face (the grid's front, which the cave generator shapes into rock):
+	// buttresses that stand over its side edges and bury the grid's sides, and rubble at its
+	// foot, except on the way in.
+	const float outside = std::max({ cfg::kButtressInset - x, x - (cfg::kGridX - cfg::kButtressInset), 0.0f });
+	const float front = -cfg::kButtressFront * (0.65f + 0.35f * Noise2(x / 4.0f, 3.7f, 2));
+	if (outside > 0.0f && z >= front && z < cfg::kGridZ)
+	{
+		const float drop = std::max(0.0f, outside - cfg::kButtressInset - 1.5f) * cfg::kButtressFall;
+		h = std::max(h, cfg::kGridY + 2.0f + 1.5f * Noise2(x / 6.0f, z / 6.0f, 2) - drop);
+	}
+	if (z < 0.0f && z > -cfg::kTalusReach && x > 0.0f && x < cfg::kGridX)
+	{
+		const float off = std::fabs(x - kMouthX) - cfg::kMouthPathHalfWidth;
+		if (off > 0.0f)
+		{
+			const float t = 1.0f + z / cfg::kTalusReach;
+			h = std::max(h, cfg::kGroundY + cfg::kTalusHeight * t * t * (0.6f + 0.4f * Noise2(x / 2.5f, z / 2.5f, 2)) * Smooth(0.0f, 2.0f, off));
+		}
+	}
 	return h;
 }
 
@@ -225,6 +265,46 @@ bool Valley::TreeAllowed(float x, float z) const
 	if (h > cfg::kTreeLine) return false;
 	const float slope = std::max(std::fabs(BaseHeight(x + 1.5f, z) - h), std::fabs(BaseHeight(x, z + 1.5f) - h));
 	return slope < 1.2f;
+}
+
+std::vector<OutcropSpot> Valley::Outcrops() const
+{
+	std::vector<OutcropSpot> spots;
+	auto scatter = [&](float spacing, bool distant)
+	{
+		const uint32_t salt = distant ? 31u : 23u;
+		const int ix0 = static_cast<int>(std::floor(cfg::kValleyWorld[0] / spacing)), ix1 = static_cast<int>(std::ceil(cfg::kValleyWorld[2] / spacing));
+		const int iz0 = static_cast<int>(std::floor(cfg::kValleyWorld[1] / spacing)), iz1 = static_cast<int>(std::ceil(cfg::kValleyWorld[3] / spacing));
+		for (int iz = iz0; iz < iz1; ++iz)
+			for (int ix = ix0; ix < ix1; ++ix)
+			{
+				if (Hash01(ix, iz, salt) > cfg::kOutcropChance) continue;
+				const float x = (ix + 0.15f + 0.7f * Hash01(ix, iz, salt + 1)) * spacing;
+				const float z = (iz + 0.15f + 0.7f * Hash01(ix, iz, salt + 2)) * spacing;
+				if (Detailed(x, z) == distant) continue;
+				if (x < cfg::kValleyWorld[0] || x >= cfg::kValleyWorld[2] || z < cfg::kValleyWorld[1] || z >= cfg::kValleyWorld[3]) continue;
+				// Not on the cave's face, the trails, the clearings or in water.
+				if (z > -14.0f && z < 14.0f && x > -12.0f && x < cfg::kGridX + 12.0f) continue;
+				if (PathDistance(x, z) < cfg::kPathHalfWidth + 3.0f || WaterLevel(x, z) != kNoWater) continue;
+				bool clear = true;
+				for (const auto& c : cfg::kClearings) clear &= (x - c[0]) * (x - c[0]) + (z - c[1]) * (z - c[1]) >= c[2] * c[2];
+				if (!clear) continue;
+				// Steep ground only.
+				const float slope = std::fabs(Height(x + 2.0f, z) - Height(x - 2.0f, z)) + std::fabs(Height(x, z + 2.0f) - Height(x, z - 2.0f));
+				if (slope < cfg::kOutcropSlope) continue;
+				OutcropSpot spot;
+				spot.x = x;
+				spot.z = z;
+				spot.distant = distant;
+				spot.yaw = Hash01(ix, iz, salt + 3) * 6.2831853f;
+				const float r = Hash01(ix, iz, salt + 4);
+				spot.kind = r < 0.45f ? 0 : r < 0.8f ? 1 : 2;
+				spots.push_back(spot);
+			}
+	};
+	scatter(cfg::kOutcropSpacing, false);
+	scatter(cfg::kOutcropSpacingFar, true);
+	return spots;
 }
 
 std::vector<TreeSpot> Valley::Trees() const

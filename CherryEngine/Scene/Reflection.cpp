@@ -35,6 +35,7 @@ namespace
 		registry.Component<MeshRenderer>("MeshRenderer")
 			.Asset("mesh", &MeshRenderer::meshAsset, "mesh")
 			.Asset("material", &MeshRenderer::materialAsset, "material")
+			.Asset("glassMaterial", &MeshRenderer::glassMaterialAsset, "material")
 			.Field("visible", &MeshRenderer::visible)
 			.Enum("layer", &MeshRenderer::layer, { "World", "ViewModel" });
 
@@ -47,6 +48,28 @@ namespace
 			.Field("color", &PointLightComponent::color, Field_Color)
 			.Field("intensity", &PointLightComponent::intensity, 0.0f, 100.0f).Speed(0.05f)
 			.Field("range", &PointLightComponent::range, 0.1f, 200.0f).Speed(0.05f);
+
+		registry.Component<ParticleEmitter>("ParticleEmitter")
+			.Field("enabled", &ParticleEmitter::enabled)
+			.Field("rate", &ParticleEmitter::rate, 0.0f, 1000.0f)
+			.Field("maxParticles", &ParticleEmitter::maxParticles)
+			.Field("lifetime", &ParticleEmitter::lifetime, 0.05f, 60.0f).Speed(0.05f)
+			.Field("lifetimeJitter", &ParticleEmitter::lifetimeJitter, 0.0f, 1.0f).Speed(0.01f)
+			.Field("offset", &ParticleEmitter::offset).Speed(0.05f)
+			.Field("spawnBox", &ParticleEmitter::spawnBox).Speed(0.05f)
+			.Field("velocity", &ParticleEmitter::velocity).Speed(0.05f)
+			.Field("velocityJitter", &ParticleEmitter::velocityJitter).Speed(0.05f)
+			.Field("gravity", &ParticleEmitter::gravity, -50.0f, 50.0f).Speed(0.05f)
+			.Field("drag", &ParticleEmitter::drag, 0.0f, 20.0f).Speed(0.05f)
+			.Field("turbulence", &ParticleEmitter::turbulence, 0.0f, 20.0f).Speed(0.05f)
+			.Field("sizeStart", &ParticleEmitter::sizeStart, 0.0f, 20.0f).Speed(0.01f)
+			.Field("sizeEnd", &ParticleEmitter::sizeEnd, 0.0f, 20.0f).Speed(0.01f)
+			.Field("sizeJitter", &ParticleEmitter::sizeJitter, 0.0f, 1.0f).Speed(0.01f)
+			.Field("colorStart", &ParticleEmitter::colorStart, Field_Color)
+			.Field("colorEnd", &ParticleEmitter::colorEnd, Field_Color)
+			.Field("emissive", &ParticleEmitter::emissive, 0.0f, 50.0f).Speed(0.05f)
+			.Field("additive", &ParticleEmitter::additive)
+			.Field("square", &ParticleEmitter::square);
 
 		registry.Component<Environment>("Environment")
 			.Field("skyColor", &Environment::skyColor, Field_Color)

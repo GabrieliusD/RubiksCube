@@ -35,7 +35,7 @@ DetachResult DetachUnsupported(VoxelWorld& world, const VoxelWorld::Box& changed
 	for (int x = x0; x <= x1; ++x)
 	{
 		const Block seed = world.Get(x, y, z);
-		if (seed == Block::Air || seed == Block::Bedrock) continue;
+		if (seed == Block::Air || cfg::Unbreakable(seed)) continue;
 		if (anchored.count(Key(x, y, z))) continue;
 
 		// Flood fill the region containing this seed.
@@ -63,7 +63,7 @@ DetachResult DetachUnsupported(VoxelWorld& world, const VoxelWorld::Box& changed
 				const Block b = world.Get(nx, ny, nz);
 				if (b == Block::Air) continue;
 				const uint32_t key = Key(nx, ny, nz);
-				if (b == Block::Bedrock || anchored.count(key)) { isAnchored = true; break; }
+				if (cfg::Unbreakable(b) || anchored.count(key)) { isAnchored = true; break; }
 				if (inComponent.insert(key).second)
 				{
 					stack.push_back(nx); stack.push_back(ny); stack.push_back(nz);

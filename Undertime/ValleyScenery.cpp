@@ -175,10 +175,76 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 		++trees;
 	}
 
+	// Rock outcrops on steep ground: sunk into the slope (standing on its lowest point under
+	// them), near ones block you (boxes baked from the model), far ones are baked with 1 m
+	// blocks, four times the size, as crags on the distant mountains.
+	const char* const kOutcropModels[] = { "Models/Placeholders/OutcropSmall.vox", "Models/Placeholders/OutcropMedium.vox", "Models/Placeholders/OutcropLarge.vox" };
+	MeshHandle outcropNear[3], outcropFar[3];
+	std::vector<PhysicsBox> outcropBoxes[3];
+	XMFLOAT3 outcropSize[3]{};
+	for (int i = 0; i < 3; ++i)
+	{
+		outcropNear[i] = assets.GetMesh(kOutcropModels[i]);
+		VoxelModel model;
+		if (!assets.ReadVoxelModel(kOutcropModels[i], model)) continue;
+		outcropBoxes[i] = BakeVoxelBoxes(model);
+		outcropSize[i] = { model.size.x * cfg::kVoxelSize, model.size.y * cfg::kVoxelSize, model.size.z * cfg::kVoxelSize };
+		VoxelBakeOptions options;
+		options.voxelSize = 1.0f;
+		outcropFar[i] = renderer.CreateMesh(BakeVoxelMesh(model, options));
+		mOwnedMeshes.push_back(outcropFar[i]);
+	}
+	int outcrops = 0;
+	for (const OutcropSpot& spot : valley.Outcrops())
+	{
+		const MeshHandle mesh = spot.distant ? outcropFar[spot.kind] : outcropNear[spot.kind];
+		if (!mesh.IsValid()) continue;
+		const float scale = spot.distant ? 4.0f : 1.0f;
+		const float block = spot.distant ? 1.0f : cfg::kVoxelSize;
+		const float half = 0.5f * scale * std::max(outcropSize[spot.kind].x, outcropSize[spot.kind].z);
+		float ground = 1e9f;
+		for (int a = 0; a < 4; ++a)
+			ground = std::min(ground, valley.Height(spot.x + half * 0.7f * ((a & 1) ? 1.0f : -1.0f), spot.z + half * 0.7f * ((a & 2) ? 1.0f : -1.0f)));
+		Transform transform;
+		transform.position = { std::floor(spot.x / block) * block, std::floor(ground / block) * block - block, std::floor(spot.z / block) * block };
+		transform.SetRotationEuler(0.0f, std::floor(spot.yaw / XM_PIDIV2) * XM_PIDIV2, 0.0f);
+		mItems.push_back({ mesh, blockMaterial, transform });
+		if (physics && !spot.distant)
+		{
+			const XMMATRIX world = transform.Matrix();
+			for (const PhysicsBox& box : outcropBoxes[spot.kind])
+			{
+				BoundingBox placed;
+				BoundingBox(box.center, box.halfExtents).Transform(placed, world);
+				mBodies.push_back(physics->CreateStaticBox(placed.Center, placed.Extents));
+			}
+		}
+		++outcrops;
+	}
+
+	// Grates over the natural shafts' openings (the ground has holes there, Valley.cpp), at
+	// the lowest ground around the hole, so you walk over them and look down through the
+	// gaps. They block you; light falls through.
+	const MeshHandle grate = assets.GetMesh("Models/Placeholders/ShaftGrate.vox");
+	for (const cfg::Shaft& s : cfg::kShafts)
+	{
+		if (!grate.IsValid()) break;
+		const float rim = cfg::kShaftRadius + cfg::kShaftHoleMargin + 0.6f;
+		float y = 1e9f;
+		for (int a = 0; a < 8; ++a)
+			y = std::min(y, valley.Height(s.x + rim * std::cos(a * XM_PIDIV4), s.z + rim * std::sin(a * XM_PIDIV4)));
+		y = std::floor(y / cfg::kVoxelSize) * cfg::kVoxelSize;
+		Transform transform;
+		transform.position = { s.x, y, s.z };
+		mItems.push_back({ grate, blockMaterial, transform });
+		const float half = cfg::kShaftRadius + cfg::kShaftHoleMargin;
+		if (physics) mBodies.push_back(physics->CreateStaticBox({ s.x, y + 0.25f, s.z }, { half, 0.25f, half }));
+	}
+
 	Spawn(scene);
 	mBuildMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
-	CHERRY_LOG("UNDERTIME valley: %zu terrain triangles, %d trees, %s collision, built in %.0f ms on %u threads",
-		triangles, trees, physics ? "with" : "no", mBuildMs, threadCount);
+	CHERRY_LOG("UNDERTIME valley: %zu terrain triangles, %d trees, %d outcrops, %s collision, built in %.0f ms on %u threads",
+		triangles, trees, outcrops, physics ? "with" : "no", mBuildMs, threadCount);
 }
 
 void ValleyScenery::Spawn(Scene& scene)

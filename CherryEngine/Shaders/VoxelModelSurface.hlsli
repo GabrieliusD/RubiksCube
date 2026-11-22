@@ -11,6 +11,13 @@
 
 static const float kVoxelBlockJitter = 0.08;   // +- relative brightness per block
 
+// What the glowing blocks emit. A material's shader can define this before including the
+// file to change it (e.g. windows that only light up at night):
+//   #define CHERRY_VOXEL_GLOW(input) (...)   // float3, linear HDR
+#ifndef CHERRY_VOXEL_GLOW
+#define CHERRY_VOXEL_GLOW(input) (input.vertexColor.rgb * input.uv.x)
+#endif
+
 float VoxelBlockHash(int3 c)
 {
 	uint h = asuint(c.x) * 73856093u ^ asuint(c.y) * 19349663u ^ asuint(c.z) * 83492791u;
@@ -32,7 +39,7 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 		const int3 cell = int3(floor(input.positionL / block - n * 0.5));
 		s.baseColor *= 1.0 + (VoxelBlockHash(cell) - 0.5) * 2.0 * kVoxelBlockJitter;
 	}
-	s.emissive = input.vertexColor.rgb * input.uv.x;
+	s.emissive = CHERRY_VOXEL_GLOW(input);
 	return s;
 }
 

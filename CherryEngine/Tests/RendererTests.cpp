@@ -1,6 +1,8 @@
 // Tests for renderer pieces that need no GPU: point light selection and that the engine's
 // own shaders compile with DXC.
 #include <Renderer/Renderer.h>
+#include <Particles/ParticleSystem.h>
+#include <Scene/Scene.h>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -45,15 +47,38 @@ int RunRendererTests()
 		Check(hasBig && !hasFar, "the picked lights are the ones closest to reaching the camera");
 	}
 
+	// ---- Particles (CPU side) ------------------------------------------------------------------
+	{
+		ParticleSystem system;
+		ParticleEmitter dust;
+		dust.lifetime = 1.0f;
+		dust.lifetimeJitter = 0.0f;
+		dust.velocity = { 0, 0, 0 };
+		dust.velocityJitter = { 0, 0, 0 };
+		dust.gravity = 10.0f;
+		system.Burst(dust, { 0, 5, 0 }, 50);
+		Check(system.Count() == 50, "a burst adds its particles");
+		Scene scene;
+		system.Update(scene, 0.05f);
+		Check(system.Count() == 50, "particles live out their lifetime");
+		for (int i = 0; i < 30; ++i) system.Update(scene, 0.05f);
+		Check(system.Count() == 0, "... and then they're gone");
+
+		uint32_t rng = 7;
+		std::vector<Particle> falling = { ParticleSystem::Spawn(dust, { 0, 5, 0 }, rng) };
+		ParticleSystem::Step(falling, 0.5f, rng);
+		Check(falling.size() == 1 && falling[0].position.y < 5.0f && falling[0].velocity.y < 0.0f, "gravity pulls particles down");
+	}
+
 	// ---- Engine shaders compile ------------------------------------------------------------------
-	for (const char* file : { "SkyPass.hlsl", "Mesh.hlsl", "ShadowPass.hlsl", "VoxelRaymarch.hlsl" })
+	for (const char* file : { "SkyPass.hlsl", "Mesh.hlsl", "ShadowPass.hlsl", "VoxelRaymarch.hlsl", "VoxelShadow.hlsl", "Particles.hlsl" })
 	{
 		std::string errors;
 		const bool ok = CompileShaderFileOffline(file, CHERRY_TEST_SHADER_DIR, errors);
 		if (!ok) std::printf("%s\n", errors.c_str());
 		Check(ok, std::string(file) + " compiles");
 	}
-	for (const auto& [file, entry] : { std::pair<const char*, const char*>{ "Bloom.hlsl", "CSDownsample" }, { "Bloom.hlsl", "CSUpsample" }, { "Tonemap.hlsl", "CSMain" } })
+	for (const auto& [file, entry] : { std::pair<const char*, const char*>{ "Bloom.hlsl", "CSDownsample" }, { "Bloom.hlsl", "CSUpsample" }, { "Tonemap.hlsl", "CSMain" }, { "Fxaa.hlsl", "CSMain" }, { "Ssao.hlsl", "CSMain" }, { "Ssao.hlsl", "CSBlur" } })
 	{
 		std::string errors;
 		const bool ok = CompileComputeShaderOffline(file, entry, CHERRY_TEST_SHADER_DIR, errors);

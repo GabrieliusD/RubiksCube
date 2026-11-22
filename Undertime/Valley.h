@@ -40,6 +40,15 @@ struct TreeSpot
 	bool distant = false;   // outside the detailed valley: drawn with the coarse model
 };
 
+// A rock outcrop on steep ground (placeholder crags in three sizes).
+struct OutcropSpot
+{
+	float x = 0, z = 0;
+	int kind = 0;           // 0..2, small to large
+	float yaw = 0;          // radians
+	bool distant = false;   // outside the detailed valley: baked with 1 m blocks
+};
+
 class Valley
 {
 public:
@@ -61,6 +70,8 @@ public:
 	const std::vector<GroundPad>& Pads() const { return mPads; }
 	// Over the cave grid: the ground there starts at the grid's top (the grid is the rock below).
 	static bool OverCave(float x, float z);
+	// Crags on steep ground, away from water, trails, clearings and the cave's face.
+	std::vector<OutcropSpot> Outcrops() const;
 	// What the top of a column is made of. `drop`: the biggest height difference to its
 	// neighbours (steep means rock); `block`: the column size (0.25 or 1 m).
 	Ground GroundAt(float x, float z, float height, float drop, float block) const;

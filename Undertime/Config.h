@@ -100,6 +100,8 @@ namespace cfg
 	constexpr float kBlockScatter = 0.5f;         // m/s of random sideways spread
 	constexpr float kBlockSpin = 4.0f;            // rad/s of random tumble
 	constexpr int kMaxLooseBlocks = 3000;         // more than this lying around: the oldest crumble away
+	constexpr float kBlockSettleTime = 2.0f;      // s after spawning before a nearly still block is put to sleep...
+	constexpr float kBlockSettleSpeed = 0.3f;     // ... when it moves slower than this (m/s)
 	constexpr float kBlockCrumbleTime = 0.5f;     // s to shrink away (only over the cap)
 	constexpr float kBlockLostY = -20.0f;         // blocks and boulders falling below this are gone
 	// Loose boulders (rock that broke off in a cave-in): stay loose until the pick breaks them up.
@@ -108,6 +110,45 @@ namespace cfg
 	constexpr float kLooseRockBonus = 1.6f;       // loose rock breaks this much more easily (bite strength)
 	constexpr int kMaxFragmentBoxes = 48;         // collision boxes per boulder before coarsening
 	constexpr int kSupportSearchBudget = 20000;   // voxels; regions larger than this count as anchored
+
+	// ---- The mountain face (CaveGenerator: the front of the grid, z = 0) ----------------
+	// The grid's front is shaped into a craggy rock face that matches the terrain around it:
+	// recessed in noisy ledges (grass where a ledge faces up), with an unbreakable skin of
+	// mountain rock, so the outside can't be dug into. The way in is a rough portal.
+	constexpr float kFaceRelief = 2.25f;          // m the face recedes at most
+	constexpr float kFaceNoiseScale = 0.16f;      // cycles per metre of the ledges (squashed vertically)
+	constexpr float kFaceEdgeTaper = 3.0f;        // m: no recess at the grid's sides and top, where the terrain meets it
+	constexpr float kFaceSkin = 1.0f;             // m of unbreakable rock behind the face
+	constexpr float kPortalHalfWidth = 1.6f;      // m, the entrance passage
+	constexpr float kPortalHeight = 3.1f;         // m above the floor in the middle
+	constexpr float kPortalArch = 0.7f;           // m the ceiling drops toward the walls
+	constexpr float kPortalRoughness = 0.3f;      // m of wobble on walls and ceiling
+	constexpr float kPortalMouthRoughness = 1.6f; // ... this much more at the mouth (broken rock)
+	constexpr float kPortalMouthDepth = 1.5f;     // m in from the face where it's that rough
+	constexpr float kPortalClear = 1.0f;          // m around the portal where the face recess fades out
+	// Terrain around the face (Valley.cpp): buttresses over the grid's side edges, rubble at its foot.
+	constexpr float kButtressInset = 2.0f;        // m the buttresses reach over the face's side edges
+	constexpr float kButtressFront = 1.5f;        // m they stand out in front of the face
+	constexpr float kButtressFall = 2.2f;         // m they drop per metre away from the face
+	constexpr float kTalusReach = 3.0f;           // m of rubble slope in front of the face
+	constexpr float kTalusHeight = 2.0f;          // m high against the face
+	constexpr float kMouthPathHalfWidth = 3.0f;   // m kept clear in front of the portal
+
+	// ---- Natural shafts (CaveGenerator, Valley, ValleyScenery) ------------------------
+	// Chimneys from the mountain top down into a cavern, letting daylight in (Design.md,
+	// "The cave"). They're part of the mountain, so fixed: where they open at the grid's top
+	// (x, z) and the zone (0-based) whose cavern they drop into. Every run's cave makes room
+	// for them. They lean north along the noon sunlight, so around midday a patch of sun
+	// reaches the cavern floor. A log grate over each opening keeps you from falling in.
+	struct Shaft { float x, z; int zone; };
+	constexpr Shaft kShafts[] = { { 14.0f, 9.0f, 0 }, { 34.0f, 41.0f, 1 }, { 13.0f, 73.0f, 2 } };
+	constexpr float kShaftRadius = 1.7f;          // m, the chimney (it wobbles a little)
+	constexpr float kShaftLean = 0.78f;           // m north per m down (the noon sun at kSunNoonElevation)
+	constexpr float kShaftCavernFloor = 6.0f;     // m: the cavern under it sits on an upper level
+	constexpr float kShaftCavernRadius = 4.5f;
+	constexpr float kShaftCavernHeight = 4.0f;
+	constexpr float kShaftZoneMargin = 6.0f;      // m of the zone kept beyond the shaft and its cavern (room for the exit cavern)
+	constexpr float kShaftHoleMargin = 0.75f;     // m the hole in the ground reaches past the shaft (the grate rests there)
 
 	// Pre-carved openings for the basic (test) layout; generated worlds keep the entrance.
 	constexpr int kEntranceZ0 = 0, kEntranceZ1 = 5;    // 1 wide x 2 tall
@@ -133,6 +174,18 @@ namespace cfg
 	constexpr float kMountainOverCave = 34.0f;    // the mountain above the cave rises to at least this
 	constexpr float kSnowLine = 72.0f;            // snow above this (with noise)
 	constexpr float kTreeLine = 62.0f;            // no trees above this
+	// Strata: steep ground above the valley floor breaks into layers, each a rock riser and a
+	// near-flat ledge (grass where it's flat enough), like the cave's face.
+	constexpr float kStrataHeight = 2.5f;         // m per layer (+-30% with noise)
+	constexpr float kStrataSharpness = 4.0f;      // higher: flatter ledges, steeper risers
+	constexpr float kStrataWarp = 1.5f;           // m the layers wander, so ledges don't follow the contours
+	constexpr float kStrataFrom = 0.15f;          // by how high the ground is above the floor (0..1 over 12 m)
+	constexpr float kStrataFull = 0.6f;
+	// Rock outcrops on steep ground (Valley::Outcrops, placeholder .vox crags).
+	constexpr float kOutcropSpacing = 11.0f;      // near ones (0.25 m blocks, with collision)
+	constexpr float kOutcropSpacingFar = 38.0f;   // far ones (baked with 1 m blocks: four times the size)
+	constexpr float kOutcropSlope = 2.0f;         // m of rise over 4 m that counts as steep
+	constexpr float kOutcropChance = 0.65f;
 	constexpr float kRockSlope = 0.6f;            // metres of drop between neighbouring 0.25 m columns that make rock
 	// The river, from the waterfall in the north-east to the pass in the south-west.
 	constexpr float kRiverPoints[][2] = {
@@ -271,11 +324,31 @@ namespace cfg
 	constexpr float kLanternFlicker = 0.07f;      // relative intensity wobble
 
 	// ---- Lighting by position -------------------------------------------------
-	constexpr float kSunFadeDistance = 6.0f;      // sun/sky light gone this far inside
+	// The cave grid is the renderer's interior (per pixel): daylight fades out over
+	// kSunFadeDistance, starting kInteriorFadeStart in from the face, so the outside stays
+	// lit when you look out and the tunnel stays dark when you look in.
+	constexpr float kInteriorFadeStart = 1.5f;    // m in from the face
+	constexpr float kSunFadeDistance = 6.0f;      // sun/sky light gone over this many metres
 	constexpr float kHideValleyDepth = 40.0f;     // deeper than this (m into the mountain), the valley isn't drawn
+	// Daylight in the cave (Skylight.h): it spreads in from the face and the shafts, losing
+	// kSkylightStep (of 255) per 0.5 m sideways or up and kSkylightDownStep per 0.5 m down.
+	constexpr int kSkylightStep = 9;              // ~14 m from the mouth before it's gone
+	constexpr int kSkylightDownStep = 2;          // light falls down a shaft easily
+	constexpr float kSkylightGamma = 2.0f;        // how fast it dims (levels are squared for the renderer)
+	constexpr float kSkylightStrength = 1.0f;     // x the outside ambient, where the level is 1
+	constexpr float kSkylightSunReach = 3.0f;     // the sun reaches in where the level x this >= 1 (its shadows decide where)
+	// Clouds (their shadows drift over the valley; the sky shows them).
+	constexpr float kCloudCoverage = 0.42f;
+	constexpr float kCloudScale = 240.0f;         // m across a typical cloud
+	constexpr float kCloudDarkness = 0.6f;        // how much sun a cloud takes
+	constexpr float kCloudHeight = 320.0f;
+	constexpr float kCloudWind[2] = { 4.0f, 1.5f };   // m/s (x, z)
+	// Screen-space ambient occlusion (creases, the feet of buildings, under eaves).
+	constexpr float kSsaoRadius = 0.8f;
+	constexpr float kSsaoStrength = 0.75f;
+	constexpr float kSsaoBias = 0.04f;
 	constexpr float kOutsideFogStart = 110.0f;
 	constexpr float kOutsideFogEnd = 520.0f;
-	constexpr float kCaveFogStartFraction = 0.35f;// cave fog starts at this fraction of lantern range
 	constexpr float kCaveAmbient = 0.012f;
 	constexpr uint32_t kDaySky = 0x8fb8e8;        // flat background when the sky is off
 	constexpr uint32_t kDayFog = 0xb9cde0;        // also the sky's horizon, so distant land meets it
@@ -289,6 +362,73 @@ namespace cfg
 	constexpr float kBloomIntensity = 0.06f;      // glow around bright things (windows, fire, crystals)
 	constexpr float kBloomThreshold = 1.2f;
 	constexpr float kDayAmbient = 0.30f;
+
+	// ---- The outside clock (Clock.h; Design.md "Day and night") -----------------------
+	// Outside time runs at kSurfaceRate on the surface, faster in each cave zone (outside
+	// seconds per real second). Through the entrance passage it rises from the surface rate
+	// to zone 1's.
+	constexpr float kDayMinutes = 15.0f;                       // real minutes per outside day, on the surface
+	constexpr float kSurfaceRate = 86400.0f / (kDayMinutes * 60.0f);
+	constexpr float kZoneRate[5] = {
+		8.0f * 60.0f,                // zone 1: 1 minute = 8 hours
+		24.0f * 60.0f,               // zone 2: 1 minute = 1 day
+		7.0f * 24.0f * 60.0f,        // zone 3: 1 minute = 1 week
+		30.0f * 24.0f * 60.0f,       // zone 4: 1 minute = 1 month
+		365.0f * 24.0f * 60.0f,      // zone 5: 1 minute = 1 year
+	};
+	constexpr float kArrivalHour = 9.0f;          // you arrive in the morning...
+	constexpr int kArrivalDayOfYear = 140;        // ... in late spring (day 0 = 1 January)
+	constexpr int kStartYear = 1871;              // the year on the watch when you arrive
+	// Eras by years since you arrived (Design.md section 4): Settlement from 2, Boomtown 10,
+	// Industry 30, Abandoned 60, Gone 100.
+	constexpr float kEraStartYears[5] = { 2.0f, 10.0f, 30.0f, 60.0f, 100.0f };
+	constexpr float kEraWarningSeconds = 20.0f;   // the watch warns when the next era is this close (real seconds at the current rate)
+	constexpr float kSkipHours = 2.0f;            // debug: T skips ahead this far
+
+	// ---- Day and night (DayNight.h) ---------------------------------------------------
+	// The sun rises in the east (+x) at 6:00, stands in the south (-z, over the valley) at
+	// noon and sets in the west at 18:00; the moon follows half a day behind, on a lower path.
+	constexpr float kSunNoonElevation = 52.0f;    // degrees above the horizon at noon
+	constexpr uint32_t kSunNoonColor = 0xfff4e2;
+	constexpr uint32_t kSunLowColor = 0xffa25a;   // near the horizon
+	constexpr float kSunStrength = 1.0f;
+	constexpr uint32_t kMoonColor = 0x9fb4ff;
+	constexpr float kMoonStrength = 0.16f;
+	constexpr float kMoonDiskBrightness = 3.5f;
+	// Sky (zenith, horizon) and ambient for day, twilight and night.
+	constexpr uint32_t kTwilightZenith = 0x4c5d94;
+	constexpr uint32_t kTwilightHorizon = 0xf0a070;
+	constexpr uint32_t kNightZenith = 0x070b1c;
+	constexpr uint32_t kNightHorizon = 0x1c2740;
+	constexpr uint32_t kNightGround = 0x0e1014;
+	constexpr float kTwilightAmbient = 0.14f;
+	constexpr float kNightAmbient = 0.045f;
+	constexpr float kNightFill = 0.12f;           // the two fill lights at night (1 by day)
+	constexpr float kStarIntensity = 1.2f;
+	// Lamps and lit windows: how bright they are by day (1 at night).
+	constexpr float kLampDayLevel = 0.25f;
+	constexpr uint32_t kWindowLightColor = 0xffb466;   // lit windows (Shaders/TownVoxel.hlsl)
+	// Indoors (the renderer's rooms, one per building with windows): the sky's ambient drops
+	// to this share, over kRoomFade metres in from the walls; sunlight comes in through the
+	// windows and doors.
+	constexpr float kRoomAmbient = 0.3f;
+	constexpr float kRoomFade = 0.6f;
+	// No strobing: once outside days pass faster than one per kStrobeSlowDay real seconds,
+	// the light blends towards the day's average, fully at one per kStrobeFastDay, with a
+	// gentle pulse instead.
+	constexpr float kStrobeSlowDay = 4.0f;
+	constexpr float kStrobeFastDay = 1.0f;
+	constexpr float kStrobePulse = 0.12f;         // relative brightness of the pulse
+	constexpr float kStrobePulseHz = 0.7f;
+
+	// ---- Particles (the engine's ParticleSystem) -----------------------------------------
+	constexpr int kDustPerBite = 10;              // rock dust when the pick breaks rock (+2 per voxel)
+	constexpr int kDustPerBiteMax = 60;
+	constexpr float kDustSpeed = 1.2f;            // m/s out of the face
+	constexpr int kCaveInDustPerMetre = 6;        // dust per cubic metre that falls in a cave-in
+	constexpr int kCaveInDustMax = 160;
+	constexpr int kShaftDustRate = 30;            // motes per second hanging in each shaft
+	constexpr int kShaftDustMax = 350;
 
 	// ---- UI -------------------------------------------------------------------
 	constexpr float kMessageSeconds = 4.5f;
@@ -305,6 +445,10 @@ namespace cfg
 		Gold,
 		TimeCrystal,
 		StrangeWatch,
+		Cliff,         // the mountain face's skin (unbreakable)
+		Turf,          // ... where a ledge of it faces up
+		Cliff2,        // the face's other strata shades (as the terrain's rock walls)
+		Cliff3,
 		Count
 	};
 
@@ -326,7 +470,15 @@ namespace cfg
 		{ "Gold",          2.8f,  40, 0xffc928 },
 		{ "Time crystal",  4.0f, 110, 0x6ff0ff },
 		{ "Strange watch", 1.5f, 250, 0xff5fd2 },
+		{ "Mountain rock", 0.0f,   0, 0x7a7064 },   // unbreakable; kTerrainRock
+		{ "Turf",          0.0f,   0, 0x5f7d3a },   // unbreakable; kTerrainGrass
+		{ "Mountain rock", 0.0f,   0, 0x655d53 },   // unbreakable; kTerrainRock2, a little darker
+		{ "Mountain rock", 0.0f,   0, 0x6f665b },   // unbreakable; kTerrainRock, darker
 	};
 
 	inline const BlockInfo& Info(Block block) { return kBlocks[static_cast<int>(block)]; }
+	inline bool Unbreakable(Block block)
+	{
+		return block == Block::Bedrock || block == Block::Cliff || block == Block::Cliff2 || block == Block::Cliff3 || block == Block::Turf;
+	}
 }

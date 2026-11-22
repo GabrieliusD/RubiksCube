@@ -212,7 +212,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/TradingPost.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -255,6 +256,54 @@
 					"material": "",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 5.0,
+					"maxParticles": 40,
+					"lifetime": 7.0,
+					"lifetimeJitter": 0.3,
+					"offset": [
+						0.0,
+						0.5,
+						0.0
+					],
+					"spawnBox": [
+						0.15,
+						0.05,
+						0.15
+					],
+					"velocity": [
+						0.25,
+						0.8,
+						0.1
+					],
+					"velocityJitter": [
+						0.15,
+						0.1,
+						0.15
+					],
+					"gravity": -0.05,
+					"drag": 0.15,
+					"turbulence": 0.35,
+					"sizeStart": 0.35,
+					"sizeEnd": 3.0,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						0.32,
+						0.31,
+						0.3,
+						0.65
+					],
+					"colorEnd": [
+						0.45,
+						0.45,
+						0.45,
+						0.0
+					],
+					"emissive": 0.0,
+					"additive": false,
+					"square": false
 				}
 			}
 		},
@@ -298,6 +347,54 @@
 					],
 					"intensity": 6.0,
 					"range": 12.0
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 5.0,
+					"maxParticles": 40,
+					"lifetime": 1.2,
+					"lifetimeJitter": 0.5,
+					"offset": [
+						0.0,
+						-0.5,
+						0.0
+					],
+					"spawnBox": [
+						0.2,
+						0.05,
+						0.2
+					],
+					"velocity": [
+						0.0,
+						1.6,
+						0.0
+					],
+					"velocityJitter": [
+						0.4,
+						0.6,
+						0.4
+					],
+					"gravity": 0.8,
+					"drag": 0.8,
+					"turbulence": 2.0,
+					"sizeStart": 0.05,
+					"sizeEnd": 0.02,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						1.0,
+						0.45,
+						0.12,
+						1.0
+					],
+					"colorEnd": [
+						1.0,
+						0.25,
+						0.05,
+						0.0
+					],
+					"emissive": 6.0,
+					"additive": true,
+					"square": true
 				}
 			}
 		},
@@ -335,7 +432,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Tent.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -375,7 +473,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Tent.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -415,7 +514,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Tent.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -455,7 +555,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Tent.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -495,7 +596,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Crates.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -535,7 +637,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/LogPile.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -575,9 +678,58 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/SmithyLeanTo.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 1.2,
+					"lifetimeJitter": 0.5,
+					"offset": [
+						1.125,
+						1.5,
+						0.875
+					],
+					"spawnBox": [
+						0.2,
+						0.05,
+						0.2
+					],
+					"velocity": [
+						0.0,
+						1.6,
+						0.0
+					],
+					"velocityJitter": [
+						0.4,
+						0.6,
+						0.4
+					],
+					"gravity": 0.8,
+					"drag": 0.8,
+					"turbulence": 2.0,
+					"sizeStart": 0.05,
+					"sizeEnd": 0.02,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						1.0,
+						0.45,
+						0.12,
+						1.0
+					],
+					"colorEnd": [
+						1.0,
+						0.25,
+						0.05,
+						0.0
+					],
+					"emissive": 6.0,
+					"additive": true,
+					"square": true
 				}
 			}
 		},
@@ -615,9 +767,58 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/ClockmakerCottage.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 7.0,
+					"lifetimeJitter": 0.3,
+					"offset": [
+						1.875,
+						7.75,
+						1.375
+					],
+					"spawnBox": [
+						0.15,
+						0.05,
+						0.15
+					],
+					"velocity": [
+						0.25,
+						0.8,
+						0.1
+					],
+					"velocityJitter": [
+						0.15,
+						0.1,
+						0.15
+					],
+					"gravity": -0.05,
+					"drag": 0.15,
+					"turbulence": 0.35,
+					"sizeStart": 0.35,
+					"sizeEnd": 3.0,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						0.32,
+						0.31,
+						0.3,
+						0.65
+					],
+					"colorEnd": [
+						0.45,
+						0.45,
+						0.45,
+						0.0
+					],
+					"emissive": 0.0,
+					"additive": false,
+					"square": false
 				}
 			}
 		},
@@ -697,7 +898,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/WaterWheel.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				},
@@ -740,7 +942,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/GeneralStore.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -780,7 +983,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/AssayOffice.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -820,7 +1024,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/PostOffice.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -860,7 +1065,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Saloon.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -900,9 +1106,58 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Blacksmith.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 7.0,
+					"lifetimeJitter": 0.3,
+					"offset": [
+						2.625,
+						9.25,
+						2.375
+					],
+					"spawnBox": [
+						0.15,
+						0.05,
+						0.15
+					],
+					"velocity": [
+						0.25,
+						0.8,
+						0.1
+					],
+					"velocityJitter": [
+						0.15,
+						0.1,
+						0.15
+					],
+					"gravity": -0.05,
+					"drag": 0.15,
+					"turbulence": 0.35,
+					"sizeStart": 0.35,
+					"sizeEnd": 3.0,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						0.32,
+						0.31,
+						0.3,
+						0.65
+					],
+					"colorEnd": [
+						0.45,
+						0.45,
+						0.45,
+						0.0
+					],
+					"emissive": 0.0,
+					"additive": false,
+					"square": false
 				}
 			}
 		},
@@ -940,7 +1195,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/ClockTowerScaffold.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -980,7 +1236,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/GardenPlot.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1020,9 +1277,58 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Home.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 7.0,
+					"lifetimeJitter": 0.3,
+					"offset": [
+						1.625,
+						7.75,
+						1.125
+					],
+					"spawnBox": [
+						0.15,
+						0.05,
+						0.15
+					],
+					"velocity": [
+						0.25,
+						0.8,
+						0.1
+					],
+					"velocityJitter": [
+						0.15,
+						0.1,
+						0.15
+					],
+					"gravity": -0.05,
+					"drag": 0.15,
+					"turbulence": 0.35,
+					"sizeStart": 0.35,
+					"sizeEnd": 3.0,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						0.32,
+						0.31,
+						0.3,
+						0.65
+					],
+					"colorEnd": [
+						0.45,
+						0.45,
+						0.45,
+						0.0
+					],
+					"emissive": 0.0,
+					"additive": false,
+					"square": false
 				}
 			}
 		},
@@ -1060,7 +1366,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/GardenPlot.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1100,9 +1407,58 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/HomeWhite.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 7.0,
+					"lifetimeJitter": 0.3,
+					"offset": [
+						1.625,
+						7.75,
+						1.125
+					],
+					"spawnBox": [
+						0.15,
+						0.05,
+						0.15
+					],
+					"velocity": [
+						0.25,
+						0.8,
+						0.1
+					],
+					"velocityJitter": [
+						0.15,
+						0.1,
+						0.15
+					],
+					"gravity": -0.05,
+					"drag": 0.15,
+					"turbulence": 0.35,
+					"sizeStart": 0.35,
+					"sizeEnd": 3.0,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						0.32,
+						0.31,
+						0.3,
+						0.65
+					],
+					"colorEnd": [
+						0.45,
+						0.45,
+						0.45,
+						0.0
+					],
+					"emissive": 0.0,
+					"additive": false,
+					"square": false
 				}
 			}
 		},
@@ -1140,7 +1496,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/GardenPlot.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1180,9 +1537,58 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Home.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 7.0,
+					"lifetimeJitter": 0.3,
+					"offset": [
+						1.625,
+						7.75,
+						1.125
+					],
+					"spawnBox": [
+						0.15,
+						0.05,
+						0.15
+					],
+					"velocity": [
+						0.25,
+						0.8,
+						0.1
+					],
+					"velocityJitter": [
+						0.15,
+						0.1,
+						0.15
+					],
+					"gravity": -0.05,
+					"drag": 0.15,
+					"turbulence": 0.35,
+					"sizeStart": 0.35,
+					"sizeEnd": 3.0,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						0.32,
+						0.31,
+						0.3,
+						0.65
+					],
+					"colorEnd": [
+						0.45,
+						0.45,
+						0.45,
+						0.0
+					],
+					"emissive": 0.0,
+					"additive": false,
+					"square": false
 				}
 			}
 		},
@@ -1220,7 +1626,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/FoundersPlot.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1260,9 +1667,58 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/FoundersHouse.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 7.0,
+					"lifetimeJitter": 0.3,
+					"offset": [
+						3.875,
+						11.25,
+						3.125
+					],
+					"spawnBox": [
+						0.15,
+						0.05,
+						0.15
+					],
+					"velocity": [
+						0.25,
+						0.8,
+						0.1
+					],
+					"velocityJitter": [
+						0.15,
+						0.1,
+						0.15
+					],
+					"gravity": -0.05,
+					"drag": 0.15,
+					"turbulence": 0.35,
+					"sizeStart": 0.35,
+					"sizeEnd": 3.0,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						0.32,
+						0.31,
+						0.3,
+						0.65
+					],
+					"colorEnd": [
+						0.45,
+						0.45,
+						0.45,
+						0.0
+					],
+					"emissive": 0.0,
+					"additive": false,
+					"square": false
 				}
 			}
 		},
@@ -1301,7 +1757,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Footbridge.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1341,7 +1798,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Chapel.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1381,7 +1839,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Grave.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1421,7 +1880,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Grave.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1461,7 +1921,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/SawPit.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1501,7 +1962,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/LogPile.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1541,7 +2003,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/MineFrame.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1581,7 +2044,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1621,7 +2085,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1661,7 +2126,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1701,7 +2167,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1741,7 +2208,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1781,7 +2249,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1821,7 +2290,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1861,7 +2331,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1901,7 +2372,8 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
 				}
@@ -1941,9 +2413,95 @@
 				},
 				"MeshRenderer": {
 					"mesh": "Models/Placeholders/Stump.vox",
-					"material": "",
+					"material": "Materials/Town.mat",
+					"glassMaterial": "Materials/TownGlass.mat",
 					"visible": true,
 					"layer": "World"
+				}
+			}
+		},
+		{
+			"guid": "5e771e00000000f1",
+			"components": {
+				"EntityInfo": {
+					"name": "Forge Sparks",
+					"prefab": ""
+				},
+				"Transform": {
+					"position": [
+						2.5,
+						1.0,
+						2.625
+					],
+					"rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"ValleyProp": {
+					"eraFrom": 2,
+					"eraTo": 2,
+					"snapToGround": false,
+					"groundOffset": 0.0,
+					"collide": false
+				},
+				"ParticleEmitter": {
+					"enabled": true,
+					"rate": 4.0,
+					"maxParticles": 40,
+					"lifetime": 1.2,
+					"lifetimeJitter": 0.5,
+					"offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"spawnBox": [
+						0.2,
+						0.05,
+						0.2
+					],
+					"velocity": [
+						0.0,
+						1.6,
+						0.0
+					],
+					"velocityJitter": [
+						0.4,
+						0.6,
+						0.4
+					],
+					"gravity": 0.8,
+					"drag": 0.8,
+					"turbulence": 2.0,
+					"sizeStart": 0.05,
+					"sizeEnd": 0.02,
+					"sizeJitter": 0.3,
+					"colorStart": [
+						1.0,
+						0.45,
+						0.12,
+						1.0
+					],
+					"colorEnd": [
+						1.0,
+						0.25,
+						0.05,
+						0.0
+					],
+					"emissive": 6.0,
+					"additive": true,
+					"square": true
+				},
+				"Parent": {
+					"parent": "5e771e0000000005"
 				}
 			}
 		}

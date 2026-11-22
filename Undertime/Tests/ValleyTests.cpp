@@ -63,8 +63,16 @@ int ValleyTests()
 		"valley: the ground around the cave mouth is flat at kGroundY");
 	bool overCave = true;
 	for (float z = 0.5f; z < cfg::kGridZ; z += 7.0f)
-		for (float x = 0.5f; x < cfg::kGridX; x += 5.0f) overCave &= valley.Height(x, z) >= cfg::kGridY + 1.0f;
-	Check(overCave, "valley: the mountain covers the cave grid everywhere");
+		for (float x = 0.5f; x < cfg::kGridX; x += 5.0f)
+		{
+			bool shaft = false;
+			for (const cfg::Shaft& s : cfg::kShafts) shaft |= std::hypot(x - s.x, z - s.z) < cfg::kShaftRadius + cfg::kShaftHoleMargin + 0.5f;
+			if (!shaft) overCave &= valley.Height(x, z) >= cfg::kGridY + 1.0f;
+		}
+	Check(overCave, "valley: the mountain covers the cave grid everywhere (but the shafts' openings)");
+	bool holes = true;
+	for (const cfg::Shaft& s : cfg::kShafts) holes &= valley.Height(s.x, s.z) == static_cast<float>(cfg::kGridY);
+	Check(holes, "valley: the natural shafts open through the ground (down to the grid's top)");
 	Check(valley.Height(cfg::kValleyCenter[0] + cfg::kValleyRadius[0] * 1.5f, cfg::kValleyCenter[1]) > 35.0f
 		&& valley.Height(cfg::kValleyCenter[0], cfg::kValleyCenter[1] - cfg::kValleyRadius[1] * 1.5f) > 35.0f,
 		"valley: mountains rise beyond the valley's edge");
@@ -78,6 +86,35 @@ int ValleyTests()
 			highest = std::max(highest, h);
 		}
 	Check(lowest > cfg::kGroundY - 4.0f && highest < cfg::kGroundY + 14.0f, "valley: the floor rolls gently (within a few metres of the mouth)");
+
+	// ---- Strata and outcrops ---------------------------------------------------------------
+	{
+		// Up a mountainside (beyond the valley's east edge): the climb comes in steps, with
+		// near-flat ledges between steep risers.
+		int ledges = 0, risers = 0;
+		const float z = cfg::kValleyCenter[1];
+		const float x0 = cfg::kValleyCenter[0] + cfg::kValleyRadius[0] * 1.05f;
+		for (float x = x0; x < x0 + 60.0f; x += 0.25f)
+		{
+			const float step = valley.Height(x + 0.25f, z) - valley.Height(x, z);
+			if (std::fabs(step) < 0.05f) ++ledges;
+			else if (std::fabs(step) > 0.3f) ++risers;
+		}
+		std::printf("        (60 m up a mountainside: %d ledge steps, %d riser steps of 240)\n", ledges, risers);
+		Check(ledges > 40 && risers > 10, "strata: mountainsides climb in ledges and risers");
+
+		const std::vector<OutcropSpot> outcrops = valley.Outcrops();
+		bool placed = true;
+		int near = 0;
+		for (const OutcropSpot& o : outcrops)
+		{
+			for (const auto& c : cfg::kClearings) placed &= (o.x - c[0]) * (o.x - c[0]) + (o.z - c[1]) * (o.z - c[1]) >= c[2] * c[2];
+			placed &= valley.WaterLevel(o.x, o.z) == Valley::kNoWater && !(o.z > -14.0f && o.z < 14.0f && o.x > -12.0f && o.x < cfg::kGridX + 12.0f);
+			near += o.distant ? 0 : 1;
+		}
+		std::printf("        (%zu outcrops, %d near)\n", outcrops.size(), near);
+		Check(near > 20 && outcrops.size() < 2000 && placed, "outcrops: crags on steep ground, none in clearings, water or on the cave's face");
+	}
 
 	// ---- River and lake --------------------------------------------------------------------
 	{

@@ -15,6 +15,7 @@ namespace
 	constexpr float kHeight = static_cast<float>(cfg::kGridY);
 	constexpr float kShell = 1.0f;   // bedrock thickness (m)
 	constexpr float kRoomFloorShare = 0.85f;   // fraction of a room's radius with a flat floor
+	constexpr float kClimbShare = 0.65f;       // tunnels climb at most this share of the walkable slope (margin for rooms they cross)
 	constexpr float kSeparateLevels = 3.0f;    // overlapping rooms closer than this in height share a floor
 
 	struct Generator
@@ -201,6 +202,37 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 	}
 	layout.zones.back().z1 = zEnd;
 
+	// Each natural shaft (fixed in the mountain) must lie inside its own zone, with its
+	// cavern: move the seal bands around it where needed.
+	auto shaftBottomZ = [](const cfg::Shaft& s)
+	{
+		const float cavernMiddle = cfg::kShaftCavernFloor + cfg::kShaftCavernHeight * 0.7f;
+		return s.z + (kHeight - cavernMiddle) * cfg::kShaftLean;
+	};
+	for (const cfg::Shaft& s : cfg::kShafts)
+	{
+		const int i = s.zone;
+		const float lo = s.z - cfg::kShaftRadius - cfg::kShaftZoneMargin;
+		// The cavern's floor may settle lower to keep its tunnels walkable (down to the shell),
+		// taking the shaft's foot further north: make room for that too.
+		const float lowest = s.z + (kHeight - kShell - 1.0f) * cfg::kShaftLean;
+		const float hi = std::max(shaftBottomZ(s) + cfg::kShaftCavernRadius, lowest + cfg::kShaftRadius + 0.5f) + cfg::kShaftZoneMargin;
+		if (i > 0 && layout.zones[i].z0 > lo)
+		{
+			const float t = layout.seals[i - 1].second - layout.seals[i - 1].first;
+			layout.zones[i].z0 = lo;
+			layout.seals[i - 1] = { lo - t, lo };
+			layout.zones[i - 1].z1 = lo - t;
+		}
+		if (i + 1 < cfg::kZoneCount && layout.zones[i].z1 < hi)
+		{
+			const float t = layout.seals[i].second - layout.seals[i].first;
+			layout.zones[i].z1 = hi;
+			layout.seals[i] = { hi, hi + t };
+			layout.zones[i + 1].z0 = hi + t;
+		}
+	}
+
 	// ---- Rooms --------------------------------------------------------------------
 	auto randomRoom = [&](const CaveZone& zone, bool upperAllowed)
 	{
@@ -219,14 +251,67 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 	{
 		CaveZone& zone = layout.zones[zi];
 
-		CaveRoom entry = randomRoom(zone, false);
-		entry.radius = std::min(entry.radius, 4.5f);
-		entry.center.z = zone.z0 + entry.radius * 0.8f;
-		if (zi == 0) entry.center.x = cfg::kCenterX + 0.5f;   // the crack opens into it
-		CaveRoom exit = randomRoom(zone, zi > 0);
-		exit.radius = std::min(exit.radius, 4.5f);
-		exit.center.z = zone.z1 - exit.radius * 0.8f;          // pressed against the next seal
+		// This zone's shaft tubes, as circles along their path from the top to above their
+		// cavern: a tube would leave a hole in any floor under it, so rooms keep clear of them
+		// and tunnels steer around them.
+		std::vector<CaveRoom> tubes;
+		for (const cfg::Shaft& s : cfg::kShafts)
+		{
+			if (s.zone != zi) continue;
+			for (float t : { 0.0f, 0.35f, 0.7f })
+			{
+				CaveRoom circle;
+				circle.center = { s.x, 0.0f, s.z + (shaftBottomZ(s) - s.z) * t };
+				circle.radius = cfg::kShaftRadius + 1.0f;
+				tubes.push_back(circle);
+			}
+		}
+		auto nearTube = [&](const CaveRoom& room)
+		{
+			for (const CaveRoom& c : tubes)
+				if (std::hypot(room.center.x - c.center.x, room.center.z - c.center.z) < room.radius + c.radius) return true;
+			for (const cfg::Shaft& s : cfg::kShafts)   // and their caverns
+				if (s.zone == zi && std::hypot(room.center.x - s.x, room.center.z - shaftBottomZ(s)) < room.radius + cfg::kShaftCavernRadius + 1.0f) return true;
+			return false;
+		};
+
+		CaveRoom entry, exit;
+		for (int attempt = 0; attempt < 20; ++attempt)
+		{
+			entry = randomRoom(zone, false);
+			entry.radius = std::min(entry.radius, 4.5f);
+			entry.center.z = zone.z0 + entry.radius * 0.8f;
+			if (zi == 0) entry.center.x = cfg::kCenterX + 0.5f;   // the crack opens into it
+			if (!nearTube(entry)) break;
+		}
+		for (int attempt = 0; attempt < 20; ++attempt)
+		{
+			exit = randomRoom(zone, zi > 0);
+			exit.radius = std::min(exit.radius, 4.5f);
+			exit.center.z = zone.z1 - exit.radius * 0.8f;          // pressed against the next seal
+			if (!nearTube(exit)) break;
+		}
 		zone.rooms = { entry, exit };
+		// The caverns under this zone's natural shafts. Other rooms keep clear of them, other
+		// tunnels steer around them, and each joins the network last, as a leaf, so the way
+		// from entry to exit never has to climb through one.
+		std::vector<CaveRoom> shaftCaverns;
+		std::vector<uint8_t> isShaftRoom(2, 0);
+		for (const cfg::Shaft& s : cfg::kShafts)
+		{
+			if (s.zone != zi) continue;
+			CaveRoom cavern;
+			cavern.radius = cfg::kShaftCavernRadius;
+			cavern.height = cfg::kShaftCavernHeight;
+			cavern.center = { s.x, cfg::kShaftCavernFloor, shaftBottomZ(s) };
+			shaftCaverns.push_back(cavern);
+			CaveShaft shaft;
+			shaft.zone = zi;
+			shaft.room = static_cast<int>(zone.rooms.size());
+			layout.shafts.push_back(shaft);
+			zone.rooms.push_back(cavern);
+			isShaftRoom.push_back(1);
+		}
 
 		const int extra = g.RandInt(cfg::kExtraRoomsMin, cfg::kExtraRoomsMax);
 		for (int i = 0, attempts = 0; i < extra && attempts < extra * 15; ++attempts)
@@ -237,9 +322,21 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 			{
 				const float d = std::hypot(room.center.x - other.center.x, room.center.z - other.center.z);
 				if (d < (room.radius + other.radius) * 0.7f && std::fabs(room.center.y - other.center.y) < 3.0f) crowded = true;
+				// Overlapping on separate levels: the upper floor must clear the lower room's
+				// ceiling, or it's a ledge you can't climb.
+				const CaveRoom& lower = room.center.y < other.center.y ? room : other;
+				const CaveRoom& upper = room.center.y < other.center.y ? other : room;
+				if (d < room.radius + other.radius && upper.center.y - lower.center.y >= kSeparateLevels
+					&& lower.center.y + lower.height * 1.4f > upper.center.y - 0.5f) crowded = true;
 			}
+			for (const CaveRoom& cavern : shaftCaverns)
+			{
+				if (std::hypot(room.center.x - cavern.center.x, room.center.z - cavern.center.z) < room.radius + cavern.radius + 1.0f) crowded = true;
+			}
+			if (nearTube(room)) crowded = true;
 			if (crowded) continue;
 			zone.rooms.push_back(room);
+			isShaftRoom.push_back(0);
 			++i;
 		}
 
@@ -250,10 +347,25 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 		{
 			return std::hypot(zone.rooms[a].center.x - zone.rooms[b].center.x, zone.rooms[a].center.z - zone.rooms[b].center.z);
 		};
+		// How far a tunnel from a to b may climb: its ramp runs between the two rooms' flat
+		// floors, and not where it passes through a third room (that room's cavity eats it).
 		auto allowedRise = [&](int a, int b)
 		{
-			const float span = std::max(1.0f, horizontal(a, b) - kRoomFloorShare * (zone.rooms[a].radius + zone.rooms[b].radius));
-			return cfg::kTunnelMaxSlope * 0.8f * span;
+			float span = horizontal(a, b) - kRoomFloorShare * (zone.rooms[a].radius + zone.rooms[b].radius);
+			const XMFLOAT3& pa = zone.rooms[a].center;
+			const XMFLOAT3& pb = zone.rooms[b].center;
+			const float abx = pb.x - pa.x, abz = pb.z - pa.z;
+			const float lengthSq = std::max(abx * abx + abz * abz, 1e-4f);
+			for (int c = 0; c < static_cast<int>(zone.rooms.size()); ++c)
+			{
+				if (c == a || c == b) continue;
+				const CaveRoom& room = zone.rooms[c];
+				const float t = std::clamp(((room.center.x - pa.x) * abx + (room.center.z - pa.z) * abz) / lengthSq, 0.0f, 1.0f);
+				const float dx = pa.x + abx * t - room.center.x, dz = pa.z + abz * t - room.center.z;
+				const float d2 = dx * dx + dz * dz, r = room.radius + cfg::kTunnelRadiusMax;
+				if (d2 < r * r) span -= 2.0f * std::sqrt(r * r - d2);
+			}
+			return cfg::kTunnelMaxSlope * kClimbShare * std::max(1.0f, span);
 		};
 		// A tunnel shouldn't run through a third room: if their floors differ, the tunnel
 		// pokes out of that room's wall as a ledge you can't reach.
@@ -270,6 +382,12 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 				const float t = std::clamp(((pc.x - pa.x) * abx + (pc.z - pa.z) * abz) / lengthSq, 0.0f, 1.0f);
 				const float dx = pa.x + abx * t - pc.x, dz = pa.z + abz * t - pc.z;
 				if (std::sqrt(dx * dx + dz * dz) < zone.rooms[c].radius + cfg::kTunnelRadiusMax) return true;
+			}
+			for (const CaveRoom& tube : tubes)
+			{
+				const float t = std::clamp(((tube.center.x - pa.x) * abx + (tube.center.z - pa.z) * abz) / lengthSq, 0.0f, 1.0f);
+				const float dx = pa.x + abx * t - tube.center.x, dz = pa.z + abz * t - tube.center.z;
+				if (std::sqrt(dx * dx + dz * dz) < tube.radius + cfg::kTunnelRadiusMax) return true;
 			}
 			return false;
 		};
@@ -293,7 +411,8 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 					{
 						if (inTree[b]) continue;
 						if (pass == 0 && crossesRoom(a, b)) continue;
-						const float cost = horizontal(a, b) + 2.0f * std::fabs(zone.rooms[a].center.y - zone.rooms[b].center.y);
+						const float cost = horizontal(a, b) + 2.0f * std::fabs(zone.rooms[a].center.y - zone.rooms[b].center.y)
+							+ (isShaftRoom[a] || isShaftRoom[b] ? 1e4f : 0.0f);   // shaft caverns join last
 						if (cost < best) { best = cost; bestFrom = a; bestTo = b; }
 					}
 				}
@@ -352,12 +471,65 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 		}
 	}
 
-	// ---- Entrance crack into zone 0 -------------------------------------------------
-	const int cx = cfg::kCenterX * V;
+	// ---- Entrance: a rough, arched passage from the portal into zone 0 ---------------
+	// The face uses a fixed seed: the mountain outside looks the same every run.
+	const Perlin3 faceNoise(cfg::kWorldSeed);
+	const float mouthX = cfg::kCenterX + 0.5f;
 	for (int z = 0; z < static_cast<int>(zStart * V) + V; ++z)
-		for (int y = V; y < V + cfg::kEntranceHeight * V; ++y)
-			for (int x = cx; x < cx + V; ++x)
-				g.voxels[VoxelWorld::Index(x, y, z)] = Block::Air;
+	{
+		const float fz = (z + 0.5f) * S;
+		// Rougher at the mouth, where the rock is broken (the passage behind is smoother).
+		const float rough = cfg::kPortalRoughness * (1.0f + cfg::kPortalMouthRoughness * (1.0f - std::clamp(fz / cfg::kPortalMouthDepth, 0.0f, 1.0f)));
+		for (int y = V; y < static_cast<int>((cfg::kGroundY + cfg::kPortalHeight + 2.0f * rough) * V); ++y)
+		{
+			const float fy = (y + 0.5f) * S;
+			const float halfWidth = cfg::kPortalHalfWidth + rough * faceNoise.Fbm(fz * 1.3f, fy * 1.3f, 40.0f, 2);
+			for (int x = static_cast<int>((mouthX - halfWidth - 1.0f) * V); x < static_cast<int>((mouthX + halfWidth + 1.0f) * V); ++x)
+			{
+				const float side = ((x + 0.5f) * S - mouthX) / halfWidth;
+				if (std::fabs(side) > 1.0f) continue;
+				const float top = cfg::kGroundY + cfg::kPortalHeight - cfg::kPortalArch * side * side
+					+ rough * faceNoise.Fbm((x + 0.5f) * S * 1.3f, fz * 1.3f, 41.0f, 2);
+				if (fy < top) g.voxels[VoxelWorld::Index(x, y, z)] = Block::Air;
+			}
+		}
+	}
+
+	// ---- Natural shafts: from the grid's top down into their caverns -------------------
+	// Each leans along the noon sunlight and wobbles a little; its top metres (through the
+	// bedrock) are lined with mountain rock, like the face.
+	{
+		size_t next = 0;
+		for (const cfg::Shaft& s : cfg::kShafts)
+		{
+			CaveShaft& shaft = layout.shafts[next++];
+			const CaveRoom& cavern = layout.zones[shaft.zone].rooms[shaft.room];
+			const float bottomY = cavern.center.y + 1.0f;
+			auto axisZ = [&](float y) { return s.z + (kHeight - y) * cfg::kShaftLean; };
+			shaft.top = { s.x, kHeight, s.z };
+			shaft.bottom = { s.x, bottomY, axisZ(bottomY) };
+			const float reach = cfg::kShaftRadius + 1.5f;
+			for (int y = static_cast<int>(bottomY * V); y < cfg::kVoxY; ++y)
+			{
+				const float fy = (y + 0.5f) * S;
+				const float az = axisZ(fy);
+				const float wobbleX = 0.4f * faceNoise.Fbm(fy * 0.3f, s.x, 60.0f, 2);
+				const float wobbleZ = 0.4f * faceNoise.Fbm(fy * 0.3f, s.z, 61.0f, 2);
+				const float lining = fy > kHeight - kShell - 1.0f ? 1.0f : 0.0f;   // the top metres
+				for (int z = static_cast<int>((az - reach) * V); z <= static_cast<int>((az + reach) * V); ++z)
+					for (int x = static_cast<int>((s.x - reach) * V); x <= static_cast<int>((s.x + reach) * V); ++x)
+					{
+						if (!VoxelWorld::InGrid(x, y, z)) continue;
+						const float dx = (x + 0.5f) * S - s.x - wobbleX, dz = (z + 0.5f) * S - az - wobbleZ;
+						const float d = std::sqrt(dx * dx + dz * dz);
+						const float radius = cfg::kShaftRadius + 0.25f * faceNoise.Fbm((x + 0.5f) * S * 0.8f, fy * 0.8f, (z + 0.5f) * S * 0.8f, 2);
+						Block& b = g.voxels[VoxelWorld::Index(x, y, z)];
+						if (d < radius) b = Block::Air;
+						else if (lining > 0.0f && d < radius + 1.0f) b = Block::Cliff;
+					}
+			}
+		}
+	}
 
 	// ---- Noise caverns (kept only where they join a zone's network) -----------------
 	for (const CaveZone& zone : layout.zones)
@@ -524,7 +696,7 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 				{
 					if (!VoxelWorld::InGrid(x + dx, y + dy, z + dz)) continue;
 					Block& b = g.voxels[VoxelWorld::Index(x + dx, y + dy, z + dz)];
-					if (b == Block::Bedrock) continue;
+					if (cfg::Unbreakable(b)) continue;
 					b = Block::StrangeWatch;
 					++layout.oreVoxels[static_cast<int>(Block::StrangeWatch)];
 				}
@@ -556,6 +728,60 @@ CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 		if (z < static_cast<int>(cfg::kWatchMinDepth * cfg::kVoxZ) || !VoxelWorld::InGrid(x, y, z)) continue;
 		placeWatch(x, y, z);
 		++i;
+	}
+
+	// ---- The mountain face ---------------------------------------------------------------
+	// Recess the front of the grid in noisy ledges (none at its sides and top, where the
+	// terrain meets it, nor around the portal), then give it an unbreakable skin of mountain
+	// rock, turf where a ledge faces up.
+	{
+		auto smooth = [](float e0, float e1, float v)
+		{
+			const float t = std::clamp((v - e0) / (e1 - e0), 0.0f, 1.0f);
+			return t * t * (3.0f - 2.0f * t);
+		};
+		std::vector<int> recess(static_cast<size_t>(cfg::kVoxX) * cfg::kVoxY, 0);
+		for (int y = 0; y < cfg::kVoxY; ++y)
+			for (int x = 0; x < cfg::kVoxX; ++x)
+			{
+				const float fx = (x + 0.5f) * S, fy = (y + 0.5f) * S;
+				if (fy < cfg::kGroundY) continue;   // below the ground outside: never opened
+				// Layers like the mountain's strata (Valley.cpp): each kStrataHeight-ish layer is
+				// set back by its own amount, varying gently along the face, so the ledges run
+				// level (grass where one is exposed) instead of in blotches.
+				const float warp = cfg::kStrataWarp * faceNoise.Fbm(fx * 0.08f, 5.0f, 21.0f, 2);
+				const float layer = std::floor((fy + warp) / cfg::kStrataHeight);
+				const float layerSetBack = 0.5f + 0.5f * faceNoise.Fbm(layer * 1.7f + 0.3f, 9.0f, 31.0f, 1) * 1.6f;
+				const float along = faceNoise.Fbm(fx * cfg::kFaceNoiseScale + 300.0f, layer * 3.1f, 11.0f, 2);
+				const float n = std::clamp(layerSetBack + 0.35f * along, 0.0f, 1.0f);
+				const float toPortal = std::max(std::fabs(fx - mouthX) - cfg::kPortalHalfWidth, fy - (cfg::kGroundY + cfg::kPortalHeight));
+				const float taper = smooth(0.0f, cfg::kFaceEdgeTaper, std::min(fx, kWidth - fx)) * smooth(0.0f, cfg::kFaceEdgeTaper, kHeight - fy)
+					* smooth(0.0f, cfg::kPortalClear, toPortal);
+				// Whole voxels, in steps of two, so it breaks into ledges rather than a smooth bulge.
+				recess[static_cast<size_t>(y) * cfg::kVoxX + x] = static_cast<int>(n * taper * cfg::kFaceRelief * V * 0.5f) * 2;
+			}
+		const int skin = static_cast<int>(cfg::kFaceSkin * V);
+		auto overwrite = [&](Block& b, Block with)
+		{
+			if (b != Block::Stone && !cfg::Unbreakable(b) && b != Block::Air) --layout.oreVoxels[static_cast<int>(b)];
+			b = with;
+		};
+		for (int y = 0; y < cfg::kVoxY; ++y)
+			for (int x = 0; x < cfg::kVoxX; ++x)
+			{
+				const int r = recess[static_cast<size_t>(y) * cfg::kVoxX + x];
+				const int rAbove = y + 1 < cfg::kVoxY ? recess[static_cast<size_t>(y + 1) * cfg::kVoxX + x] : 0;
+				for (int z = 0; z < r; ++z) overwrite(g.voxels[VoxelWorld::Index(x, y, z)], Block::Air);
+				for (int z = r; z < r + skin; ++z)
+				{
+					Block& b = g.voxels[VoxelWorld::Index(x, y, z)];
+					if (b == Block::Air) continue;   // the entrance passage
+					// Rock in the strata shades of the terrain's walls (TerrainMesh.cpp), turf on ledges.
+					const int band = static_cast<int>(std::floor((y + 0.5f) * S / cfg::kStrataHeight)) % 3;
+					const Block rock = band == 0 ? Block::Cliff : band == 1 ? Block::Cliff2 : Block::Cliff3;
+					overwrite(b, z < rAbove ? Block::Turf : rock);
+				}
+			}
 	}
 
 	// ---- Remove rock that isn't attached to the bedrock shell -------------------------

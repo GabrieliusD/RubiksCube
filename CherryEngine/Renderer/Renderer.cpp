@@ -78,6 +78,12 @@ namespace
 		std::unique_ptr<rhi::Texture> texture;
 	};
 
+	struct LightVolumeResource
+	{
+		std::unique_ptr<rhi::Texture> texture;
+		XMUINT3 size{};
+	};
+
 	struct VoxelResource
 	{
 		std::unique_ptr<rhi::Texture> volume;
@@ -254,6 +260,7 @@ struct Renderer::Impl
 	ResourcePool<TextureResource, TextureHandle> textures;
 	ResourcePool<MaterialDesc, MaterialHandle> materials;
 	ResourcePool<VoxelResource, VoxelVolumeHandle> voxelVolumes;
+	ResourcePool<LightVolumeResource, LightVolumeHandle> lightVolumes;
 	ResourcePool<SurfaceShaderResource, SurfaceShaderHandle> surfaceShaders;
 	uint32_t nextSurfacePipeline = 0;
 	rhi::GraphicsPipelineDesc meshPipelineDesc;   // what surface shader pipelines are built from
@@ -263,14 +270,20 @@ struct Renderer::Impl
 
 	DynamicStructuredBuffer instanceBuffer{ "InstanceBuffer", sizeof(gpu::InstanceData) };
 	DynamicStructuredBuffer shadowInstanceBuffer{ "ShadowInstanceBuffer", sizeof(gpu::InstanceData) };
+	DynamicStructuredBuffer shadowVoxelBuffer{ "ShadowVoxelBuffer", sizeof(gpu::VoxelVolumeData) };
 	DynamicStructuredBuffer materialBuffer{ "MaterialBuffer", sizeof(gpu::MaterialData) };
 	DynamicStructuredBuffer materialParamBuffer{ "MaterialParamBuffer", sizeof(uint32_t) };
 	DynamicStructuredBuffer voxelBuffer{ "VoxelVolumeBuffer", sizeof(gpu::VoxelVolumeData) };
 	DynamicStructuredBuffer debugVertexBuffer{ "DebugVertexBuffer", sizeof(gpu::DebugVertex) };
+	DynamicStructuredBuffer particleBuffer{ "ParticleBuffer", sizeof(gpu::ParticleData) };
+	std::vector<ParticleInstance> particles;           // this frame's, from Renderer::Particles
+	std::vector<gpu::ParticleData> particleScratch;
 
 	// Offscreen view targets.
 	std::unique_ptr<rhi::Texture> hdr;
+	std::unique_ptr<rhi::Texture> ldrBeforeAA;   // the tonemap's output when anti-aliasing is on
 	std::unique_ptr<rhi::Texture> depth;
+	std::unique_ptr<rhi::Texture> aoRaw, ao;   // screen-space ambient occlusion
 	std::unique_ptr<rhi::Texture> ldr;
 	uint32_t viewWidth = 0, viewHeight = 0;
 	uint32_t requestedViewWidth = 1280, requestedViewHeight = 720;
@@ -306,6 +319,7 @@ struct Renderer::Impl
 	std::vector<ShadowItem> shadowScratch[CHERRY_SHADOW_CASCADES];
 	std::vector<gpu::InstanceData> shadowCasterScratch;     // instances, as the casters were found
 	std::vector<gpu::InstanceData> shadowInstanceScratch;   // ... in draw order, cascade after cascade
+	std::vector<gpu::VoxelVolumeData> shadowVoxelScratch;   // voxel volumes that reach a cascade
 	void CreateShadowMaps();
 	void SetupShadowCascades(const XMMATRIX& view, const XMMATRIX& proj, const RenderView& renderView);
 
@@ -446,6 +460,20 @@ void Renderer::Impl::CreatePipelines()
 	debug.cullMode = D3D12_CULL_MODE_NONE;
 	pipelines.AddGraphics("debug", debug);
 
+	// Particles: camera-facing quads pulled from a buffer, depth-tested but not written.
+	rhi::GraphicsPipelineDesc particles;
+	particles.shaderFile = "Particles.hlsl";
+	particles.vertexLayout = rhi::VertexLayout::None;
+	particles.rtvFormats = { kHdrFormat };
+	particles.dsvFormat = kDepthFormat;
+	particles.depthWrite = false;
+	particles.cullMode = D3D12_CULL_MODE_NONE;
+	particles.alphaBlend = true;
+	pipelines.AddGraphics("particles", particles);
+	particles.alphaBlend = false;
+	particles.additiveBlend = true;
+	pipelines.AddGraphics("particles_add", particles);
+
 	rhi::GraphicsPipelineDesc shadow;
 	shadow.shaderFile = "ShadowPass.hlsl";
 	shadow.psEntry = "";                     // depth only
@@ -454,6 +482,28 @@ void Renderer::Impl::CreatePipelines()
 	shadow.slopeScaledDepthBias = 2.5f;
 	shadow.depthBiasClamp = 0.01f;
 	pipelines.AddGraphics("shadow", shadow);
+
+	rhi::GraphicsPipelineDesc voxelShadow;
+	voxelShadow.shaderFile = "VoxelShadow.hlsl";
+	voxelShadow.vertexLayout = rhi::VertexLayout::None;
+	voxelShadow.dsvFormat = kDepthFormat;
+	voxelShadow.cullMode = D3D12_CULL_MODE_BACK;   // the box's far side: one ray per pixel (as in the voxel pass)
+	voxelShadow.slopeScaledDepthBias = 2.5f;
+	voxelShadow.depthBiasClamp = 0.01f;
+	pipelines.AddGraphics("voxel_shadow", voxelShadow);
+
+	rhi::ComputePipelineDesc fxaa;
+	fxaa.shaderFile = "Fxaa.hlsl";
+	pipelines.AddCompute("fxaa", fxaa);
+
+	rhi::ComputePipelineDesc ssao;
+	ssao.shaderFile = "Ssao.hlsl";
+	ssao.entry = "CSMain";
+	pipelines.AddCompute("ssao", ssao);
+	rhi::ComputePipelineDesc ssaoBlur;
+	ssaoBlur.shaderFile = "Ssao.hlsl";
+	ssaoBlur.entry = "CSBlur";
+	pipelines.AddCompute("ssao_blur", ssaoBlur);
 
 	rhi::ComputePipelineDesc bloomDown;
 	bloomDown.shaderFile = "Bloom.hlsl";
@@ -552,6 +602,22 @@ void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
 	ldrDesc.initialState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 	ldrDesc.name = "ViewLDR";
 	ldr = rhi::Texture::Create(device, ldrDesc);
+	ldrDesc.usage = rhi::TextureUsage_ShaderResource | rhi::TextureUsage_UnorderedAccess;
+	ldrDesc.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+	ldrDesc.name = "ViewLDRBeforeAA";
+	ldrBeforeAA = rhi::Texture::Create(device, ldrDesc);
+
+	// Ambient occlusion: raw, then blurred.
+	rhi::TextureDesc aoDesc;
+	aoDesc.width = width;
+	aoDesc.height = height;
+	aoDesc.format = DXGI_FORMAT_R8_UNORM;
+	aoDesc.usage = rhi::TextureUsage_ShaderResource | rhi::TextureUsage_UnorderedAccess;
+	aoDesc.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+	aoDesc.name = "AmbientOcclusionRaw";
+	aoRaw = rhi::Texture::Create(device, aoDesc);
+	aoDesc.name = "AmbientOcclusion";
+	ao = rhi::Texture::Create(device, aoDesc);
 
 	// Bloom chain: half size, then halving while it's at least 8 texels, up to 6 levels.
 	bloomChain.clear();
@@ -772,14 +838,17 @@ void Renderer::Shutdown()
 	r.hdr.reset();
 	r.depth.reset();
 	r.ldr.reset();
+	r.ldrBeforeAA.reset();
 	r.instanceBuffer.Reset();
 	r.shadowInstanceBuffer.Reset();
+	r.shadowVoxelBuffer.Reset();
 	for (auto& map : r.shadowMaps) map.reset();
 	r.bloomChain.clear();
 	r.materialBuffer.Reset();
 	r.materialParamBuffer.Reset();
 	r.voxelBuffer.Reset();
 	r.debugVertexBuffer.Reset();
+	r.particleBuffer.Reset();
 	r.previewHdr.reset();
 	r.previewDepth.reset();
 	r.previewLdr.reset();
@@ -1151,6 +1220,52 @@ void Renderer::DestroyVoxelVolume(VoxelVolumeHandle volume)
 	mImpl->voxelVolumes.Remove(volume);
 }
 
+LightVolumeHandle Renderer::CreateLightVolume(const XMUINT3& size, const uint8_t* levels)
+{
+	Impl& r = *mImpl;
+	if (size.x == 0 || size.y == 0 || size.z == 0 || !levels)
+	{
+		CHERRY_ERROR("CreateLightVolume: empty volume");
+		return {};
+	}
+	LightVolumeResource volume;
+	volume.size = size;
+	rhi::TextureDesc desc;
+	desc.dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+	desc.width = size.x;
+	desc.height = size.y;
+	desc.depthOrArraySize = size.z;
+	desc.format = DXGI_FORMAT_R8_UNORM;
+	desc.usage = rhi::TextureUsage_ShaderResource;
+	desc.name = "LightVolume";
+	volume.texture = rhi::Texture::Create(r.device, desc);
+	D3D12_SUBRESOURCE_DATA data{};
+	data.pData = levels;
+	data.RowPitch = size.x;
+	data.SlicePitch = static_cast<LONG_PTR>(size.x) * size.y;
+	volume.texture->Upload(&data, 1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	return r.lightVolumes.Add(std::move(volume));
+}
+
+bool Renderer::UpdateLightVolume(LightVolumeHandle volume, const XMUINT3& offset, const XMUINT3& size, const uint8_t* levels)
+{
+	LightVolumeResource* resource = mImpl->lightVolumes.Get(volume);
+	if (!resource || !levels) return false;
+	const XMUINT3& dims = resource->size;
+	if (offset.x + size.x > dims.x || offset.y + size.y > dims.y || offset.z + size.z > dims.z)
+	{
+		CHERRY_ERROR("UpdateLightVolume: region is outside the volume");
+		return false;
+	}
+	resource->texture->UploadRegion(offset.x, offset.y, offset.z, size.x, size.y, size.z, levels, 1);
+	return true;
+}
+
+void Renderer::DestroyLightVolume(LightVolumeHandle volume)
+{
+	mImpl->lightVolumes.Remove(volume);
+}
+
 XMUINT3 Renderer::GetVoxelVolumeSize(VoxelVolumeHandle volume) const
 {
 	const VoxelResource* resource = mImpl->voxelVolumes.Get(volume);
@@ -1158,6 +1273,7 @@ XMUINT3 Renderer::GetVoxelVolumeSize(VoxelVolumeHandle volume) const
 }
 
 RenderSettings& Renderer::Settings() { return mImpl->settings; }
+std::vector<ParticleInstance>& Renderer::Particles() { return mImpl->particles; }
 DebugDraw& Renderer::Debug() { return mImpl->debugDraw; }
 const RenderStats& Renderer::Stats() const { return mImpl->stats; }
 const std::string& Renderer::AdapterName() const { return mImpl->device.Caps().adapterName; }
@@ -1269,7 +1385,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f };
+	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((size + 7) / 8, (size + 7) / 8, 1);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1386,6 +1502,43 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants(const XMFLOAT3* eye)
 
 	for (uint32_t i = 0; i < CHERRY_SHADER_GLOBALS; ++i) frame.globals[i] = settings.shaderGlobals[i];
 
+	const InteriorSettings& interior = settings.interior;
+	frame.interiorEnabled = interior.enabled ? 1u : 0u;
+	frame.interiorMin = interior.boxMin;
+	frame.interiorMax = interior.boxMax;
+	frame.interiorFadeStart = std::max(interior.fadeStart, 0.0f);
+	frame.interiorFadeLength = std::max(interior.fadeLength, 1e-3f);
+	frame.interiorAmbientSky = { interior.ambient.x * up, interior.ambient.y * up, interior.ambient.z * up };
+	frame.interiorAmbientGround = { interior.ambient.x * down, interior.ambient.y * down, interior.ambient.z * down };
+	frame.interiorFogColor = interior.fogColor;
+	frame.interiorFogStart = interior.fogStart;
+	frame.interiorFogEnd = interior.fogEnd;
+	const LightVolumeResource* lightVolume = lightVolumes.Get(interior.lightVolume);
+	frame.interiorLightVolume = lightVolume ? lightVolume->texture->SrvIndex() : CHERRY_INVALID_INDEX;
+	frame.interiorLightStrength = interior.lightStrength;
+	frame.interiorSunFromLight = interior.sunFromLight;
+
+	const CloudSettings& clouds = settings.clouds;
+	frame.cloudsEnabled = clouds.enabled ? 1u : 0u;
+	frame.cloudOffset = { -clouds.wind.x * totalTime, -clouds.wind.y * totalTime };
+	frame.cloudScale = std::max(clouds.scale, 1.0f);
+	frame.cloudCoverage = std::clamp(clouds.coverage, 0.0f, 1.0f);
+	frame.cloudSoftness = std::max(clouds.softness, 0.001f);
+	frame.cloudDarkness = std::clamp(clouds.darkness, 0.0f, 1.0f);
+	frame.cloudHeight = clouds.height;
+
+	frame.roomCount = static_cast<uint32_t>(std::min<size_t>(settings.rooms.size(), CHERRY_MAX_ROOMS));
+	for (uint32_t i = 0; i < frame.roomCount; ++i)
+	{
+		const RoomSettings& room = settings.rooms[i];
+		gpu::RoomBox& box = frame.rooms[i];
+		box.center = room.center;
+		box.fade = std::max(room.fade, 0.01f);
+		box.halfExtents = room.halfExtents;
+		box.ambientScale = room.ambientScale;
+		box.axes = { room.axisX.x, room.axisX.z, room.axisZ.x, room.axisZ.z };
+	}
+
 	const SkySettings& sky = settings.sky;
 	frame.skyEnabled = sky.enabled ? 1u : 0u;
 	frame.skyZenith = sky.zenith;
@@ -1446,16 +1599,15 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	r.instanceScratch.clear();
 	r.drawScratch.clear();
 	const uint32_t boundsColor = DebugDraw::Color(0.2f, 1.0f, 0.3f);
-	for (Entity entity : scene.MeshEntities())
+	// One part of a mesh entity (its mesh, or a voxel model's glass part): a shadow caster,
+	// and a draw unless culled.
+	auto submit = [&](const MeshRenderer& renderer, const XMMATRIX& world, MeshHandle meshHandle, MaterialHandle requestedMaterial)
 	{
-		const MeshRenderer& renderer = scene.Get<MeshRenderer>(entity);
-		if (!renderer.visible) continue;
-		const MeshResource* mesh = r.meshes.Get(renderer.mesh);
-		if (!mesh) continue;
+		const MeshResource* mesh = r.meshes.Get(meshHandle);
+		if (!mesh) return;
 
-		const XMMATRIX world = scene.WorldMatrix(entity);
 		const bool viewModel = renderer.layer == RenderLayer::ViewModel;
-		const MaterialHandle materialHandle = r.materials.IsValid(renderer.material) ? renderer.material : r.defaultMaterial;
+		const MaterialHandle materialHandle = r.materials.IsValid(requestedMaterial) ? requestedMaterial : r.defaultMaterial;
 		const MaterialDesc* material = r.materials.Get(materialHandle);
 		const SurfaceShaderResource* surface = material ? r.surfaceShaders.Get(material->shader) : nullptr;
 		BoundingBox worldBounds;
@@ -1480,13 +1632,13 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 					XMStoreFloat4x4(&shadowInstance.world, world);
 					r.shadowCasterScratch.push_back(shadowInstance);
 				}
-				r.shadowScratch[c].push_back({ renderer.mesh.index, caster });
+				r.shadowScratch[c].push_back({ meshHandle.index, caster });
 			}
 		}
 		if (!viewModel && r.settings.cullingEnabled && !frustum.Intersects(worldBounds))
 		{
 			++stats.instancesCulled;
-			continue;
+			return;
 		}
 		if (!viewModel && r.settings.drawBounds)
 		{
@@ -1501,9 +1653,17 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		const uint32_t translucent = surface && surface->options.translucent ? 1u : 0u;
 		const XMVECTOR toCamera = XMVectorSubtract(XMLoadFloat3(&worldBounds.Center), XMLoadFloat3(&renderView.position));
 
-		r.drawScratch.push_back({ static_cast<uint32_t>(renderer.layer), translucent, pipeline, renderer.mesh.index,
+		r.drawScratch.push_back({ static_cast<uint32_t>(renderer.layer), translucent, pipeline, meshHandle.index,
 			static_cast<uint32_t>(r.instanceScratch.size()), XMVectorGetX(XMVector3LengthSq(toCamera)) });
 		r.instanceScratch.push_back(instance);
+	};
+	for (Entity entity : scene.MeshEntities())
+	{
+		const MeshRenderer& renderer = scene.Get<MeshRenderer>(entity);
+		if (!renderer.visible) continue;
+		const XMMATRIX world = scene.WorldMatrix(entity);
+		submit(renderer, world, renderer.mesh, renderer.material);
+		if (renderer.glassMesh.IsValid()) submit(renderer, world, renderer.glassMesh, renderer.glassMaterial);
 	}
 	// Layer first (world before view models), opaque before translucent; opaque by pipeline
 	// (surface shader), then by mesh so pipelines and vertex/index buffers change rarely;
@@ -1546,6 +1706,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	// ---- Voxel volumes ------------------------------------------------------
 	r.voxelScratch.clear();
 	r.voxelDrawScratch.clear();
+	r.shadowVoxelScratch.clear();
 	for (Entity entity : scene.VoxelEntities())
 	{
 		const VoxelVolumeRenderer& renderer = scene.Get<VoxelVolumeRenderer>(entity);
@@ -1559,8 +1720,11 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 			XMFLOAT3(volume->size.x * 0.5f, volume->size.y * 0.5f, volume->size.z * 0.5f),
 			XMFLOAT3(volume->size.x * 0.5f, volume->size.y * 0.5f, volume->size.z * 0.5f)));
 		box.Transform(box, world);
-		if (r.settings.cullingEnabled && !frustum.Intersects(box)) continue;
-		if (r.settings.drawBounds)
+		const bool seen = !r.settings.cullingEnabled || frustum.Intersects(box);
+		bool castsShadow = false;
+		for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES && shadows; ++c) castsShadow |= r.cascades[c].box.Intersects(box);
+		if (!seen && !castsShadow) continue;
+		if (seen && r.settings.drawBounds)
 		{
 			r.debugDraw.Box(box, DebugDraw::Color(1.0f, 0.85f, 0.2f));
 		}
@@ -1577,6 +1741,8 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		const MaterialHandle material = r.materials.IsValid(renderer.material) ? renderer.material : r.defaultMaterial;
 		data.materialIndex = material.index;
 		const MaterialDesc* materialDesc = r.materials.Get(material);
+		if (castsShadow) r.shadowVoxelScratch.push_back(data);
+		if (!seen) continue;
 		r.voxelDrawScratch.push_back(materialDesc && r.surfaceShaders.IsValid(materialDesc->shader) ? materialDesc->shader.index + 1 : 0);
 		r.voxelScratch.push_back(data);
 	}
@@ -1603,11 +1769,38 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	const auto& lines = r.debugDraw.Vertices();
 	frame.debugVertexBufferIndex = r.debugVertexBuffer.Write(r.device, frameIndex, lines.data(), static_cast<uint32_t>(lines.size()));
 
+	// Particles: covering ones back to front, then the additive ones (order doesn't matter).
+	r.particleScratch.clear();
+	uint32_t coveringParticles = 0;
+	{
+		std::vector<ParticleInstance>& list = r.particles;
+		const XMVECTOR eye = XMLoadFloat3(&renderView.position);
+		auto distance = [&](const ParticleInstance& p) { return XMVectorGetX(XMVector3LengthSq(XMVectorSubtract(XMLoadFloat3(&p.position), eye))); };
+		auto firstAdditive = std::partition(list.begin(), list.end(), [](const ParticleInstance& p) { return !p.additive; });
+		std::sort(list.begin(), firstAdditive, [&](const ParticleInstance& a, const ParticleInstance& b) { return distance(a) > distance(b); });
+		coveringParticles = static_cast<uint32_t>(firstAdditive - list.begin());
+		for (const ParticleInstance& p : list)
+		{
+			gpu::ParticleData data{};
+			data.position = p.position;
+			data.size = p.size;
+			data.color = p.color;
+			data.emissive = p.emissive;
+			data.rotation = p.rotation;
+			data.flags = p.square ? 1u : 0u;
+			r.particleScratch.push_back(data);
+		}
+		list.clear();
+	}
+	const uint32_t particleCount = static_cast<uint32_t>(r.particleScratch.size());
+	frame.particleBufferIndex = r.particleBuffer.Write(r.device, frameIndex, r.particleScratch.data(), particleCount);
+
 	// ---- Shadow maps (before the mesh pass, which reads them) -------------------
 	if (shadows)
 	{
 		gpu::FrameConstants shadowFrame = frame;
 		shadowFrame.instanceBufferIndex = r.shadowInstanceBuffer.Write(r.device, frameIndex, r.shadowInstanceScratch.data(), static_cast<uint32_t>(r.shadowInstanceScratch.size()));
+		shadowFrame.voxelVolumeBufferIndex = r.shadowVoxelBuffer.Write(r.device, frameIndex, r.shadowVoxelScratch.data(), static_cast<uint32_t>(r.shadowVoxelScratch.size()));
 		cmd->SetGraphicsRootConstantBufferView(rhi::RootSlot_FrameConstants, r.uploadRing.PushConstants(shadowFrame));
 		cmd->SetPipelineState(r.pipelines.Get("shadow"));
 		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -1638,6 +1831,19 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 				cmd->DrawIndexedInstanced(mesh->indexCount, static_cast<UINT>(end - i), 0, 0, 0);
 				++stats.drawCalls;
 				i = end;
+			}
+			// Voxel volumes, ray-marched along the sunlight.
+			if (!r.shadowVoxelScratch.empty())
+			{
+				cmd->SetPipelineState(r.pipelines.Get("voxel_shadow"));
+				for (uint32_t v = 0; v < r.shadowVoxelScratch.size(); ++v)
+				{
+					gpu::VoxelDrawConstants constants{ v };
+					cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
+					cmd->DrawInstanced(36, 1, 0, 0);
+					++stats.drawCalls;
+				}
+				cmd->SetPipelineState(r.pipelines.Get("shadow"));
 			}
 			map.Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 		}
@@ -1753,6 +1959,28 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	}
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_VoxelEnd);
 
+	// ---- Particles (after translucent meshes; depth-tested, not written) -------------
+	if (particleCount > 0)
+	{
+		cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		if (coveringParticles > 0)
+		{
+			cmd->SetPipelineState(r.pipelines.Get("particles"));
+			gpu::MeshDrawConstants constants{ 0 };
+			cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
+			cmd->DrawInstanced(6, coveringParticles, 0, 0);
+			++stats.drawCalls;
+		}
+		if (particleCount > coveringParticles)
+		{
+			cmd->SetPipelineState(r.pipelines.Get("particles_add"));
+			gpu::MeshDrawConstants constants{ coveringParticles };
+			cmd->SetGraphicsRoot32BitConstants(rhi::RootSlot_DrawConstants, 1, &constants, 0);
+			cmd->DrawInstanced(6, particleCount - coveringParticles, 0, 0);
+			++stats.drawCalls;
+		}
+	}
+
 	// ---- Debug lines (HDR, depth-tested against the world) ------------------
 	if (!lines.empty())
 	{
@@ -1762,6 +1990,30 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		++stats.drawCalls;
 	}
 	stats.debugLines = static_cast<uint32_t>(lines.size() / 2);
+
+	// ---- Ambient occlusion (compute), from the world's depth -----------------------
+	const SsaoSettings& ssaoSettings = r.settings.ssao;
+	const bool ssaoOn = ssaoSettings.enabled && ssaoSettings.strength > 0.0f;
+	if (ssaoOn)
+	{
+		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		const UINT groupsX = (r.viewWidth + 7) / 8, groupsY = (r.viewHeight + 7) / 8;
+		r.aoRaw->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("ssao"));
+		gpu::SsaoConstants constants{ CHERRY_INVALID_INDEX, r.aoRaw->UavIndex(), r.viewWidth, r.viewHeight, r.depth->SrvIndex(),
+			std::max(ssaoSettings.radius, 0.01f), std::max(ssaoSettings.bias, 0.0f), 0 };
+		cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(constants) / 4, &constants, 0);
+		cmd->Dispatch(groupsX, groupsY, 1);
+		r.aoRaw->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.ao->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("ssao_blur"));
+		constants.sourceIndex = r.aoRaw->SrvIndex();
+		constants.destIndex = r.ao->UavIndex();
+		cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(constants) / 4, &constants, 0);
+		cmd->Dispatch(groupsX, groupsY, 1);
+		r.ao->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+	}
 
 	// ---- View models: depth cleared so they always draw on top of the world --
 	if (firstViewModel != r.drawScratch.cend())
@@ -1794,13 +2046,26 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		r.bloomChain[0]->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	}
 
-	// ---- Tonemap (compute) --------------------------------------------------
-	r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+	// ---- Tonemap (compute), then anti-aliasing ----------------------------------
+	const bool antiAliasing = r.settings.antiAliasing && r.ldrBeforeAA;
+	rhi::Texture& tonemapped = antiAliasing ? *r.ldrBeforeAA : *r.ldr;
+	tonemapped.Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), r.ldr->UavIndex(), r.viewWidth, r.viewHeight,
-		bloomOn ? r.bloomChain[0]->SrvIndex() : CHERRY_INVALID_INDEX, bloom.intensity };
+	if (ssaoOn) r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), tonemapped.UavIndex(), r.viewWidth, r.viewHeight,
+		bloomOn ? r.bloomChain[0]->SrvIndex() : CHERRY_INVALID_INDEX, bloom.intensity,
+		ssaoOn ? r.ao->SrvIndex() : CHERRY_INVALID_INDEX, r.depth->SrvIndex(), std::clamp(ssaoSettings.strength, 0.0f, 1.0f) };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
+	if (antiAliasing)
+	{
+		r.ldrBeforeAA->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("fxaa"));
+		gpu::FxaaConstants fxaa{ r.ldrBeforeAA->SrvIndex(), r.ldr->UavIndex(), r.viewWidth, r.viewHeight };
+		cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(fxaa) / 4, &fxaa, 0);
+		cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
+	}
 	r.ldr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	r.gpuTimer.Mark(cmd, frameIndex, Mark_TonemapEnd);
 

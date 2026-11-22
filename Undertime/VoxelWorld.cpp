@@ -221,7 +221,7 @@ VoxelWorld::CarveResult VoxelWorld::Carve(const XMFLOAT3& center, float pickSpee
 	for (int x = x0; x <= x1; ++x)
 	{
 		const Block block = mVoxels[Index(x, y, z)];
-		if (block == Block::Air || block == Block::Bedrock) continue;
+		if (block == Block::Air || cfg::Unbreakable(block)) continue;
 
 		const float dx = (x + 0.5f) * S - center.x;
 		const float dy = (y + 0.5f) * S - center.y;
@@ -386,7 +386,7 @@ std::vector<XMFLOAT4> VoxelWorld::BuildPalette()
 
 uint8_t VoxelWorld::PaletteIndex(Block block, int voxelZ, int crack)
 {
-	if (crack > 0 && block != Block::Air && block != Block::Bedrock)
+	if (crack > 0 && block != Block::Air && !cfg::Unbreakable(block))
 	{
 		const int first = kCrackFirst + (std::min(crack, 2) - 1) * kCrackSet;
 		return static_cast<uint8_t>(block == Block::Stone ? first + DepthBand(voxelZ) : first + cfg::kStoneBands + static_cast<int>(block));

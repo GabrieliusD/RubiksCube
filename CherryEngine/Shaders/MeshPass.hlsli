@@ -88,7 +88,7 @@ float4 PSMain(VertexOut pin) : SV_Target
 	float3 normal = normalize(s.normalW);
 	PbrSurface surface = MakePbrSurface(s.baseColor, s.metallic, s.roughness, (0.08 * saturate(s.specular)).xxx);
 	float3 color = ShadeSurface(surface, input.positionW, normal, input.viewDirW) + s.emissive;
-	color = ApplyFog(color, distance(gView.eyePosW, input.positionW), gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
+	color = ApplySceneFog(color, gView.eyePosW, input.positionW);
 	return float4(color, s.alpha);
 }
 

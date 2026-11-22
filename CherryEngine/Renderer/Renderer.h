@@ -87,7 +87,15 @@ public:
 	void DestroyVoxelVolume(VoxelVolumeHandle volume);
 	DirectX::XMUINT3 GetVoxelVolumeSize(VoxelVolumeHandle volume) const;
 
+	// A 3D grid of light levels, 0..255 = 0..1 (x fastest, then y, then z), sampled smoothly
+	// by the shaders: e.g. how much daylight reaches into a cave (InteriorSettings::lightVolume).
+	LightVolumeHandle CreateLightVolume(const DirectX::XMUINT3& size, const uint8_t* levels);
+	bool UpdateLightVolume(LightVolumeHandle volume, const DirectX::XMUINT3& offset, const DirectX::XMUINT3& size, const uint8_t* levels);
+	void DestroyLightVolume(LightVolumeHandle volume);
+
 	RenderSettings& Settings();
+	// Particles to draw with the next RenderScene (it empties the list).
+	std::vector<ParticleInstance>& Particles();
 	DebugDraw& Debug();
 	const RenderStats& Stats() const;
 	const std::string& AdapterName() const;

@@ -14,6 +14,9 @@
 #include "Valley.h"
 #include "ValleyScenery.h"
 #include "ValleyProps.h"
+#include "Clock.h"
+#include "DayNight.h"
+#include "Skylight.h"
 #include <array>
 #include <memory>
 #include <string>
@@ -87,6 +90,16 @@ private:
 	void UpdateCamera(Engine& engine);
 	void UpdateViewModels(Engine& engine, float deltaTime);
 	void UpdateLighting(Engine& engine);
+	// The outside clock: advances at the rate where the player is, changes the era while the
+	// valley can't be seen, and says how much time passed when you come back out.
+	void UpdateClock(Engine& engine, float deltaTime);
+	void SetEra(Engine& engine, int newEra);
+	std::vector<float> ZoneStarts() const;
+	void DrawWatch(const hud::Frame& frame);
+	// Dust: a puff where the pick broke rock, a cloud where rock fell, motes in the shafts.
+	void RockDust(Engine& engine, const DirectX::XMFLOAT3& at, int count, const DirectX::XMFLOAT4& colour, const DirectX::XMFLOAT3& out, float size);
+	void CreateShaftDust(Engine& engine);
+	std::vector<Entity> shaftDust;
 
 	float Depth() const { return player.position.z; }   // metres into the mountain (x10 on the HUD)
 	// In the cave grid (the mountain over it is outside: you can climb it).
@@ -126,14 +139,30 @@ private:
 	MaterialHandle vertexColorMaterial;
 	WorldRenderer worldRenderer = cfg::kStartRayMarched ? WorldRenderer::RayMarched : WorldRenderer::Meshes;
 	VoxelVolumeHandle voxelVolume;
+	Skylight skylight;               // daylight reaching into the cave
+	LightVolumeHandle skylightVolume;   // ... as the renderer's interior light volume
 	Entity voxelEntity = INVALID_ENTITY;
 	std::vector<Entity> chunkEntities;
 	std::vector<MeshHandle> chunkMeshes;
 	std::unique_ptr<Valley> valley;
 	ValleyScenery scenery;
 	ValleyProps props;
-	int era = 1;                     // which era's town stands (N cycles it, for now)
+	int era = 1;                     // which era's town stands (the clock's, once the valley is out of sight)
+	OutsideClock clock;
+	float timeRate = cfg::kSurfaceRate;   // outside seconds per real second where the player is
+	float strobe = 0.0f;                  // 0..1: how far the light blends to the day's average (smoothed)
+	bool wasInside = false;
+	double daysAtEntry = 0.0;             // when you last went in (for the summary when you come out)
+	int eraAtEntry = 1;
 	DirectX::XMFLOAT3 devSun{ 0, 0, 0 };   // UNDERTIME_DEV_SUN, for checking shadows
+	bool devHold = false;            // UNDERTIME_DEV_VIEW "... hold": the player stays put (screenshots in mid-air)
+	// UNDERTIME_DEV_BLOCKS: timing log
+	bool devPerf = false;
+	int perfFrames = 0;
+	float perfTimer = 0.0f, perfFrameMs = 0.0f, perfUpdateMs = 0.0f, perfPhysicsMs = 0.0f;
+public:
+	void LogPerf(Engine& engine, float dt, float updateMs);
+private:
 	Entity pickEntity = INVALID_ENTITY;
 	Entity shovelEntity = INVALID_ENTITY;
 	Entity lanternEntity = INVALID_ENTITY;

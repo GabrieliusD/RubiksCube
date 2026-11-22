@@ -139,6 +139,13 @@ void LooseBlocks::Update(Engine& engine, float dt, const XMFLOAT3& collector)
 			XMFLOAT4 r;
 			physics.GetTransform(b.body, p, r, false);
 			if (p.y < cfg::kBlockLostY) remove = true;   // fell out of the world
+			// A block that has nearly stopped is put to sleep, so big piles don't keep every
+			// block simulated (they jitter otherwise). Anything landing on it wakes it again.
+			else if (b.age > cfg::kBlockSettleTime && !physics.IsSleeping(b.body))
+			{
+				const XMFLOAT3 v = physics.GetLinearVelocity(b.body);
+				if (v.x * v.x + v.y * v.y + v.z * v.z < cfg::kBlockSettleSpeed * cfg::kBlockSettleSpeed) engine.GetPhysics().Deactivate(b.body);
+			}
 		}
 		else
 		{

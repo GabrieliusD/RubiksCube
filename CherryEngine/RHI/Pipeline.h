@@ -50,6 +50,7 @@ namespace rhi
 		D3D12_COMPARISON_FUNC depthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 		D3D12_CULL_MODE cullMode = D3D12_CULL_MODE_BACK;
 		bool alphaBlend = false;
+		bool additiveBlend = false;        // colour x alpha added to what's there (glow, sparks)
 		// Depth bias (shadow maps): constant in depth-buffer units, plus a slope-scaled part.
 		int depthBias = 0;
 		float slopeScaledDepthBias = 0.0f;

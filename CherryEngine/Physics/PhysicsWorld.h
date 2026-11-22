@@ -67,6 +67,8 @@ public:
 	void GetTransform(BodyId body, DirectX::XMFLOAT3& position, DirectX::XMFLOAT4& rotation, bool interpolated = true) const;
 	DirectX::XMFLOAT3 GetLinearVelocity(BodyId body) const;
 	void AddImpulse(BodyId body, const DirectX::XMFLOAT3& impulse, const DirectX::XMFLOAT3& worldPoint);
+	// Puts a dynamic body to sleep now (it wakes when something active touches it).
+	void Deactivate(BodyId body);
 
 	// `dynamicOnly`: skip the static world (still hits characters' inner bodies and debris).
 	std::optional<PhysicsRayHit> Raycast(const DirectX::XMFLOAT3& origin, const DirectX::XMFLOAT3& direction, float maxDistance, bool dynamicOnly = false) const;

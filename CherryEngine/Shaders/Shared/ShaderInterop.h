@@ -26,7 +26,18 @@
 #define CHERRY_MAX_POINT_LIGHTS 8
 #define CHERRY_SHADER_GLOBALS 4
 #define CHERRY_SHADOW_CASCADES 2
+#define CHERRY_MAX_ROOMS 16
 #define CHERRY_INVALID_INDEX 0xFFFFFFFF
+
+// A room (RenderSettings::rooms): an upright box turned about y.
+struct RoomBox
+{
+	float3 center;
+	float  fade;                   // metres in from its walls where the room's light is full
+	float3 halfExtents;
+	float  ambientScale;           // the sky's ambient inside
+	float4 axes;                   // (axisX.x, axisX.z, axisZ.x, axisZ.z)
+};
 
 struct Light
 {
@@ -61,7 +72,7 @@ struct FrameConstants
 	float  fogEnd;
 	uint   numPointLights;
 	uint   materialParamBufferIndex;  // StructuredBuffer<uint>: every material's parameter block
-	float  pad1;
+	uint   particleBufferIndex;       // StructuredBuffer<ParticleData> (Particles.hlsl)
 	// Point lights: Position, Strength (colour x intensity), FalloffEnd (range).
 	Light pointLights[CHERRY_MAX_POINT_LIGHTS];
 
@@ -88,6 +99,31 @@ struct FrameConstants
 	uint   shadowMap1;             // ... and cascade 1 (not an array: cbuffer arrays pad each element to 16 bytes)
 	uint   shadowEnabled;
 	float  shadowNormalBias;       // texels of push along the normal before the lookup
+
+	// An enclosed space with its own lighting (RenderSettings::interior; InteriorAmount in
+	// LightingUtil.hlsl). A world-axis box whose opening is its min-z face.
+	float3 interiorMin;
+	uint   interiorEnabled;
+	float3 interiorMax;
+	float  interiorFadeStart;      // metres in from the opening where interior lighting starts
+	float3 interiorAmbientSky;     // replaces ambientLight inside
+	float  interiorFadeLength;     // ... and the metres over which it takes over
+	float3 interiorAmbientGround;  // replaces ambientGround inside
+	float  interiorFogStart;
+	float3 interiorFogColor;       // fog over the part of the view ray inside
+	float  interiorFogEnd;
+	uint   interiorLightVolume;    // Texture3D<float> of outside light over the box, or CHERRY_INVALID_INDEX
+	float  interiorLightStrength;
+	float  interiorSunFromLight;
+	uint   cloudsEnabled;          // RenderSettings::clouds (CloudShadow in LightingUtil.hlsl)
+	float2 cloudOffset;            // metres the pattern has drifted (wind x time)
+	float  cloudScale;
+	float  cloudCoverage;
+	float  cloudSoftness;
+	float  cloudDarkness;
+	float  cloudHeight;
+	uint   roomCount;
+	RoomBox rooms[CHERRY_MAX_ROOMS];
 };
 
 // Root CBV b1: one camera / view.
@@ -158,6 +194,18 @@ struct VoxelVolumeData
 	uint  pad1;
 };
 
+// A particle billboard (Renderer::Particles, Particles.hlsl).
+struct ParticleData
+{
+	float3 position;
+	float  size;
+	float4 color;                  // linear, alpha = opacity
+	float  emissive;
+	float  rotation;
+	uint   flags;                  // bit 0: square
+	float  pad;
+};
+
 struct DebugVertex
 {
 	float3 position;
@@ -183,6 +231,32 @@ struct TonemapConstants
 	uint height;
 	uint bloomTextureIndex;        // Texture2D<float4> at half size, or CHERRY_INVALID_INDEX
 	float bloomIntensity;
+	uint aoTextureIndex;           // Texture2D<float> ambient occlusion, or CHERRY_INVALID_INDEX
+	uint depthTextureIndex;        // the view depth: pixels not at the far plane are view models (no AO)
+	float aoStrength;
+};
+
+// Screen-space ambient occlusion (Ssao.hlsl): CSMain reads the depth and writes raw AO;
+// CSBlur smooths it (depth-aware) into the final texture.
+struct SsaoConstants
+{
+	uint sourceIndex;              // CSMain: unused; CSBlur: the raw AO (Texture2D<float>)
+	uint destIndex;                // RWTexture2D<float>
+	uint width;
+	uint height;
+	uint depthIndex;               // Texture2D<float>
+	float radius;                  // metres
+	float bias;                    // metres
+	uint pad;
+};
+
+// Anti-aliasing (Fxaa.hlsl): read the tonemapped image, write the view.
+struct FxaaConstants
+{
+	uint sourceIndex;              // Texture2D<float4>
+	uint destIndex;                // RWTexture2D<float4>
+	uint width;
+	uint height;
 };
 
 // One step of the bloom chain (Bloom.hlsl): read `source`, write `dest` (dest size given).

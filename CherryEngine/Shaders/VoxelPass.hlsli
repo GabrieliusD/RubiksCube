@@ -210,7 +210,7 @@ PixelOut PSMain(VertexOut pin)
 
 	PbrSurface surface = MakePbrSurface(s.baseColor, s.metallic, s.roughness, (0.08 * saturate(s.specular)).xxx);
 	float3 color = ShadeSurface(surface, hitW, normalize(s.normalW), -rayDirW) * ao + s.emissive;
-	color = ApplyFog(color, t, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
+	color = ApplySceneFog(color, gView.eyePosW, hitW);
 
 	float4 clip = mul(float4(hitW, 1.0), gView.viewProj);
 

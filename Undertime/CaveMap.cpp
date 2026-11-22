@@ -44,7 +44,7 @@ void CaveMap::Rebuild(const VoxelWorld& world, const CaveLayout& layout)
 						const Block b = world.Get(x, y, z);
 						if (b == Block::Air) air = true;
 						else if (b == Block::StrangeWatch) relic = true;
-						else if (b != Block::Stone && b != Block::Bedrock) ore = true;
+						else if (b != Block::Stone && !cfg::Unbreakable(b)) ore = true;
 					}
 
 			Cell cell = Cell::Rock;

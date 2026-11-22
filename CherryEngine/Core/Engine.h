@@ -7,6 +7,7 @@
 #include "Physics/PhysicsWorld.h"
 #include "Core/Project.h"
 #include "Core/Assets.h"
+#include "Particles/ParticleSystem.h"
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -147,6 +148,8 @@ public:
 	Input& GetInput();
 	Window& GetWindow();
 	PhysicsWorld& GetPhysics();
+	// Particles: the scene's ParticleEmitters, and one-off bursts (ParticleSystem::Burst).
+	ParticleSystem& GetParticles();
 
 	float DeltaTime() const;
 	float TotalTime() const;

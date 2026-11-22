@@ -115,6 +115,72 @@ namespace hud
 		}
 	}
 
+	void Watch(const Frame& f, float outsideHour, double personalSeconds, float night, float blur, bool warning, float time,
+		const std::vector<std::string>& lines)
+	{
+		const float s = f.fontSize / 13.0f;
+		const float r = 46.0f * s;
+		const float margin = f.fontSize;
+		const ImVec2 c{ f.origin.x + f.size.x - margin - r, f.origin.y + f.size.y - margin - r };
+		auto lerp = [](float a, float b, float t) { return static_cast<int>(a + (b - a) * t); };
+		const ImU32 cyan = IM_COL32(111, 240, 255, 255);
+
+		// Case and face: cream by day, deep blue at night.
+		const float pulse = warning ? 0.5f + 0.5f * std::sin(time * 6.0f) : 0.0f;
+		f.draw->AddCircleFilled({ c.x + 2 * s, c.y + 3 * s }, r + 4 * s, IM_COL32(0, 0, 0, 110), 48);
+		f.draw->AddCircleFilled(c, r + 4 * s, IM_COL32(lerp(176, 111, pulse), lerp(138, 240, pulse), lerp(70, 255, pulse), 255), 48);
+		f.draw->AddCircleFilled(c, r, IM_COL32(lerp(236, 28, night), lerp(228, 36, night), lerp(210, 60, night), 245), 48);
+		const ImU32 ink = IM_COL32(lerp(60, 190, night), lerp(52, 196, night), lerp(46, 214, night), 255);
+		for (int i = 0; i < 12; ++i)
+		{
+			const float a = i / 12.0f * 2.0f * kPi;
+			const float inner = i % 3 == 0 ? 0.80f : 0.87f;
+			const ImVec2 d{ std::sin(a), -std::cos(a) };
+			f.draw->AddLine({ c.x + d.x * r * inner, c.y + d.y * r * inner }, { c.x + d.x * r * 0.94f, c.y + d.y * r * 0.94f }, ink, (i % 3 == 0 ? 2.5f : 1.2f) * s);
+		}
+
+		// Your own time: the small dial, one turn a minute.
+		const ImVec2 sc{ c.x, c.y + r * 0.42f };
+		const float sr = r * 0.26f;
+		f.draw->AddCircle(sc, sr, ink, 32, 1.0f * s);
+		const float own = static_cast<float>(std::fmod(personalSeconds, 60.0) / 60.0) * 2.0f * kPi;
+		f.draw->AddLine(sc, { sc.x + std::sin(own) * sr * 0.9f, sc.y - std::cos(own) * sr * 0.9f }, IM_COL32(255, 196, 119, 255), 1.6f * s);
+
+		// Outside time: cyan hands, or a glowing ring when they spin too fast to follow.
+		const float hourAngle = std::fmod(outsideHour, 12.0f) / 12.0f * 2.0f * kPi;
+		const float minuteAngle = (outsideHour - std::floor(outsideHour)) * 2.0f * kPi;
+		const int handAlpha = static_cast<int>(255.0f * (1.0f - std::clamp(blur * 1.5f, 0.0f, 1.0f)));
+		if (handAlpha > 0)
+		{
+			const ImU32 hand = (cyan & 0x00FFFFFFu) | (static_cast<ImU32>(handAlpha) << 24);
+			f.draw->AddLine(c, { c.x + std::sin(hourAngle) * r * 0.5f, c.y - std::cos(hourAngle) * r * 0.5f }, hand, 3.2f * s);
+			f.draw->AddLine(c, { c.x + std::sin(minuteAngle) * r * 0.76f, c.y - std::cos(minuteAngle) * r * 0.76f }, hand, 1.8f * s);
+		}
+		if (blur > 0.0f)
+		{
+			const int a = static_cast<int>(200.0f * blur);
+			f.draw->AddCircle(c, r * 0.62f, IM_COL32(111, 240, 255, a), 48, 5.0f * s);
+			f.draw->AddCircle(c, r * 0.62f, IM_COL32(220, 255, 255, a), 48, 1.5f * s);
+		}
+		f.draw->AddCircleFilled(c, 3.0f * s, cyan, 12);
+
+		// The lines, in a panel to the left of the watch.
+		if (lines.empty()) return;
+		const float size = f.fontSize;
+		const float pad = size * 0.7f;
+		const float lineHeight = size * 1.35f;
+		float width = 0.0f;
+		for (const auto& line : lines) width = std::max(width, TextSize(size, line).x);
+		const ImVec2 panelSize{ width + pad * 2.0f, lineHeight * lines.size() + pad * 2.0f - (lineHeight - size) };
+		const ImVec2 pos{ c.x - r - 10.0f * s - panelSize.x, c.y + r - panelSize.y };
+		f.draw->AddRectFilled(pos, { pos.x + panelSize.x, pos.y + panelSize.y }, kPanelBg, size * 0.4f);
+		for (size_t i = 0; i < lines.size(); ++i)
+		{
+			const ImU32 colour = i == 0 ? kText : (warning && i + 1 == lines.size() ? cyan : kDim);
+			f.draw->AddText(nullptr, size, { pos.x + pad, pos.y + pad + i * lineHeight }, colour, lines[i].c_str());
+		}
+	}
+
 	void Overlay(const Frame& f, const char* title, const std::vector<std::string>& lines, const char* footer)
 	{
 		f.draw->AddRectFilled(f.origin, { f.origin.x + f.size.x, f.origin.y + f.size.y }, IM_COL32(6, 5, 10, 200));

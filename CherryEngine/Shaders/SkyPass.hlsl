@@ -1,8 +1,9 @@
 // SkyPass.hlsl
 // The sky (RenderSettings::sky): a full-screen triangle at the far plane, depth-tested so it
 // only covers pixels no mesh or voxel was drawn on. A gradient from the ground colour through
-// the horizon to the zenith, a sun disk with a soft glow, and stars at night.
+// the horizon to the zenith, a sun disk with a soft glow, clouds, and stars at night.
 #include "Common.hlsli"
+#include "LightingUtil.hlsl"   // the clouds (CloudDensity)
 
 struct VertexOut
 {
@@ -69,6 +70,20 @@ float4 PSMain(VertexOut pin) : SV_Target
 	}
 	// A soft glow around the sun, from its light colour.
 	color += gFrame.lights[0].Strength * (pow(saturate(cosAngle), 64.0) * 0.25 + pow(saturate(cosAngle), 8.0) * 0.05);
+
+	// Clouds: the cloud layer (RenderSettings::clouds) where the view ray meets it, lit by
+	// the sun's colour and the sky, fading towards the horizon.
+	if (gFrame.cloudsEnabled != 0 && up > 0.02)
+	{
+		const float t = (gFrame.cloudHeight - origin.y) / up;
+		if (t > 0.0)
+		{
+			const float density = CloudDensity(origin.xz + dir.xz * t);
+			const float3 lit = gFrame.lights[0].Strength * 0.55 + gFrame.skyZenith * 0.6 + gFrame.skyHorizon * 0.5;
+			const float fade = saturate(up * 5.0);
+			color = lerp(color, lit, density * 0.85 * fade);
+		}
+	}
 
 	// Stars, above the horizon only.
 	if (gFrame.starIntensity > 0.0 && up > 0.0)

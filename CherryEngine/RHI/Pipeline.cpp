@@ -233,6 +233,17 @@ namespace rhi
 				rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
 				rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 			}
+			else if (desc.additiveBlend)
+			{
+				auto& rt = psoDesc.BlendState.RenderTarget[0];
+				rt.BlendEnable = TRUE;
+				rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+				rt.DestBlend = D3D12_BLEND_ONE;
+				rt.BlendOp = D3D12_BLEND_OP_ADD;
+				rt.SrcBlendAlpha = D3D12_BLEND_ZERO;
+				rt.DestBlendAlpha = D3D12_BLEND_ONE;
+				rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+			}
 
 			psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 			psoDesc.DepthStencilState.DepthEnable = desc.depthTest ? TRUE : FALSE;

@@ -140,6 +140,7 @@ namespace
 		m.materials[BFire].emissive = 4.0f;
 		m.materials[BEmber].emissive = 1.5f;
 		m.materials[BWindowLit].emissive = 2.2f;
+		m.materials[BGlass].glass = 0.6f;   // windows: see-through (lit at night by Materials/TownGlass.mat)
 		return m;
 	}
 
@@ -149,6 +150,104 @@ namespace
 			for (int y = y0; y <= y1; ++y)
 				for (int x = x0; x <= x1; ++x) m.Set(x, y, z, c);
 	}
+
+	// What's inside a building.
+	enum class Inside { Empty, Store, Office, Saloon, Smithy, Home, Founders, Trading, Clockmaker };
+
+	// A lamp hanging from the ceiling at (x, z): a chain and a lamp that glows at night (glow
+	// under 3: the town material lights it only after dark).
+	void HangingLamp(VoxelModel& m, int x, int z, int ceiling)
+	{
+		Fill(m, x, ceiling - 2, z, x, ceiling - 1, z, BIron);
+		m.Set(x, ceiling - 3, z, BWindowLit);
+	}
+
+	// Furniture along the walls of the room x0..x1, z0..z1 (walls included in the range; the
+	// door is in the front wall z0, around x = door), floor at y = 0, ceiling at `ceiling`.
+	void Furnish(VoxelModel& m, Inside inside, int x0, int x1, int z0, int z1, int door, int ceiling)
+	{
+		const int ix0 = x0 + 1, ix1 = x1 - 1, iz0 = z0 + 1, iz1 = z1 - 1;   // inside the walls
+		const int midX = (ix0 + ix1) / 2;
+		auto shelves = [&](int xa, int xb)
+		{
+			for (int y = 1; y <= 7; y += 3)
+			{
+				Fill(m, xa, y, iz1, xb, y, iz1, BPlankDark);
+				for (int x = xa; x <= xb; x += 2) if (Hash01(x, y, iz1, 4) < 0.6f) m.Set(x, y + 1, iz1, Hash01(x, y, 1, 5) < 0.5f ? BCopper : BCanvas);
+			}
+		};
+		auto table = [&](int x, int z)
+		{
+			Fill(m, x, 1, z, x + 3, 2, z + 2, BPlankDark);
+			Fill(m, x, 3, z, x + 3, 3, z + 2, BPlank);
+			Fill(m, x + 1, 1, z, x + 2, 2, z + 2, 0);   // legs only at the ends
+			for (int sx : { x - 1, x + 4 }) Fill(m, sx, 1, z + 1, sx, 2, z + 1, BLog);   // stools
+		};
+		auto bed = [&](int x, int z)
+		{
+			Fill(m, x, 1, z, x + 3, 1, z + 7, BLogDark);
+			Fill(m, x, 2, z, x + 3, 2, z + 7, BCanvas);
+			Fill(m, x, 3, z + 6, x + 3, 3, z + 7, BClock);   // pillow
+		};
+		auto stove = [&](int x, int z)
+		{
+			Fill(m, x, 1, z, x + 2, 4, z + 2, BIron);
+			m.Set(x + 1, 2, z, BEmber);
+			Fill(m, x + 1, 5, z + 1, x + 1, ceiling, z + 1, BIron);   // the pipe up through the roof
+		};
+		switch (inside)
+		{
+		case Inside::Store:
+		case Inside::Trading:
+			Fill(m, ix0 + 2, 1, iz0 + 6, ix1 - 2, 4, iz0 + 7, BPlankDark);   // the counter
+			Fill(m, ix0 + 2, 5, iz0 + 6, ix1 - 2, 5, iz0 + 7, BPlank);
+			Fill(m, midX - 1, 1, iz0 + 6, midX + 1, 5, iz0 + 7, 0);          // a gap to get behind it
+			shelves(ix0 + 1, ix1 - 1);
+			for (int bx : { ix0, ix1 - 2 }) Fill(m, bx, 1, iz0 + 1, bx + 2, 4, iz0 + 3, BLog);   // barrels
+			break;
+		case Inside::Office:
+			Fill(m, ix0 + 2, 1, iz1 - 5, ix0 + 7, 3, iz1 - 3, BPlankDark);   // a desk
+			Fill(m, ix0 + 2, 4, iz1 - 5, ix0 + 7, 4, iz1 - 3, BPlank);
+			m.Set(ix0 + 4, 5, iz1 - 4, BCopper);                              // scales
+			Fill(m, ix1 - 3, 1, iz1, ix1 - 1, 8, iz1, BIron);                 // a safe and cabinet
+			shelves(ix0 + 1, ix0 + 8);
+			break;
+		case Inside::Saloon:
+			Fill(m, ix0 + 1, 1, iz1 - 4, ix1 - 1, 4, iz1 - 3, BPlankDark);   // the bar
+			Fill(m, ix0 + 1, 5, iz1 - 4, ix1 - 1, 5, iz1 - 3, BPlank);
+			shelves(ix0 + 1, ix1 - 1);
+			for (int tz = iz0 + 3; tz + 3 < iz1 - 6; tz += 7)
+				for (int tx = ix0 + 3; tx + 4 < ix1 - 1; tx += 9) table(tx, tz);
+			break;
+		case Inside::Smithy:
+			Fill(m, ix1 - 6, 1, iz1 - 5, ix1 - 1, 3, iz1 - 1, BStoneDark);    // the forge
+			Fill(m, ix1 - 5, 3, iz1 - 4, ix1 - 2, 3, iz1 - 2, BFire);
+			Fill(m, midX - 1, 1, midX % 2 + iz0 + 8, midX + 1, 3, midX % 2 + iz0 + 8, BIron);   // the anvil
+			Fill(m, midX - 2, 4, midX % 2 + iz0 + 8, midX + 2, 4, midX % 2 + iz0 + 8, BIron);
+			Fill(m, ix0 + 1, 1, iz1, ix0 + 8, 1, iz1, BLogDark);              // tools on a rack
+			for (int x = ix0 + 1; x <= ix0 + 8; x += 2) Fill(m, x, 2, iz1, x, 6, iz1, BIron);
+			break;
+		case Inside::Home:
+		case Inside::Founders:
+			bed(ix0 + 1, iz1 - 8);
+			if (inside == Inside::Founders) bed(ix0 + 6, iz1 - 8);
+			table(midX - 1, iz0 + 4);
+			stove(ix1 - 3, iz1 - 3);
+			break;
+		case Inside::Clockmaker:
+			Fill(m, ix0 + 1, 1, iz1 - 3, ix1 - 1, 3, iz1 - 1, BPlankDark);   // the workbench
+			Fill(m, ix0 + 1, 4, iz1 - 3, ix1 - 1, 4, iz1 - 1, BPlank);
+			for (int x = ix0 + 2; x < ix1 - 1; x += 4) m.Set(x, 5, iz1 - 2, BCopper);   // clocks being mended
+			for (int x = ix0 + 2; x < ix1 - 1; x += 5) Fill(m, x, 7, iz1, x + 2, 9, iz1, BClock);   // clocks on the wall
+			bed(ix0 + 1, iz0 + 1);
+			break;
+		case Inside::Empty:
+			break;
+		}
+		if (inside != Inside::Empty) HangingLamp(m, midX, (iz0 + iz1) / 2, ceiling);
+		(void)door;
+	}
+
 
 	// A stepped gable roof, one voxel thick. ridgeAlongX: the ridge runs along x and the roof
 	// slopes down towards z0 and z1 (else along z, sloping towards x0 and x1). The gable
@@ -188,8 +287,9 @@ namespace
 			if ((y / 2) % 2) { m.Set(x0 - 1, y, z0, BLogDark); m.Set(x1 + 1, y, z0, BLogDark); m.Set(x0 - 1, y, z1, BLogDark); m.Set(x1 + 1, y, z1, BLogDark); }
 		}
 		Fill(m, x0 + 1, 0, z0 + 1, x1 - 1, 0, z1 - 1, BPlank);
-		Fill(m, 14, 1, z0, 19, 9, z0, BPlankDark);                      // the door
+		Fill(m, 14, 1, z0, 19, 9, z0, 0);                               // the doorway
 		Fill(m, 13, 10, z0, 20, 10, z0, BLogDark);
+		Furnish(m, Inside::Trading, x0, x1, z0, z1, 16, wall);
 		for (int wx : { 5, 25 }) Fill(m, wx, 4, z0, wx + 3, 7, z0, BGlass);
 		for (int wz : { 16, 28 }) { Fill(m, x0, 4, wz, x0, 7, wz + 3, BGlass); Fill(m, x1, 4, wz, x1, 7, wz + 3, BGlass); }
 		GableRoof(m, true, x0, x1, z0, z1, wall, BRoof, BRoofDark, BLog);
@@ -312,9 +412,11 @@ namespace
 					m.Set(x, y, z, Hash01(x / 2, y, z / 2, 9) < 0.35f ? BStoneDark : BStone);
 				}
 		Fill(m, x0 + 1, 0, z0 + 1, x1 - 1, 0, z1 - 1, BPlank);
-		Fill(m, 11, 1, z0, 14, 9, z0, BPlankDark);
-		for (int wx : { 4, 18 }) Fill(m, wx, 5, z0, wx + 3, 8, z0, BWindowLit);
-		for (int wz : { 7, 14 }) { Fill(m, x0, 5, wz, x0, 8, wz + 2, BWindowLit); Fill(m, x1, 5, wz, x1, 8, wz + 2, BWindowLit); }
+		Fill(m, 10, 1, z0, 15, 10, z0, BLogDark);
+		Fill(m, 11, 1, z0, 14, 9, z0, 0);   // the doorway
+		for (int wx : { 4, 18 }) Fill(m, wx, 5, z0, wx + 3, 8, z0, BGlass);
+		for (int wz : { 7, 14 }) { Fill(m, x0, 5, wz, x0, 8, wz + 2, BGlass); Fill(m, x1, 5, wz, x1, 8, wz + 2, BGlass); }
+		Furnish(m, Inside::Clockmaker, x0, x1, z0, z1, 12, wall);
 		GableRoof(m, false, z0, z1, x0, x1, wall, BSlate, BSlateDark, BStone);
 		// The clock in the front gable.
 		const float cx = 12.5f, cy = wall + 5.0f;
@@ -372,8 +474,9 @@ namespace
 		uint8_t sign = 0;             // sign board colour (0 = none)
 		uint8_t signMark = 0;         // a mark on the sign
 		bool chimney = false;
-		bool openDoor = false;        // a wide dark opening (workshops)
+		bool openDoor = false;        // a wide opening (workshops)
 		int floors = 1;               // rows of windows
+		Inside inside = Inside::Empty;
 	};
 
 	// A plank (or whitewashed) building with a shingle roof; the ridge runs along x, so the
@@ -396,8 +499,11 @@ namespace
 		for (int y = 0; y < b.wall; ++y) { m.Set(x0, y, z0, BLogDark); m.Set(x1, y, z0, BLogDark); m.Set(x0, y, z1, BLogDark); m.Set(x1, y, z1, BLogDark); }
 		Fill(m, x0 + 1, 0, z0 + 1, x1 - 1, 0, z1 - 1, BPlank);
 		const int cx = (x0 + x1) / 2;
-		if (b.openDoor) Fill(m, cx - 4, 1, z0, cx + 4, 9, z0, BCanvasDark);
-		else Fill(m, cx - 2, 1, z0, cx + 2, 9, z0, BLogDark);
+		// The doorway (open: you can walk in) in a dark frame.
+		const int doorHalf = b.openDoor ? 4 : 2;
+		Fill(m, cx - doorHalf - 1, 1, z0, cx + doorHalf + 1, 10, z0, BLogDark);
+		Fill(m, cx - doorHalf, 1, z0, cx + doorHalf, 9, z0, 0);
+		Furnish(m, b.inside, x0, x1, z0, z1, cx, b.wall);
 		for (int f = 0; f < b.floors; ++f)
 		{
 			const int wy = 4 + f * 9;
@@ -536,12 +642,66 @@ namespace
 		return m;
 	}
 
-	// Timbers around the cave mouth: two posts and a lintel.
+	// Timbers around the cave mouth: two posts, a lintel and corner braces, framing the
+	// 3.2 m portal (CaveGenerator) with 3.5 m clear between the posts.
 	VoxelModel MineFrame()
 	{
-		VoxelModel m = NewTown(12, 14, 2);
-		for (int x : { 0, 1, 10, 11 }) Fill(m, x, 0, 0, x, 11, 1, BLogDark);
-		Fill(m, 0, 12, 0, 11, 13, 1, BLog);
+		VoxelModel m = NewTown(18, 15, 2);
+		for (int x : { 0, 1, 16, 17 }) Fill(m, x, 0, 0, x, 12, 1, BLogDark);
+		Fill(m, 0, 13, 0, 17, 14, 1, BLog);
+		for (int i = 0; i < 2; ++i) { Fill(m, 2 + i, 12 - i, 0, 2 + i, 12 - i, 1, BLog); Fill(m, 15 - i, 12 - i, 0, 15 - i, 12 - i, 1, BLog); }
+		return m;
+	}
+
+	// A grate of logs over a natural shaft's opening (cfg::kShafts): light falls through the
+	// gaps, people don't. 5 m across, bars 0.25 m with 0.5 m gaps, on two beams.
+	VoxelModel ShaftGrate()
+	{
+		VoxelModel m = NewTown(20, 2, 20);
+		for (int z : { 1, 18 }) Fill(m, 0, 0, z, 19, 0, z, BLogDark);
+		for (int x = 1; x < 20; x += 3) Fill(m, x, 1, 0, x, 1, 19, BLog);
+		return m;
+	}
+
+	// A rock outcrop: layers of rock (two shades, a darker seam between some) shrinking and
+	// shifting as they rise, grass on the tops that face up. w x h x d voxels.
+	VoxelModel Outcrop(int w, int h, int d, uint32_t salt)
+	{
+		VoxelModel m;
+		m.Resize({ static_cast<uint32_t>(w), static_cast<uint32_t>(h), static_cast<uint32_t>(d) });
+		enum : uint8_t { Rock = 1, Rock2, RockDark, Turf };
+		m.palette[Rock] = Srgb(0x7a7064);
+		m.palette[Rock2] = Srgb(0x6a6258);
+		m.palette[RockDark] = Srgb(0x575048);
+		m.palette[Turf] = Srgb(0x5f7d3a);
+		const float cx = (w - 1) * 0.5f, cz = (d - 1) * 0.5f;
+		int y = 0, layer = 0;
+		while (y < h)
+		{
+			const int thick = 2 + static_cast<int>(Hash01(layer, 1, 0, salt) * 3.0f);
+			const float shrink = 1.0f - 0.75f * y / h;
+			const float ox = (Hash01(layer, 2, 0, salt) - 0.5f) * w * 0.2f, oz = (Hash01(layer, 3, 0, salt) - 0.5f) * d * 0.2f;
+			const uint8_t colour = layer % 3 == 2 ? RockDark : (layer % 2 ? Rock2 : Rock);
+			for (int yy = y; yy < std::min(y + thick, h); ++yy)
+				for (int z = 0; z < d; ++z)
+					for (int x = 0; x < w; ++x)
+					{
+						const float dx = (x - cx - ox) / (cx * shrink + 0.5f), dz = (z - cz - oz) / (cz * shrink + 0.5f);
+						const float edge = 1.0f + 0.25f * (Hash01(x, z, layer, salt + 5) - 0.5f);
+						if (dx * dx + dz * dz <= edge) m.Set(x, yy, z, colour);
+					}
+			y += thick;
+			++layer;
+		}
+		// Grass on the tops that face up (and aren't under anything).
+		for (int z = 0; z < d; ++z)
+			for (int x = 0; x < w; ++x)
+				for (int yy = h - 1; yy >= 0; --yy)
+					if (m.At(x, yy, z) != 0)
+					{
+						if (Hash01(x, z, 9, salt) < 0.7f) m.Set(x, yy, z, Turf);
+						break;
+					}
 		return m;
 	}
 
@@ -586,17 +746,21 @@ int main(int argc, char** argv)
 	ok &= Write(folder, "ClockmakerCottage.vox", ClockmakerCottage());
 	ok &= Write(folder, "WaterWheel.vox", WaterWheel());
 	auto building = [&](const char* name, BuildingSpec spec) { ok &= Write(folder, name, PlankBuilding(spec)); };
-	{ BuildingSpec b; b.width = 36; b.depth = 36; b.wall = 14; b.falseFront = true; b.porch = 8; b.sign = BSign; b.signMark = BGlass; building("GeneralStore.vox", b); }
-	{ BuildingSpec b; b.width = 24; b.depth = 26; b.sign = BSign; b.signMark = BCopper; b.porch = 6; building("AssayOffice.vox", b); }
-	{ BuildingSpec b; b.width = 24; b.depth = 26; b.whitewash = true; b.sign = BLogDark; b.signMark = BWhite; building("PostOffice.vox", b); }
-	{ BuildingSpec b; b.width = 40; b.depth = 44; b.wall = 22; b.floors = 2; b.falseFront = true; b.porch = 8; b.sign = BSign; b.signMark = BFire; building("Saloon.vox", b); }
-	{ BuildingSpec b; b.width = 30; b.depth = 30; b.openDoor = true; b.chimney = true; building("Blacksmith.vox", b); }
-	{ BuildingSpec b; b.width = 22; b.depth = 20; b.wall = 11; b.chimney = true; building("Home.vox", b); }
-	{ BuildingSpec b; b.width = 22; b.depth = 20; b.wall = 11; b.whitewash = true; b.chimney = true; building("HomeWhite.vox", b); }
-	{ BuildingSpec b; b.width = 40; b.depth = 30; b.wall = 20; b.floors = 2; b.whitewash = true; b.chimney = true; b.porch = 6; building("FoundersHouse.vox", b); }
+	{ BuildingSpec b; b.width = 36; b.depth = 36; b.wall = 14; b.falseFront = true; b.porch = 8; b.sign = BSign; b.signMark = BWhite; b.inside = Inside::Store; building("GeneralStore.vox", b); }
+	{ BuildingSpec b; b.width = 24; b.depth = 26; b.sign = BSign; b.signMark = BCopper; b.porch = 6; b.inside = Inside::Office; building("AssayOffice.vox", b); }
+	{ BuildingSpec b; b.width = 24; b.depth = 26; b.whitewash = true; b.sign = BLogDark; b.signMark = BWhite; b.inside = Inside::Office; building("PostOffice.vox", b); }
+	{ BuildingSpec b; b.width = 40; b.depth = 44; b.wall = 22; b.floors = 2; b.falseFront = true; b.porch = 8; b.sign = BSign; b.signMark = BFire; b.inside = Inside::Saloon; building("Saloon.vox", b); }
+	{ BuildingSpec b; b.width = 30; b.depth = 30; b.openDoor = true; b.chimney = true; b.inside = Inside::Smithy; building("Blacksmith.vox", b); }
+	{ BuildingSpec b; b.width = 22; b.depth = 20; b.wall = 11; b.chimney = true; b.inside = Inside::Home; building("Home.vox", b); }
+	{ BuildingSpec b; b.width = 22; b.depth = 20; b.wall = 11; b.whitewash = true; b.chimney = true; b.inside = Inside::Home; building("HomeWhite.vox", b); }
+	{ BuildingSpec b; b.width = 40; b.depth = 30; b.wall = 20; b.floors = 2; b.whitewash = true; b.chimney = true; b.porch = 6; b.inside = Inside::Founders; building("FoundersHouse.vox", b); }
 	ok &= Write(folder, "GardenPlot.vox", GardenPlot(40, 56, true));
 	ok &= Write(folder, "FoundersPlot.vox", GardenPlot(72, 88, false));
 	ok &= Write(folder, "ClockTowerScaffold.vox", ClockTowerScaffold());
+	ok &= Write(folder, "ShaftGrate.vox", ShaftGrate());
+	ok &= Write(folder, "OutcropSmall.vox", Outcrop(10, 9, 9, 1));
+	ok &= Write(folder, "OutcropMedium.vox", Outcrop(16, 14, 14, 2));
+	ok &= Write(folder, "OutcropLarge.vox", Outcrop(24, 20, 21, 3));
 	ok &= Write(folder, "Chapel.vox", Chapel());
 	ok &= Write(folder, "Grave.vox", Grave());
 	ok &= Write(folder, "SawPit.vox", SawPit());

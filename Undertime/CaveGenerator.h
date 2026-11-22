@@ -27,6 +27,16 @@ struct CaveZone
 	std::vector<std::pair<int, int>> tunnels;
 };
 
+// A natural shaft (cfg::kShafts): where it opens at the grid's top and where it reaches its
+// cavern.
+struct CaveShaft
+{
+	DirectX::XMFLOAT3 top{ 0, 0, 0 };
+	DirectX::XMFLOAT3 bottom{ 0, 0, 0 };
+	int zone = 0;
+	int room = 0;                          // its cavern in zones[zone].rooms
+};
+
 struct CavePocket
 {
 	CaveRoom shape;
@@ -39,6 +49,7 @@ struct CaveLayout
 	std::vector<CaveZone> zones;
 	std::vector<std::pair<float, float>> seals;   // depth ranges (m) of the solid bands between zones
 	std::vector<CavePocket> pockets;
+	std::vector<CaveShaft> shafts;                   // cfg::kShafts, in order
 	int floatingVoxelsRemoved = 0;
 	int airVoxels = 0;
 	int veins = 0;

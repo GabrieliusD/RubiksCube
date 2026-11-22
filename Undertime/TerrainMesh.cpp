@@ -128,7 +128,8 @@ MeshData BuildTerrainMesh(const TerrainPatch& p, const std::array<XMFLOAT3, stat
 		{
 			const int k = p.Index(i, j);
 			const int64_t level = std::llround(p.top[k] / b) + (1ll << 30);
-			keys[i + n * j] = (static_cast<uint64_t>(level) << 8) | (shapeOnly ? 1u : static_cast<uint64_t>(p.ground[k]) + 1);
+			// An empty column (no ground over the cave grid there: a shaft's opening) has no top.
+			keys[i + n * j] = p.top[k] <= p.bottom[k] ? 0 : (static_cast<uint64_t>(level) << 8) | (shapeOnly ? 1u : static_cast<uint64_t>(p.ground[k]) + 1);
 		}
 	Greedy2D(keys, n, [&](int i, int j, int w, int h, uint64_t key)
 	{
@@ -136,6 +137,25 @@ MeshData BuildTerrainMesh(const TerrainPatch& p, const std::array<XMFLOAT3, stat
 		const float x = p.x0 + i * b, z = p.z0 + j * b;
 		AddQuad(mesh, { x, p.top[k], z }, { 0, 0, h * b }, { w * b, 0, 0 }, { 0, 1, 0 }, colour(p.ground[k]), b);
 	});
+
+	// Rock walls show the mountain's strata (Valley.cpp): bands kStrataHeight tall in
+	// alternating shades, like the layers of the cave's face.
+	auto addRockSide = [&](int d, float plane, float a0, float a1, float y0, float y1)
+	{
+		const float band = cfg::kStrataHeight;
+		static const float kShade[3] = { 1.0f, 0.9f, 0.8f };
+		for (float y = y0; y < y1 - 1e-4f; )
+		{
+			const float layer = std::floor(y / band + 1e-4f);
+			const float top = std::min(y1, (layer + 1.0f) * band);
+			const int k = static_cast<int>(layer) % 3;
+			const XMFLOAT3 base = colour(k == 1 ? Ground::Rock2 : Ground::Rock);
+			const float shade = kShade[(k + 3) % 3];
+			AddSide(mesh, d, plane, a0, a1, y, top, { base.x * shade, base.y * shade, base.z * shade }, b);
+			y = top;
+		}
+	};
+	auto isRock = [](Ground g) { return g == Ground::Rock || g == Ground::Rock2; };
 
 	// Sides: where the neighbour is lower, in runs along the edge with the same top, bottom and ground.
 	struct Run { float top, bottom; Ground ground; };
@@ -165,12 +185,29 @@ MeshData BuildTerrainMesh(const TerrainPatch& p, const std::array<XMFLOAT3, stat
 				const float plane = alongZ ? p.x0 + (line + (d == 1 ? 1 : 0)) * b : p.z0 + (line + (d == 3 ? 1 : 0)) * b;
 				const float a0 = (alongZ ? p.z0 : p.x0) + a * b, a1 = a0 + len * b;
 				// Grass and snow show one block of their colour on top of dirt or rock.
-				const bool banded = run.ground == Ground::Grass || run.ground == Ground::Grass2 || run.ground == Ground::Snow;
+				// A grass (or snow) top shows a block-high band of it down the side; only on fine
+				// ground: on coarse far terrain the bands are thinner than a pixel and glitter.
+				const bool banded = b < 0.5f && (run.ground == Ground::Grass || run.ground == Ground::Grass2 || run.ground == Ground::Snow);
 				if (banded && run.top - run.bottom > b * 1.01f)
 				{
-					const Ground under = run.ground == Ground::Snow ? Ground::Rock : Ground::Dirt;
+					// The grass (or snow) block, a block of soil under grass, then rock.
 					AddSide(mesh, d, plane, a0, a1, run.top - b, run.top, colour(run.ground), b);
-					AddSide(mesh, d, plane, a0, a1, run.bottom, run.top - b, colour(under), b);
+					float y = run.top - b;
+					if (run.ground != Ground::Snow && y - run.bottom > 1e-4f)
+					{
+						const float soil = std::max(run.bottom, y - b);
+						AddSide(mesh, d, plane, a0, a1, soil, y, colour(Ground::Dirt), b);
+						y = soil;
+					}
+					if (y - run.bottom > 1e-4f)
+					{
+						if (y - run.bottom > 1.5f * b) addRockSide(d, plane, a0, a1, run.bottom, y);
+						else AddSide(mesh, d, plane, a0, a1, run.bottom, y, colour(Ground::Dirt), b);
+					}
+				}
+				else if (isRock(run.ground) && run.top - run.bottom > cfg::kStrataHeight * 0.5f && !shapeOnly)
+				{
+					addRockSide(d, plane, a0, a1, run.bottom, run.top);
 				}
 				else
 				{

@@ -83,6 +83,13 @@ struct MeshRenderer
 	// own meshes leaves these empty and sets the handles directly.
 	std::string meshAsset;
 	std::string materialAsset;
+	// A voxel model with glass (VoxelMaterial::glass) is drawn as two meshes: `mesh` is its
+	// opaque part, `glassMesh` its glass (the engine loads "<meshAsset>#glass"), drawn with
+	// `glassMaterial`: glassMaterialAsset, or the built-in translucent "engine/VoxelGlass".
+	std::string glassMaterialAsset;
+	MeshHandle glassMesh;
+	MaterialHandle glassMaterial;
+	std::string glassCheckedFor;   // the meshAsset the engine last looked for a glass part of (runtime only)
 };
 
 // Perspective camera. The view matrix comes from the entity's Transform
@@ -130,6 +137,48 @@ struct PointLightComponent
 // Scene-wide lighting and look, saved with the scene. In the editor the renderer settings
 // follow the first Environment in the edit scene every frame; on Play they're applied once,
 // before the game's OnStartup (which may change them).
+// One particle (Particles/ParticleSystem.h): it carries its own look and forces.
+struct Particle
+{
+	DirectX::XMFLOAT3 position{ 0, 0, 0 };
+	DirectX::XMFLOAT3 velocity{ 0, 0, 0 };
+	float age = 0.0f, life = 1.0f;
+	float size0 = 0.1f, size1 = 0.1f;
+	DirectX::XMFLOAT4 color0{ 1, 1, 1, 1 }, color1{ 1, 1, 1, 0 };
+	float gravity = 0.0f, drag = 0.0f, turbulence = 0.0f, emissive = 0.0f, rotation = 0.0f;
+	bool additive = false, square = false;
+};
+
+// Spawns particles from its entity (at `offset` in the entity's space), lit like the scene
+// and drawn as billboards. Also the settings for ParticleSystem::Burst.
+struct ParticleEmitter
+{
+	bool enabled = true;
+	float rate = 10.0f;                              // particles per second
+	int maxParticles = 200;
+	float lifetime = 2.0f;                           // seconds
+	float lifetimeJitter = 0.3f;                     // +- share of the lifetime
+	DirectX::XMFLOAT3 offset{ 0, 0, 0 };             // where they start, in the entity's space
+	DirectX::XMFLOAT3 spawnBox{ 0, 0, 0 };           // +- metres around it (world axes)
+	DirectX::XMFLOAT3 velocity{ 0, 0.5f, 0 };        // m/s, world
+	DirectX::XMFLOAT3 velocityJitter{ 0.1f, 0.1f, 0.1f };
+	float gravity = 0.0f;                            // m/s^2 down (negative: they rise)
+	float drag = 0.0f;                               // how quickly they slow down (1/s)
+	float turbulence = 0.0f;                         // m/s^2 of random push
+	float sizeStart = 0.1f, sizeEnd = 0.1f;          // metres across
+	float sizeJitter = 0.2f;                         // +- share
+	DirectX::XMFLOAT4 colorStart{ 1, 1, 1, 1 };      // linear colour, alpha = opacity
+	DirectX::XMFLOAT4 colorEnd{ 1, 1, 1, 0 };
+	float emissive = 0.0f;                           // glow (x colour), e.g. sparks
+	bool additive = false;                           // add light (sparks, glow) instead of covering
+	bool square = false;                             // square blocks instead of soft round puffs
+
+	// Runtime (not saved)
+	std::vector<Particle> particles;
+	float carry = 0.0f;
+	uint32_t rng = 0;
+};
+
 struct Environment
 {
 	DirectX::XMFLOAT4 skyColor{ 0.35f, 0.48f, 0.75f, 1.0f };   // linear HDR clear colour

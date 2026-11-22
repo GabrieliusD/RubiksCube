@@ -44,6 +44,17 @@ namespace
 	// engine/VoxelModelShader: meshes baked from voxel models (Shaders/VoxelModelSurface.hlsli).
 	const char* const kVoxelModelShader = "engine/VoxelModelShader";
 	const char* const kVoxelModelSurface = "#include \"VoxelModelSurface.hlsli\"\n";
+	// engine/VoxelGlassShader: the glass part of voxel models (Shaders/VoxelGlassSurface.hlsli).
+	const char* const kVoxelGlassShader = "engine/VoxelGlassShader";
+	const char* const kVoxelGlassSurface = "#include \"VoxelGlassSurface.hlsli\"\n";
+
+	// A hand-written surface shader asks to be translucent with this line in its source.
+	SurfaceShaderOptions OptionsFromSource(const std::string& source)
+	{
+		SurfaceShaderOptions options;
+		options.translucent = source.find("#define CHERRY_SURFACE_TRANSLUCENT") != std::string::npos;
+		return options;
+	}
 
 	const BuiltinMaterial kBuiltinMaterials[] =
 	{
@@ -58,6 +69,8 @@ namespace
 		{ "engine/Stone",   { 0.42f, 0.40f, 0.38f, 1 }, 0.9f, 0.0f },
 		// The default for .vox meshes: voxel colours, matte, glowing colours glow.
 		{ "engine/VoxelModel", { 1.00f, 1.00f, 1.00f, 1 }, 0.85f, 0.0f, kVoxelModelShader },
+		// The glass part of .vox meshes: tinted by the voxel colour, see-through, glossy.
+		{ "engine/VoxelGlass", { 1.00f, 1.00f, 1.00f, 1 }, 0.08f, 0.0f, kVoxelGlassShader },
 	};
 	const char* kBuiltinMeshes[] = { "engine/Cube", "engine/Sphere", "engine/Plane", "engine/Cylinder" };
 
@@ -152,19 +165,26 @@ struct AssetManager::Impl
 		if (path == "engine/Cylinder") return renderer->CreateMesh(Convert(generator.CreateCylinder(0.5f, 0.5f, 1.0f, 32, 1)));
 		if (IsBuiltin(path) || contentRoot.empty()) return {};
 
-		const std::string extension = Lower(fs::u8path(path).extension().u8string());
+		// "Models/x.vox#glass": the glass part of a voxel model (none if it has no glass).
+		const bool glassPart = path.size() > 6 && path.compare(path.size() - 6, 6, "#glass") == 0;
+		const std::string file = glassPart ? path.substr(0, path.size() - 6) : path;
+		const std::string extension = Lower(fs::u8path(file).extension().u8string());
 		if (extension == ".vox")
 		{
 			VoxelModel model;
 			std::string error;
-			if (!LoadVox(Full(path), model, error))
+			if (!LoadVox(Full(file), model, error))
 			{
-				ReportMissing("mesh", path, error);
+				ReportMissing("mesh", file, error);
 				return {};
 			}
-			if (!error.empty()) CHERRY_WARN("%s: %s", path.c_str(), error.c_str());
-			Watch(path);
-			return renderer->CreateMesh(BakeVoxelMesh(model));
+			if (!error.empty() && !glassPart) CHERRY_WARN("%s: %s", file.c_str(), error.c_str());
+			Watch(file);
+			VoxelBakeOptions options;
+			const bool glass = HasGlass(model);
+			if (glassPart && !glass) return {};
+			if (glass) options.part = glassPart ? VoxelPart::Glass : VoxelPart::Opaque;
+			return renderer->CreateMesh(BakeVoxelMesh(model, options));
 		}
 		if (extension != ".gltf" && extension != ".glb") return {};
 		asset_import::GltfFile gltf;
@@ -472,6 +492,12 @@ struct AssetManager::Impl
 		{
 			entry.handle = renderer->CreateSurfaceShader(path, kVoxelModelSurface);
 		}
+		else if (path == kVoxelGlassShader)
+		{
+			SurfaceShaderOptions options;
+			options.translucent = true;
+			entry.handle = renderer->CreateSurfaceShader(path, kVoxelGlassSurface, options);
+		}
 		else if (contentRoot.empty())
 		{
 		}
@@ -482,7 +508,7 @@ struct AssetManager::Impl
 		}
 		else if (TypeOf(path) == "shader" && ReadText(path, source))
 		{
-			entry.handle = renderer->CreateSurfaceShader(path, source);
+			entry.handle = renderer->CreateSurfaceShader(path, source, OptionsFromSource(source));
 			Watch(path);
 		}
 		else
@@ -566,7 +592,8 @@ MeshHandle AssetManager::GetMesh(const std::string& path)
 	auto it = a.meshes.find(path);
 	if (it != a.meshes.end()) return it->second;
 	const MeshHandle mesh = a.LoadMesh(path);
-	if (!mesh.IsValid()) a.ReportMissing("mesh", path);
+	const bool glassPart = path.size() > 6 && path.compare(path.size() - 6, 6, "#glass") == 0;
+	if (!mesh.IsValid() && !glassPart) a.ReportMissing("mesh", path);   // most models have no glass
 	a.meshes[path] = mesh;   // misses too, so a bad path doesn't retry every frame
 	return mesh;
 }
@@ -868,18 +895,19 @@ void AssetManager::PollChanges(std::vector<std::pair<MeshHandle, MeshHandle>>& r
 			std::string source;
 			if (a.ReadText(file, source))
 			{
-				a.renderer->SetSurfaceShaderSource(shader->second.handle, source, {}, [file](bool ok)
+				a.renderer->SetSurfaceShaderSource(shader->second.handle, source, OptionsFromSource(source), [file](bool ok)
 				{
 					if (ok) CHERRY_LOG("Surface shader %s compiled", file.c_str());
 				});
 			}
 		}
-		// Meshes: new handles.
-		auto mesh = a.meshes.find(file);
-		if (mesh != a.meshes.end())
+		// Meshes: new handles (a voxel model's glass part too).
+		for (const std::string& key : { file, file + "#glass" })
 		{
+			auto mesh = a.meshes.find(key);
+			if (mesh == a.meshes.end()) continue;
 			const MeshHandle old = mesh->second;
-			const MeshHandle fresh = a.LoadMesh(file);
+			const MeshHandle fresh = a.LoadMesh(key);
 			if (fresh.IsValid())
 			{
 				if (old.IsValid()) a.renderer->DestroyMesh(old);

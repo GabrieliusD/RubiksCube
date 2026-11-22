@@ -172,6 +172,13 @@ bool ParseVox(const uint8_t* data, size_t length, VoxelModel& out, std::string& 
 		{
 			const int32_t index = c.Int();
 			auto dict = c.Dict();
+			if (c.ok && index > 0 && index < 256 && dict["_type"] == "_glass")
+			{
+				// MagicaVoxel's glass: "_alpha" (older files: "_trans") is how see-through it is.
+				const char* key = dict.count("_alpha") ? "_alpha" : "_trans";
+				const float alpha = dict.count(key) ? std::strtof(dict[key].c_str(), nullptr) : 0.5f;
+				materials[index].glass = std::clamp(alpha, 0.05f, 1.0f);
+			}
 			if (c.ok && index > 0 && index < 256 && dict["_type"] == "_emit")
 			{
 				// MagicaVoxel's emission (0..1) and power ("flux", 0..4): strength = emit x (1 + flux).
@@ -361,6 +368,17 @@ std::vector<uint8_t> WriteVox(const VoxelModel& model)
 	}
 	for (int index = 1; index < 256; ++index)
 	{
+		if (model.materials[index].glass > 0.0f)
+		{
+			// One MagicaVoxel material per colour: glass wins over glow.
+			std::vector<uint8_t> matl;
+			WriteInt(matl, index);
+			WriteInt(matl, 2);
+			WriteString(matl, "_type"); WriteString(matl, "_glass");
+			WriteString(matl, "_alpha"); WriteString(matl, FormatFloat(model.materials[index].glass));
+			WriteChunk(children, "MATL", matl);
+			continue;
+		}
 		const float strength = model.materials[index].emissive;
 		if (strength <= 0.0f) continue;
 		// Back to MagicaVoxel's emission (0..1) and power: strength = emit x (1 + flux).
@@ -417,6 +435,15 @@ XMFLOAT3 VoxelPivotOffset(const VoxelModel& model, const VoxelBakeOptions& optio
 	return { -0.5f * model.size.x * options.voxelSize, 0.0f, -0.5f * model.size.z * options.voxelSize };
 }
 
+bool HasGlass(const VoxelModel& model)
+{
+	bool used[256] = {};
+	for (uint8_t v : model.voxels) used[v] = true;
+	for (int i = 1; i < 256; ++i)
+		if (used[i] && model.materials[i].glass > 0.0f) return true;
+	return false;
+}
+
 MeshData BakeVoxelMesh(const VoxelModel& model, const VoxelBakeOptions& options)
 {
 	MeshData mesh;
@@ -435,7 +462,21 @@ MeshData BakeVoxelMesh(const VoxelModel& model, const VoxelBakeOptions& options)
 	{
 		linear[i] = { SrgbToLinear(model.palette[i].x), SrgbToLinear(model.palette[i].y), SrgbToLinear(model.palette[i].z) };
 	}
-	auto solid = [&](const int* c) { return model.At(c[0], c[1], c[2]) != 0; };
+	// What's baked, and what hides a face: the opaque part ignores glass (its faces show
+	// through it); glass hides behind anything.
+	auto isGlass = [&](uint8_t index) { return index != 0 && model.materials[index].glass > 0.0f; };
+	auto included = [&](uint8_t index)
+	{
+		if (!index) return false;
+		if (options.part == VoxelPart::Opaque) return !isGlass(index);
+		if (options.part == VoxelPart::Glass) return isGlass(index);
+		return true;
+	};
+	auto solid = [&](const int* c)
+	{
+		const uint8_t index = model.At(c[0], c[1], c[2]);
+		return options.part == VoxelPart::Opaque ? index != 0 && !isGlass(index) : index != 0;
+	};
 
 	std::vector<uint32_t> mask;
 	for (int axis = 0; axis < 3; ++axis)
@@ -459,7 +500,7 @@ MeshData BakeVoxelMesh(const VoxelModel& model, const VoxelBakeOptions& options)
 						uint32_t key = 0;
 						int n[3] = { c[0], c[1], c[2] };
 						n[axis] += sign;
-						if (index && !solid(n))
+						if (included(index) && !solid(n))
 						{
 							uint32_t ao = 0xFF;   // all corners open
 							if (model.materials[index].emissive <= 0.0f)
@@ -537,7 +578,9 @@ MeshData BakeVoxelMesh(const VoxelModel& model, const VoxelBakeOptions& options)
 							vertex.normal = normal;
 							vertex.uv = { emissive, s };   // glow, block size (per-block shading)
 							const float f = shade[level[k]];
-							vertex.color = { linear[index].x * f, linear[index].y * f, linear[index].z * f, 1.0f };
+							// Glass: alpha is how opaque it is (engine/VoxelGlass blends by it).
+							const float alpha = isGlass(index) ? 1.0f - model.materials[index].glass : 1.0f;
+							vertex.color = { linear[index].x * f, linear[index].y * f, linear[index].z * f, alpha };
 							mesh.vertices.push_back(vertex);
 						}
 						// Split along the diagonal whose corners are more alike, so shading stays smooth.

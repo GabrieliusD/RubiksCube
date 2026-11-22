@@ -18,7 +18,7 @@ The title is literal: you work **under** while time runs **over**.
 
 | Cave zone | 1 minute underground = | Cost of a dive |
 |---|---|---|
-| 1 | 1 hour outside | almost nothing |
+| 1 | 8 hours outside | almost nothing |
 | 2 | 1 day | a week |
 | 3 | 1 week | a season |
 | 4 | 1 month | years |
@@ -26,7 +26,8 @@ The title is literal: you work **under** while time runs **over**.
 
 - The richer ore is deeper (copper from the top, silver, then gold, then Time crystal from about 64% depth), so every dive trades value for time.
 - All ratios are tuning numbers in `Config.h`. These are starting values.
-- Outside, time runs at a normal-feeling pace (a day takes a few minutes).
+- Outside, time runs at a normal-feeling pace: **a day takes 15 minutes** (1 minute = about 1.6 hours). Zone 1 is 5 times that, so even the first zone is faster than the surface. (Zone 1 was "1 hour" before, which was slower than the surface.)
+- The rate follows how far in you are: it rises through the entrance passage and steps up at each zone.
 
 ### What fast time does
 - **Bills:** the company charges rent per outside day. Debt is **capped**: when you can't pay, it takes your gear back. It can't grow forever.
@@ -37,6 +38,23 @@ The title is literal: you work **under** while time runs **over**.
 - **The HUD watch** has two dials: your own time, and outside time spinning.
 - **Limits on long stays:** lantern fuel burns in *your* time, so a zone 5 dive costs about a decade at most. The watch warns you before an era change. Ways out (rope, lift) shorten the trip up.
 - **Idea:** carrying Time crystal in the backpack raises the time ratio.
+
+### Day and night
+Planned for milestone 8 (the outside clock).
+- **One outside clock** (game code): days since you arrived, advanced every frame by your real time × the rate where you are. It drives the time of day, the date and season, and the era.
+- **Time of day outside:**
+  - The sun crosses the sky, low and warm at dawn and dusk.
+  - A dim, blue moonlight at night; stars in the sky.
+  - Sky, fog and ambient colours keyed to the hour.
+  - Shadows follow the sun.
+- **Night in town:** windows and lamps light up at dusk (a shader global for "night"), the campfire glows, and the era decides which lights exist.
+- **Seen from the cave:** the daylight reaching in from the mouth and the shafts follows the outside clock.
+  - **No strobing:** deep down, days pass faster than once per second, so when cycles get faster than about one every 2 seconds the light blends towards their average and only pulses gently. You feel time racing without a flashing screen.
+- **The HUD watch:** UI only (drawn with the rest of the HUD; no watch model in the player's hand). Two dials, your own time and the outside time, plus the date. It warns you before an era change.
+- **Coming up:** a short summary ("4 years, 2 months passed. Stillwell is now a Boomtown.").
+- **Eras** advance from the clock (the thresholds in section 4), only while the valley can't be seen, so nothing pops in. N stays as a debug key.
+- **Seasons** (later in the same milestone, or the next): grass colour, falling leaves, snow on upward faces in winter, all through shader globals.
+- **Debug:** a key that skips ahead by hours, and `UNDERTIME_DEV_TIME` to start at a given hour.
 
 ---
 
@@ -156,6 +174,7 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 - **Everything outside is designed as blocks** (terrain, buildings, fences, trees, props) and **baked into meshes** when the game loads, so it can use instancing and sun shadows. Far mountains may use 1 m blocks.
 - **Only mountain rock is diggable.** Swinging the pick at built things gives the existing "hollow hit" bounce.
 - The transition at the cave mouth is seamless: the same blocks and palette continue from the valley into the mountain.
+- The cave grid's front is a craggy rock face with grassy ledges that continues the mountain around it. It can't be mined from outside: an unbreakable skin of rock about 1 m deep. The way in is a rough rock portal about 3 m wide; the Settlement era adds a timber frame around it.
 
 ![Camp in voxels](Images/camp_voxel.png)
 ![Looking out of the cave](Images/camp_from_cave.png)
@@ -177,6 +196,8 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 - **Lantern-lit darkness:** cave ambient stays very low, so the lantern does nearly all the lighting.
 - **Depth cues (approved):** strong corner shading, horizontal rock strata bands ("layers of time"), lamp props with point lights along tunnels, timber frames, rubble, tinted ambient fill, dust in the air, and later voxel shadows and bloom.
 - Time crystal glows cyan (emissive) and is the only cold light.
+- **Daylight from the mouth** (planned, milestone 9): skylight spreads in from the entrance through the tunnels, block by block, fading around corners. The first caverns are dim, deeper ones dark, and from deep inside the mouth stays visible as a bright spot (no black fog). It follows the outside clock.
+- **Natural shafts** (planned, milestone 9): a few chimneys from the mountain top down into caverns of zones 1–3, maybe a rare one in zone 4. They let in daylight and a patch of sun that moves with the hour, with dust hanging in the beam: landmarks and resting spots. Their positions are fixed (they're part of the mountain, like the face), and every run's cave builds a cavern under each. From the mountain top they're holes in the ground. Open: can you climb or drop down one (a second way in, see "the old shaft")?
 
 ![Cave zone 1](Images/cave_zone1.png)
 ![Cave zone 5](Images/cave_zone5.png)
@@ -210,6 +231,24 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 
 ---
 
+### Against the flat look (planned)
+- A lower, warmer sun and cooler sky light (the clock drives this).
+- Ambient occlusion in screen space (SSAO): corners, the feet of buildings, under eaves and trees.
+- Cloud shadows drifting over the valley.
+- Ground variety: grass colour patches, darker ground under trees, wildflowers, tall grass, stones and bushes, worn dirt around buildings.
+- Valley haze that pools low, blue distant mountains, sun shafts.
+- Swaying trees and grass, flowing water with foam at the falls.
+- A final colour curve and a soft vignette (with the per-era grade idea above).
+
+### The mountain matches its face (planned)
+The cave's face is craggy ledges with grass on top; the rest of the mountain is smooth slopes today. Steep terrain gets the same look: layered rock breaking into ledges, grass on ledges that face up, darker strata bands. The terrain can't overhang, but ledges can match. Near the cave mouth, the cliffs use 0.25 m blocks like the face. Scattered rock outcrop models break up long smooth runs.
+
+### Houses (planned)
+- **Interiors:** floors, a doorway, furniture (counter, shelves, beds, stove) and a lamp that's lit at night. Collision already follows the model, so you can walk in.
+- **See-through windows:** the glass voxels of a model are baked into their own translucent mesh (slightly tinted, reflecting the sky).
+- **Indoor light:** several interior boxes (one per building, turned to match it) instead of only the cave's, so rooms aren't sky-lit.
+- Doorways first; doors that open as you approach later.
+
 ## 8. Technical plan
 
 ### Voxel art pipeline
@@ -234,7 +273,12 @@ The user allows engine additions the visual style needs.
 | Instanced drawing | every entity is its own draw call today; the forest needs this |
 | Sun shadows (meshes **and** the voxel pass) | the biggest visual gain outside |
 | Bloom | windows, fire and crystals glowing |
-| Later: voxel shadows in the cave, colour grade, particles, simpler distant trees | |
+| Interior box (`RenderSettings::interior`): per-pixel cave lighting | **Done.** The valley stays lit seen from inside |
+| Light volume: a 3D skylight texture the shaders read for ambient | daylight spreading from the mouth and shafts (milestone 9) |
+| SSAO, cloud shadows | depth outside (milestone 9) |
+| Glass part of voxel models, several turned interior boxes | windows and house interiors (milestone 11) |
+| Particles: GPU billboards with emitters | dust in shaft beams, smoke, sparks, mining dust (milestone 12) |
+| Later: colour grade, simpler distant trees | |
 
 ### Game-side work
 - Blocky terrain from a heightmap and a colour map, with collision; river and lake (translucent water); forest scattered from a density map.
@@ -251,20 +295,26 @@ Each one must build and run. The time clock was moved later at the user's reques
 4. **Engine visuals II:** sun shadows (meshes and voxels), bloom. **Done.** Voxel volumes receive shadows but don't cast them yet.
 5. **Camp era:** the valley shown in the editor, generated placeholder `.vox` set, the era component, the camp placed in the editor. **Done.** The clockmaker's cottage moved to the river east of the square (with a water wheel), and trails lead from the mine to the camp and on to the clockmaker.
 6. **Settlement era:** its content and the switch between eras. **Done** (the era switch is the N key until the clock exists). Buildings get flat ground pads. Not yet: the forest isn't cut back per era (stumps are placed instead), lanes exist in every era, no lit windows at night (no day/night yet).
-7. **Fixes:** the loose-block slowdown (profile first: physics, draw calls, per-entity work), voxel volumes casting shadows, anti-aliasing.
-7. Later: the time clock and HUD watch, the shops and economy, the run reset, story (letters, watches, NPCs), the heart and the ending, the remaining eras.
+7. **Fixes:** the loose-block slowdown (profile first: physics, draw calls, per-entity work), voxel volumes casting shadows, anti-aliasing. **Done.** The slowdown was piles of blocks never falling asleep in the physics; settled blocks now sleep.
+   The cave mouth was redone after it: a craggy rock face with grassy ledges that can't be mined from outside, a rough 3 m portal, and per-pixel cave lighting so the valley stays lit when you look out. **Done.**
+8. **The outside clock and day/night** ("Day and night" in section 2): the clock and its rate by depth, the sun, moon, sky and ambient through the day, lights at night, the HUD watch, eras from the clock, the summary when you come up. **Done** (not yet tested by the user). Seasons are not in yet. Town windows light up at night through `Materials/Town.mat`; the campfire and forge always glow.
+9. **Light and depth:** daylight spreading into the cave from the mouth (a light volume), natural shafts, darkness in place of the black fog, SSAO, cloud shadows, a tuned sun. **Done** (not yet tested by the user). Three shafts (into zones 1–3) with log grates at the surface; clouds drift in the sky and shade the land. The sun was left as the clock makes it (low and warm mornings and evenings). Not done: dust in the shaft beams (needs particles).
+10. **The mountain matches its face:** ledges and strata on steep terrain, fine blocks near the mouth, outcrops. **Done** (not yet tested by the user). Steep ground climbs in 2.5 m layers (rock risers, grass ledges); tall rock walls show the layers as bands of three rock shades, and the cave's face uses the same layers and shades. Rock outcrops (three sizes, four times larger far away) stand on steep ground. Heightfield cliffs stay flat walls (no overhangs).
+11. **Houses:** interiors, glass windows, indoor light. **Done** (not yet tested by the user). Every building has an open doorway and furniture for its purpose: the store and trading post have counters, shelves and barrels; the offices desks, shelves and a safe; the saloon a bar and tables; the smithy a forge (always glowing), an anvil and a tool rack; homes beds, a table and a stove; the clockmaker a workbench and clocks on the wall. A lamp hangs in each and glows at night. Windows are real glass (see-through, glowing warm at night). Indoors the sky light drops to 30%; sunlight comes in through windows and doors. Not yet: doors that open, upstairs floors.
+12. **Particles (engine):** a particle system (emitters on entities or set by the game, billboards lit like the scene) and its first uses: dust hanging in the shaft beams (lit only where the sun patch is), chimney and campfire smoke, sparks at the forge, and dust when rock breaks or a cave-in falls. Later uses: falling leaves, fireflies, snow. **Done** (not yet tested by the user). Simulated on the CPU (a few thousand particles), not soft against geometry yet.
+13. Later: the valley alive (walkers, animals, smoke, places of interest), the shops and economy, activities, the run reset, story (letters, watches, NPCs), the heart and the ending, the remaining eras.
 
 ---
 
 ## 9. Parked and open
 
-- **Known issue: mining slows down over time.** The more loose blocks lie around, the slower the game gets (reported 2026-11-21). Likely cause: every loose block is its own physics body, plus per-entity work every frame. Draw calls are already instanced. To fix later.
-- **Voxel shadows:** the cave's rock doesn't cast sun shadows yet (only receives them), so a low sun can light a little way into the tunnel when you look in from outside.
-- **Anti-aliasing:** none yet. Distant block edges (snowy mountain terraces) sparkle a little.
+- **Distant sparkle:** fixed in milestone 10 (no grass or snow bands down the sides of coarse terrain).
 - **The valley in the editor:** it's only built on Play today. Placing the town (milestone 5) will need a preview of it in the editor.
 
 - **Tree cutting (parked):** maybe later, if the player needs more to do. The idea was timber supports that prevent cave-ins, a forest that grows back with outside time, and the town buying your wood.
 - **Delivery jobs** for the courier (idea).
+- **Making the valley alive (ideas, not picked yet):** townsfolk walking the trails on daily routines (more in Boomtown, a few stragglers when Abandoned); deer, birds, chickens, jumping fish, fireflies; chimney and campfire smoke; washing lines; building sites that progress between eras. A place of interest every 40–60 m: a fishing dock, a hunter's hut, a lookout tower, a quarry, a lumber camp, an orchard and fields that grow with the eras, ruins, a beaver dam, each maybe holding a journal page or a Strange watch clue.
+- **Things to do (ideas, not picked yet):** *time investments* (plant saplings, deposit at the assay office for interest, commission the smith, bury a time capsule, leave a letter for an NPC's grandchild, and collect after time has passed underground); courier jobs; gold panning in the river (Camp-era income); fishing and foraging (herbs for lantern oil).
 - **NPC stories** per resident and per era (to be written).
 - **Time ratios, era thresholds and prices:** all to be tuned in play.
 - **The old shaft:** is it a second way into the deep cave?

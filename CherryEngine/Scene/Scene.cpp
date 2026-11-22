@@ -29,6 +29,7 @@ Scene::Scene()
 	mCoordinator.RegisterComponent<PointLightComponent>();
 	mCoordinator.RegisterComponent<Environment>();
 	mCoordinator.RegisterComponent<UnknownComponents>();
+	mCoordinator.RegisterComponent<ParticleEmitter>();
 	mParentType = mCoordinator.GetComponentType<Parent>();
 	mInfoType = mCoordinator.GetComponentType<EntityInfo>();
 

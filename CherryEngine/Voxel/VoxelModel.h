@@ -24,6 +24,7 @@
 struct VoxelMaterial
 {
 	float emissive = 0.0f;     // glow strength: emitted light = colour x this (0 = lit normally)
+	float glass = 0.0f;        // see-through: how much light passes, 0..1 (0 = opaque). MagicaVoxel's glass "_alpha"
 };
 
 struct VoxelModel
@@ -71,12 +72,20 @@ enum class VoxelPivot
 	Corner,         // the minimum corner (voxel 0, 0, 0)
 };
 
+// Which voxels a mesh is baked from: a model with glass is drawn as two meshes, the opaque
+// part (its faces show through the glass) and the glass part (drawn translucent).
+enum class VoxelPart { All, Opaque, Glass };
+
 struct VoxelBakeOptions
 {
 	float voxelSize = 0.25f;            // metres per voxel (UNDERTIME's grid)
 	VoxelPivot pivot = VoxelPivot::BottomCenter;
 	float aoStrength = 0.6f;            // corner darkening baked into vertex colours, 0..1
+	VoxelPart part = VoxelPart::All;
 };
+
+// Whether any voxel of the model uses a glass colour.
+CHERRY_API bool HasGlass(const VoxelModel& model);
 
 // Model-space offset (metres) that BakeVoxelMesh / BakeVoxelBoxes add for the pivot.
 CHERRY_API DirectX::XMFLOAT3 VoxelPivotOffset(const VoxelModel& model, const VoxelBakeOptions& options);

@@ -79,6 +79,7 @@ set(ENGINE_SOURCES
   Editor/ShaderGraphEditor.cpp
   Physics/PhysicsWorld.cpp
   Voxel/VoxelModel.cpp
+  Particles/ParticleSystem.cpp
   RHI/D3DCommon.cpp
   RHI/DescriptorHeap.cpp
   RHI/Device.cpp

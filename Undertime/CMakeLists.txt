@@ -22,6 +22,12 @@ set(UndertimeSrc
     CaveGenerator.cpp
     CaveMap.h
     CaveMap.cpp
+    Clock.h
+    Clock.cpp
+    DayNight.h
+    DayNight.cpp
+    Skylight.h
+    Skylight.cpp
     Valley.h
     Valley.cpp
     TerrainMesh.h
@@ -57,8 +63,8 @@ if(MSVC)
 endif()
 
 # Pure voxel/physics helper tests: ctest -C Debug
-add_executable(UndertimeTests Tests/UndertimeTests.cpp Tests/ValleyTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp
-    Valley.cpp TerrainMesh.cpp)
+add_executable(UndertimeTests Tests/UndertimeTests.cpp Tests/ValleyTests.cpp Tests/ClockTests.cpp Tests/LightTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp
+    Valley.cpp TerrainMesh.cpp Clock.cpp DayNight.cpp Skylight.cpp)
 target_link_libraries(UndertimeTests PRIVATE CherryEngine)
 add_test(NAME UndertimeTests COMMAND UndertimeTests)
 

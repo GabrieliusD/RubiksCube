@@ -35,6 +35,17 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 		const float2 uv = (id.xy + 0.5) / float2(gDraw.width, gDraw.height);
 		color += bloom.SampleLevel(gLinearClamp, uv, 0).rgb * gDraw.bloomIntensity;
 	}
+	if (gDraw.aoTextureIndex != CHERRY_INVALID_INDEX)
+	{
+		// Ambient occlusion (Ssao.hlsl) darkens the world; view models (drawn after the
+		// depth was cleared, so their depth isn't at the far plane) are left alone.
+		Texture2D<float> depth = ResourceDescriptorHeap[gDraw.depthTextureIndex];
+		if (depth[id.xy] >= 1.0)
+		{
+			Texture2D<float> ao = ResourceDescriptorHeap[gDraw.aoTextureIndex];
+			color *= lerp(1.0, ao[id.xy], gDraw.aoStrength);
+		}
+	}
 	color *= gView.exposure;
 	color = ACESFilm(color);
 	output[id.xy] = float4(LinearToSrgb(color), 1.0);
