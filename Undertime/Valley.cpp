@@ -233,7 +233,14 @@ Ground Valley::GroundAt(float x, float z, float height, float drop, float block)
 		const float lx = (x - cfg::kLakeCenter[0]) / cfg::kLakeRadius[0], lz = (z - cfg::kLakeCenter[1]) / cfg::kLakeRadius[1];
 		if (std::sqrt(lx * lx + lz * lz) < 1.15f) return Ground::Sand;
 	}
+	// Under the woods: a mossy forest floor, with a ragged edge.
+	if (height < cfg::kTreeLine && ForestPatch(x, z) + 0.12f * Noise2(x / 4.0f, z / 4.0f, 1) > cfg::kMossPatch && TreeAllowed(x, z)) return Ground::Moss;
 	return Noise2(x / 30.0f + 11.0f, z / 30.0f, 2) > 0.1f ? Ground::Grass2 : Ground::Grass;
+}
+
+float Valley::ForestPatch(float x, float z) const
+{
+	return Noise2(x / 55.0f + 3.0f, z / 55.0f, 2) + 0.35f * Smooth(0.4f, 1.0f, ValleyDistance(x, z));
 }
 
 float Valley::PathDistance(float x, float z)
@@ -325,7 +332,7 @@ std::vector<TreeSpot> Valley::Trees() const
 				const bool inWorld = x >= cfg::kValleyWorld[0] && x < cfg::kValleyWorld[2] && z >= cfg::kValleyWorld[1] && z < cfg::kValleyWorld[3];
 				if (inFine == distant || !inWorld) continue;
 				// Woods in patches, thick towards the valley's edge.
-				const float patch = Noise2(x / 55.0f + 3.0f, z / 55.0f, 2) + 0.35f * Smooth(0.4f, 1.0f, ValleyDistance(x, z));
+				const float patch = ForestPatch(x, z);
 				if (patch < -0.15f || Hash01(ix, iz, salt + 2) > 0.55f + patch) continue;
 				if (!TreeAllowed(x, z)) continue;
 				TreeSpot tree;

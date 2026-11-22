@@ -285,6 +285,9 @@ struct Renderer::Impl
 	std::unique_ptr<rhi::Texture> depth;
 	std::unique_ptr<rhi::Texture> aoRaw, ao;   // screen-space ambient occlusion
 	std::unique_ptr<rhi::Texture> shaftRaw, shaft;   // light shafts, half size
+	std::unique_ptr<rhi::Texture> luminanceBlocks;   // eye adaptation: per 16x16 block
+	std::unique_ptr<rhi::Texture> adaptedExposure;   // eye adaptation: 1x1, kept across frames
+	bool exposureValid = false;
 	std::unique_ptr<rhi::Texture> ldr;
 	uint32_t viewWidth = 0, viewHeight = 0;
 	uint32_t requestedViewWidth = 1280, requestedViewHeight = 720;
@@ -513,6 +516,14 @@ void Renderer::Impl::CreatePipelines()
 	shaftsBlur.shaderFile = "LightShafts.hlsl";
 	shaftsBlur.entry = "CSBlur";
 	pipelines.AddCompute("shafts_blur", shaftsBlur);
+	rhi::ComputePipelineDesc eyeReduce;
+	eyeReduce.shaderFile = "EyeAdaptation.hlsl";
+	eyeReduce.entry = "CSReduce";
+	pipelines.AddCompute("eye_reduce", eyeReduce);
+	rhi::ComputePipelineDesc eyeAdapt;
+	eyeAdapt.shaderFile = "EyeAdaptation.hlsl";
+	eyeAdapt.entry = "CSAdapt";
+	pipelines.AddCompute("eye_adapt", eyeAdapt);
 
 	rhi::ComputePipelineDesc bloomDown;
 	bloomDown.shaderFile = "Bloom.hlsl";
@@ -639,6 +650,27 @@ void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
 	shaftRaw = rhi::Texture::Create(device, shaftDesc);
 	shaftDesc.name = "LightShafts";
 	shaft = rhi::Texture::Create(device, shaftDesc);
+
+	// Eye adaptation: brightness per 16x16 block, and the exposure (kept across resizes).
+	rhi::TextureDesc blocksDesc;
+	blocksDesc.width = (width + 15) / 16;
+	blocksDesc.height = (height + 15) / 16;
+	blocksDesc.format = DXGI_FORMAT_R32G32_FLOAT;
+	blocksDesc.usage = rhi::TextureUsage_ShaderResource | rhi::TextureUsage_UnorderedAccess;
+	blocksDesc.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+	blocksDesc.name = "LuminanceBlocks";
+	luminanceBlocks = rhi::Texture::Create(device, blocksDesc);
+	if (!adaptedExposure)
+	{
+		rhi::TextureDesc exposureDesc;
+		exposureDesc.width = exposureDesc.height = 1;
+		exposureDesc.format = DXGI_FORMAT_R32_FLOAT;
+		exposureDesc.usage = rhi::TextureUsage_ShaderResource | rhi::TextureUsage_UnorderedAccess;
+		exposureDesc.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+		exposureDesc.name = "AdaptedExposure";
+		adaptedExposure = rhi::Texture::Create(device, exposureDesc);
+		exposureValid = false;
+	}
 
 	// Bloom chain: half size, then halving while it's at least 8 texels, up to 6 levels.
 	bloomChain.clear();
@@ -1349,6 +1381,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	// Per-frame data in the preview's own buffers.
 	r.BuildMaterialScratch();
 	gpu::FrameConstants frame = r.BuildFrameConstants();
+	frame.gradeEnabled = 0;   // previews show the material as it is
 	frame.numPointLights = 0;
 	frame.fogStart = frame.fogEnd = 0.0f;
 	frame.shadowEnabled = 0;
@@ -1406,7 +1439,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX };
+	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((size + 7) / 8, (size + 7) / 8, 1);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1543,6 +1576,15 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants(const XMFLOAT3* eye)
 	frame.cloudsEnabled = clouds.enabled ? 1u : 0u;
 	frame.cloudOffset = { -(clouds.wind.x * totalTime + clouds.drift.x), -(clouds.wind.y * totalTime + clouds.drift.y) };
 	frame.cloudBlur = std::clamp(clouds.blur, 0.0f, 1.0f);
+
+	const ColorGradeSettings& grade = settings.colorGrade;
+	frame.gradeEnabled = grade.enabled ? 1u : 0u;
+	frame.gradeTint = grade.tint;
+	frame.gradeSaturation = std::max(grade.saturation, 0.0f);
+	frame.gradeLift = grade.lift;
+	frame.gradeContrast = std::max(grade.contrast, 0.0f);
+	frame.gradeGain = grade.gain;
+	frame.gradeVignette = std::clamp(grade.vignette, 0.0f, 1.0f);
 	frame.cloudScale = std::max(clouds.scale, 1.0f);
 	frame.cloudCoverage = std::clamp(clouds.coverage, 0.0f, 1.0f);
 	frame.cloudSoftness = std::max(clouds.softness, 0.001f);
@@ -2095,6 +2137,32 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		r.bloomChain[0]->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	}
 
+	// ---- Eye adaptation (compute): the view's brightness eases the stored exposure ----
+	const EyeAdaptationSettings& eye = r.settings.eyeAdaptation;
+	const bool eyeOn = eye.enabled && r.luminanceBlocks && r.adaptedExposure;
+	if (eyeOn)
+	{
+		const uint32_t blocksX = r.luminanceBlocks->Width(), blocksY = r.luminanceBlocks->Height();
+		gpu::EyeAdaptationConstants constants{ r.hdr->SrvIndex(), r.luminanceBlocks->UavIndex(), r.luminanceBlocks->SrvIndex(),
+			r.viewWidth, r.viewHeight, blocksX, blocksY, r.adaptedExposure->UavIndex(), -12.0f, 6.0f,
+			std::max(eye.key, 1e-4f), std::max(eye.minExposure, 1e-4f), std::max(eye.maxExposure, eye.minExposure),
+			std::max(eye.speedBrighter, 0.0f), std::max(eye.speedDarker, 0.0f), (eye.reset || !r.exposureValid) ? 1u : 0u };
+		r.luminanceBlocks->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("eye_reduce"));
+		cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(constants) / 4, &constants, 0);
+		cmd->Dispatch(blocksX, blocksY, 1);
+		r.luminanceBlocks->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.adaptedExposure->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("eye_adapt"));
+		cmd->Dispatch(1, 1, 1);
+		r.adaptedExposure->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.exposureValid = true;
+	}
+	else
+	{
+		r.exposureValid = false;   // start from the view's own exposure when it's switched on
+	}
+
 	// ---- Tonemap (compute), then anti-aliasing ----------------------------------
 	const bool antiAliasing = r.settings.antiAliasing && r.ldrBeforeAA;
 	rhi::Texture& tonemapped = antiAliasing ? *r.ldrBeforeAA : *r.ldr;
@@ -2104,7 +2172,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), tonemapped.UavIndex(), r.viewWidth, r.viewHeight,
 		bloomOn ? r.bloomChain[0]->SrvIndex() : CHERRY_INVALID_INDEX, bloom.intensity,
 		ssaoOn ? r.ao->SrvIndex() : CHERRY_INVALID_INDEX, r.depth->SrvIndex(), std::clamp(ssaoSettings.strength, 0.0f, 1.0f),
-		shaftsOn ? r.shaft->SrvIndex() : CHERRY_INVALID_INDEX };
+		shaftsOn ? r.shaft->SrvIndex() : CHERRY_INVALID_INDEX, eyeOn ? r.adaptedExposure->SrvIndex() : CHERRY_INVALID_INDEX };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
 	if (antiAliasing)

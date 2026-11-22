@@ -238,7 +238,24 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 | Abandoned | ruined brick, boarded windows | broken outlines, leaning | faded grey-brown, rust, weeds | one window |
 | Gone | nature only | mounds, clock face, giant tree | season colours, snow | none |
 
-- **Idea:** a colour grade per era ("faded photograph": sepia Camp, rich Boomtown, cold Industry, faded Abandoned). Needs an engine colour-grading pass.
+- **Colour grade per era** (done, milestone 13): "faded photograph" looks, in `cfg::kEraGrades`. The cave has its own neutral grade.
+
+#### Colour grades, version 1 (2026-11-22)
+The first tuned values, kept here so they can be put back after experiments (`Config.h`, `cfg::kEraGrades` and `cfg::kCaveGrade`). Tint, lift and gain are red, green, blue.
+
+| Era | Tint | Saturation | Contrast | Lift | Gain | Vignette |
+|---|---|---|---|---|---|---|
+| Camp (warm sepia) | 1.08, 1.00, 0.84 | 0.78 | 1.06 | 0.035, 0.022, 0.000 | 1.00, 0.97, 0.90 | 0.30 |
+| Settlement (warm) | 1.05, 1.00, 0.92 | 0.92 | 1.05 | 0.015, 0.008, 0.000 | 1.00, 0.99, 0.96 | 0.24 |
+| Boomtown (rich) | 1.02, 1.00, 0.97 | 1.15 | 1.10 | 0, 0, 0 | 1.00, 1.00, 0.98 | 0.20 |
+| Industry (cold) | 0.92, 0.98, 1.08 | 0.78 | 1.12 | 0.000, 0.006, 0.022 | 0.97, 0.99, 1.02 | 0.26 |
+| Abandoned (faded) | 1.00, 0.98, 0.93 | 0.55 | 0.88 | 0.060, 0.055, 0.050 | 0.95, 0.95, 0.93 | 0.32 |
+| Gone (green) | 0.98, 1.02, 0.97 | 1.10 | 1.02 | 0.000, 0.004, 0.000 | 1.00, 1.00, 1.00 | 0.16 |
+| Cave (any era) | 1, 1, 1 | 1.00 | 1.04 | 0, 0, 0 | 1, 1, 1 | 0.30 |
+
+Blending: `kGradeSeconds` 1.5, `kGradeCaveDepth` 8 m. Eye adaptation with it: `kEyeKey` 0.2, exposure 1 to `kEyeMaxExposure` 2.2 (1.5 outside at night), `kEyeSpeedBrighter` 1.6, `kEyeSpeedDarker` 0.35.
+
+![Era grades, version 1: Camp, Settlement, Boomtown (top), Industry, Abandoned, Gone (bottom)](Images/era_grades_v1.png)
 - **People:** there are no animated characters yet. Life shows through smoke, lit windows, washing lines and carts. Shopkeepers appear as 2D portraits in the shop screen.
 
 ### Asset kit (as voxel models)
@@ -337,12 +354,13 @@ Each one must build and run. The time clock was moved later at the user's reques
    - **Cloud shadows made readable:** smaller clouds (130 m), crisper edges, 80% of the sun blocked, and the stronger sun / weaker sky light above.
 13. **Visual polish II** (agreed 2026-11-22). Six parts, built in this order (foliage and the era grade come before eye adaptation and water, at the user's request); each one builds and runs on its own:
     1. **Light shafts (engine):** **done** (not yet tested by the user). One half-size compute pass (`Shaders/LightShafts.hlsl`, `RenderSettings::lightShafts`) marches each view ray through the sun's shadow maps and the clouds, and inside the cave only where the light volume lets the sun in, so trees, roofs and rims cut dark gaps into the light, and a natural shaft shows as a column. The air is thin and scatters mostly towards the sun (`kShaftDensity`, `kShaftAnisotropy`), so it shows as a golden haze with beams when you look towards a low sun, and it thins with distance (the far valley is left to the fog). The user asked to focus on outside; the cave column is there but subtle. Not yet: tuning in play, the cost on the user's machine.
-    2. **Living foliage:**
-       - **Sway:** trees and grass move in the wind (a vertex offset in their shader, stronger towards the top of a tree; wind direction and gusts as a shader global, the same wind as the clouds).
-       - **Ground cover:** tall grass tufts and flowers scattered as small instanced voxel props (thicker in meadows, none on trails and pads), bushes and stones at the forest edge.
-       - **Forest floor:** darker, mossy ground under the trees.
-    3. **Colour grade per era (engine):** a grade step in the tonemap (white balance, saturation, contrast curve, lift and gain, a soft vignette), with a grade per era that blends over a few seconds when the era changes: sepia-warm Camp, warm Settlement, rich Boomtown, cold Industry, faded Abandoned, natural and green Gone. Inside the cave the grade eases back to neutral, so the cave looks the same in every era and coming out shows how the era has changed. The grades' numbers live in `Config.h`.
-    4. **Eye adaptation (engine):** the tonemap measures the frame's average brightness (a small compute pass that reduces the HDR image, ignoring the brightest and darkest few percent) and eases an exposure towards it, faster into brightness than into the dark, like the eye. Walking out of the mine blinds for about a second and the valley settles; walking in, the cave slowly opens up. `RenderSettings` gets the exposure range and speeds; a fixed-exposure switch stays for screenshots. Bloom follows the same exposure.
+    2. **Living foliage:** **done** (not yet tested by the user).
+       - **Sway:** trees and ground cover use `Materials/Foliage.mat` (`Content/Shaders/Foliage.hlsl`): a vertex offset along the wind, growing with height (squared), with gusts rolling downwind and a quicker flutter. The wind is `ShaderGlobal(2)` (direction from the cloud wind, strength rising and falling, gust phase), set in `UpdateLighting`; numbers in `Config.h` (wind section) and the material's params (tree reference height, how far crowns and tufts move). Shadows don't sway (the shadow pass has no vertex offsets).
+       - **Ground cover:** tall grass (two tufts), flowers (yellow, white, purple, in patches across the meadows), bushes on the forest floor and its edge, pebbles: placeholder `.vox` models scattered by `ValleyScenery` on the detailed valley floor (on flat grass only, clear of building pads, paths and water), baked into the terrain's region meshes (about 0.9 M triangles). Densities in `Config.h` ("Ground cover").
+       - **Forest floor:** a new ground type, Moss (darker green), where `Valley::ForestPatch` is wooded.
+       - Engine: a hand-written surface shader can ask for culling bounds padding (`#define CHERRY_SURFACE_BOUNDS_PADDING <metres>`).
+    3. **Colour grade per era (engine):** **done** (not yet tested by the user). `RenderSettings::colorGrade`, applied by the tonemap: white balance and saturation before the tone curve, contrast, lift and gain after it, then a vignette. `cfg::kEraGrades`: warm sepia Camp, warm Settlement, rich Boomtown, cold Industry, faded Abandoned, green Gone. Inside the cave it eases to `kCaveGrade` (neutral, with a vignette) over `kGradeCaveDepth` metres, and every change eases over `kGradeSeconds`.
+    4. **Eye adaptation (engine):** **done** (not yet tested by the user). `RenderSettings::eyeAdaptation` (`Shaders/EyeAdaptation.hlsl`): the GPU measures the view's average brightness (centre-weighted, in 16x16 blocks) and eases a stored exposure towards it, quickly towards brightness and slowly towards darkness; nothing is read back. UNDERTIME keeps it between 1 (the valley by day looks as tuned) and `kEyeMaxExposure` in the cave (less outside at night). Coming out, the valley is too bright for about a second; going in, the cave slowly opens up. Only stills were checked: the timing needs a try in play.
     5. **Water that flows** (game shader, a small engine helper if needed):
        - **Flow:** the river's mesh carries its flow direction and speed (from `Valley`'s river path; steeper reaches flow faster, the lake barely moves). Ripples are two scrolling normal layers blended so they never visibly reset (flow mapping), so the water is seen to run downstream.
        - **Light:** sky reflection by angle (Fresnel), the banks darkening it near the edge, a sharp sun glint that sparkles on the ripples, darker deep water, a lighter shallow edge.

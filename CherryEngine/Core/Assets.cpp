@@ -6,6 +6,8 @@
 #include "Voxel/VoxelModel.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -48,11 +50,17 @@ namespace
 	const char* const kVoxelGlassShader = "engine/VoxelGlassShader";
 	const char* const kVoxelGlassSurface = "#include \"VoxelGlassSurface.hlsli\"\n";
 
-	// A hand-written surface shader asks to be translucent with this line in its source.
+	// A hand-written surface shader asks to be translucent with this line in its source, and
+	// for bounds padding (its vertex offsets move vertices out of the mesh's bounds) with
+	// "#define CHERRY_SURFACE_BOUNDS_PADDING <metres>".
 	SurfaceShaderOptions OptionsFromSource(const std::string& source)
 	{
 		SurfaceShaderOptions options;
 		options.translucent = source.find("#define CHERRY_SURFACE_TRANSLUCENT") != std::string::npos;
+		const char* const kPadding = "#define CHERRY_SURFACE_BOUNDS_PADDING";
+		const size_t padding = source.find(kPadding);
+		if (padding != std::string::npos)
+			options.boundsPadding = std::max(0.0f, static_cast<float>(std::atof(source.c_str() + padding + std::strlen(kPadding))));
 		return options;
 	}
 

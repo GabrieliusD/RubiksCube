@@ -125,6 +125,15 @@ struct FrameConstants
 	uint   roomCount;
 	float  cloudBlur;              // 0..1: clouds blur into their average (they pass too fast to see)
 	float  pad2, pad3, pad4;
+	// The colour grade (RenderSettings::colorGrade), applied by the tonemap.
+	float3 gradeTint;              // white balance: multiplies the HDR colour
+	float  gradeSaturation;
+	float3 gradeLift;              // added to the shadows (display space)
+	float  gradeContrast;          // around mid grey (display space)
+	float3 gradeGain;              // multiplies the highlights (display space)
+	float  gradeVignette;          // corner darkening, 0..1
+	uint   gradeEnabled;
+	float  pad5, pad6, pad7;
 	RoomBox rooms[CHERRY_MAX_ROOMS];
 };
 
@@ -237,6 +246,29 @@ struct TonemapConstants
 	uint depthTextureIndex;        // the view depth: pixels not at the far plane are view models (no AO)
 	float aoStrength;
 	uint shaftTextureIndex;        // Texture2D<float4> light shafts at half size, or CHERRY_INVALID_INDEX
+	uint exposureTextureIndex;     // Texture2D<float> 1x1 eye adaptation exposure, or CHERRY_INVALID_INDEX
+};
+
+// Eye adaptation (EyeAdaptation.hlsl): CSReduce sums the view per 16x16 block, CSAdapt eases
+// the stored exposure towards the view's.
+struct EyeAdaptationConstants
+{
+	uint sourceIndex;              // CSReduce: the HDR view (Texture2D<float4>)
+	uint blocksIndex;              // CSReduce: RWTexture2D<float2> per block (log2 sum, weight)
+	uint blocksReadIndex;          // CSAdapt: the same, as Texture2D<float2>
+	uint width;
+	uint height;
+	uint blocksX;
+	uint blocksY;
+	uint exposureIndex;            // RWTexture2D<float> 1x1: the exposure, kept from frame to frame
+	float minLog;                  // log2 brightness range that counts
+	float maxLog;
+	float key;                     // the brightness the view is shown at
+	float minExposure;
+	float maxExposure;
+	float speedBrighter;           // per second, when the view got brighter
+	float speedDarker;             // ... darker
+	uint reset;                    // 1: jump straight to the view's exposure
 };
 
 // Light shafts (LightShafts.hlsl): CSMain marches the view rays into a half-size texture,

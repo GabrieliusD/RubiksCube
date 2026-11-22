@@ -148,6 +148,8 @@ private:
 	ValleyScenery scenery;
 	ValleyProps props;
 	int era = 1;                     // which era's town stands (the clock's, once the valley is out of sight)
+	ColorGradeSettings grade;          // the colour grade now, easing towards the era's (or the cave's)
+	float gradeTime = -1.0f;           // `time` when the grade was last updated (-1: snap to the target)
 	OutsideClock clock;
 	float timeRate = cfg::kSurfaceRate;   // outside seconds per real second where the player is
 	float strobe = 0.0f;                  // 0..1: how far the light blends to the day's average (smoothed)

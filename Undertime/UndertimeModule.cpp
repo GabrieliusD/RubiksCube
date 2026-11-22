@@ -161,6 +161,8 @@ void UndertimeModule::OnStartup(Engine& engine)
 
 	clock.Reset();
 	wasInside = false;
+	grade = {};
+	gradeTime = -1.0f;
 	strobe = 0.0f;
 	CreateWorldRendering(engine);
 	CreateScenery(engine);   // the scene's preview era moves the clock to that era's start
@@ -460,6 +462,8 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	renderer.Settings().clouds.enabled = false;
 	renderer.Settings().ssao.enabled = false;
 	renderer.Settings().lightShafts.enabled = false;
+	renderer.Settings().colorGrade = {};
+	renderer.Settings().eyeAdaptation = {};
 	renderer.Settings().rooms.clear();
 }
 
@@ -1184,6 +1188,14 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	settings.shaderGlobals[0] = { day.night, day.sunHeight, 0.0f, 0.0f };
 	const XMFLOAT3 windowLight = color::Linear(cfg::kWindowLightColor);
 	settings.shaderGlobals[1] = { windowLight.x, windowLight.y, windowLight.z, 0.0f };
+	// Wind for the trees and grass (Shaders/Foliage.hlsl): the way the clouds drift, rising
+	// and falling over a minute or so, with gusts rolling across.
+	{
+		const float length = std::max(std::hypot(cfg::kCloudWind[0], cfg::kCloudWind[1]), 1e-3f);
+		const float swell = 0.6f * std::sin(time * 0.11f) + 0.4f * std::sin(time * 0.047f + 2.0f);
+		const float strength = std::max(0.0f, cfg::kWindStrength * (1.0f + cfg::kWindVariation * swell));
+		settings.shaderGlobals[2] = { cfg::kCloudWind[0] / length, cfg::kCloudWind[1] / length, strength, time * cfg::kWindGustSpeed };
+	}
 	props.SetLightLevel(engine.GetScene(), cfg::kLampDayLevel + (1.0f - cfg::kLampDayLevel) * day.night);
 
 	// Indoors: the rooms of the buildings that stand in this era (nearest first, up to the
@@ -1243,6 +1255,51 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	shafts.intensity = cfg::kShaftIntensity * (1.0f - strobe);   // no flickering beams while days race by
 	shafts.maxDistance = cfg::kShaftDistance;
 	shafts.steps = cfg::kShaftSteps;
+
+	// The colour grade: the era's outside, the cave's inside, easing between them.
+	{
+		auto toSettings = [](const cfg::Grade& g)
+		{
+			ColorGradeSettings s;
+			s.enabled = true;
+			s.tint = { g.tint[0], g.tint[1], g.tint[2] };
+			s.saturation = g.saturation;
+			s.contrast = g.contrast;
+			s.lift = { g.lift[0], g.lift[1], g.lift[2] };
+			s.gain = { g.gain[0], g.gain[1], g.gain[2] };
+			s.vignette = g.vignette;
+			return s;
+		};
+		auto lerp3 = [](const XMFLOAT3& a, const XMFLOAT3& b, float t) { return XMFLOAT3{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t }; };
+		auto blend = [&](const ColorGradeSettings& a, const ColorGradeSettings& b, float t)
+		{
+			ColorGradeSettings s = a;
+			s.tint = lerp3(a.tint, b.tint, t);
+			s.saturation += (b.saturation - a.saturation) * t;
+			s.contrast += (b.contrast - a.contrast) * t;
+			s.lift = lerp3(a.lift, b.lift, t);
+			s.gain = lerp3(a.gain, b.gain, t);
+			s.vignette += (b.vignette - a.vignette) * t;
+			return s;
+		};
+		const float depthIn = IsInside() ? std::clamp((player.position.z - cfg::kInteriorFadeStart) / cfg::kGradeCaveDepth, 0.0f, 1.0f) : 0.0f;
+		const ColorGradeSettings target = blend(toSettings(cfg::kEraGrades[std::clamp(era, 1, 6) - 1]), toSettings(cfg::kCaveGrade), depthIn);
+		const float dt = gradeTime < 0.0f ? 1e9f : std::max(time - gradeTime, 0.0f);
+		grade = blend(grade.enabled ? grade : target, target, 1.0f - std::exp(-dt / cfg::kGradeSeconds));
+		settings.colorGrade = grade;
+
+		// Eye adaptation: the eyes open in the dark (less outside at night).
+		EyeAdaptationSettings& eye = settings.eyeAdaptation;
+		eye.enabled = true;
+		eye.key = cfg::kEyeKey;
+		eye.minExposure = 1.0f;
+		const float nightOutside = day.night * (1.0f - depthIn);
+		eye.maxExposure = cfg::kEyeMaxExposure + (cfg::kEyeMaxExposureNight - cfg::kEyeMaxExposure) * nightOutside;
+		eye.speedBrighter = cfg::kEyeSpeedBrighter;
+		eye.speedDarker = cfg::kEyeSpeedDarker;
+		eye.reset = gradeTime < 0.0f;   // the first frame: no adapting from nothing
+		gradeTime = time;
+	}
 
 	// Lantern with a slight flicker.
 	const float flicker = 1.0f + cfg::kLanternFlicker * (0.6f * std::sin(time * 11.3f) + 0.4f * std::sin(time * 23.7f + 1.3f));

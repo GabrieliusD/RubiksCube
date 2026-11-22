@@ -247,6 +247,34 @@ struct LightShaftSettings
 	int steps = 32;
 };
 
+// Eye adaptation: an exposure that follows how bright the view is (multiplied with
+// RenderSettings::exposure), clamped to [minExposure, maxExposure]. It adjusts quickly to
+// brightness (dazzled for a moment coming out of the dark) and slowly to darkness.
+struct EyeAdaptationSettings
+{
+	bool enabled = false;
+	float key = 0.18f;              // the average brightness the view is shown at
+	float minExposure = 0.5f;
+	float maxExposure = 4.0f;
+	float speedBrighter = 3.0f;     // per second (higher is faster)
+	float speedDarker = 0.6f;
+	bool reset = false;             // jump straight to the view's exposure this frame (cuts, teleports)
+};
+
+// A colour grade over the whole view, applied by the tonemap: white balance and saturation
+// on the HDR colour, then the tone curve, then contrast, lift and gain on the displayed
+// colour, then a vignette. The defaults change nothing.
+struct ColorGradeSettings
+{
+	bool enabled = false;
+	DirectX::XMFLOAT3 tint{ 1, 1, 1 };     // white balance (e.g. warmer: more red, less blue)
+	float saturation = 1.0f;                // 0 grey .. 1 as is .. more is richer
+	float contrast = 1.0f;                  // around mid grey
+	DirectX::XMFLOAT3 lift{ 0, 0, 0 };     // raises the shadows (a faded print: lift them)
+	DirectX::XMFLOAT3 gain{ 1, 1, 1 };     // scales the highlights
+	float vignette = 0.0f;                  // how much the corners darken, 0..1
+};
+
 // One particle to draw this frame (Renderer::Particles): a billboard facing the camera, lit
 // like the scene at its position.
 struct ParticleInstance
@@ -283,6 +311,8 @@ struct RenderSettings
 	CloudSettings clouds;
 	SsaoSettings ssao;
 	LightShaftSettings lightShafts;
+	ColorGradeSettings colorGrade;
+	EyeAdaptationSettings eyeAdaptation;
 	std::vector<RoomSettings> rooms;
 	bool antiAliasing = true;   // FXAA after the tonemap: smooths stair-stepped edges
 

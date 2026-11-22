@@ -4,6 +4,7 @@
 //
 //   UndertimePlaceholders.exe [content folder]
 #include <Voxel/VoxelModel.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -713,6 +714,92 @@ namespace
 		return m;
 	}
 
+	// ---- Ground cover (scattered by ValleyScenery, swaying in the wind) ------------------
+	// Small models on a 0.25 m grid, standing on the ground (y = 0 is the ground's top).
+	enum : uint8_t { GDark = 1, GMid, GLight, GTip, Petal, PetalMid, Stone, StoneDark, Bud };
+	VoxelModel NewCover(uint32_t x, uint32_t y, uint32_t z, uint32_t petal)
+	{
+		VoxelModel m;
+		m.Resize({ x, y, z });
+		m.palette[GDark] = Srgb(0x3e5a26);
+		m.palette[GMid] = Srgb(0x4d6c30);
+		m.palette[GLight] = Srgb(0x5a7a36);
+		m.palette[GTip] = Srgb(0x748f44);
+		m.palette[Petal] = Srgb(petal);
+		m.palette[PetalMid] = Srgb(0xe0b030);
+		m.palette[Stone] = Srgb(0x8a8478);
+		m.palette[StoneDark] = Srgb(0x6e695f);
+		m.palette[Bud] = Srgb(0x3f5a26);
+		return m;
+	}
+
+	// A tuft of tall grass: blades one block wide of different heights, lighter at the tips.
+	VoxelModel GrassTuft(int width, int height, uint32_t salt)
+	{
+		VoxelModel m = NewCover(width, height, width, 0);
+		const float c = (width - 1) * 0.5f;
+		for (int z = 0; z < width; ++z)
+			for (int x = 0; x < width; ++x)
+			{
+				const float dx = x - c, dz = z - c;
+				const float centre = 1.0f - std::sqrt(dx * dx + dz * dz) / (c + 1.0f);
+				if (Hash01(x, 0, z, salt) > 0.1f + 0.45f * centre) continue;   // a few separate blades
+				const int h = std::max(1, static_cast<int>(std::lround(height * (0.35f + 0.65f * centre) * (0.6f + 0.4f * Hash01(x, 1, z, salt)))));
+				for (int y = 0; y < h; ++y)
+					m.Set(x, y, z, y == h - 1 && h > 1 ? GTip : (y == 0 ? GDark : (Hash01(x, y, z, salt + 1) < 0.5f ? GMid : GLight)));
+			}
+		return m;
+	}
+
+	// A few flowers on stems among short grass.
+	VoxelModel Flowers(uint32_t petal, uint32_t salt)
+	{
+		VoxelModel m = NewCover(5, 4, 5, petal);
+		for (int z = 0; z < 5; ++z)
+			for (int x = 0; x < 5; ++x)
+				if (Hash01(x, 0, z, salt) < 0.4f) m.Set(x, 0, z, Hash01(x, 1, z, salt) < 0.5f ? GMid : GLight);
+		const int stems[][3] = { { 1, 1, 3 }, { 3, 3, 2 }, { 1, 4, 2 }, { 4, 1, 3 } };   // x, z, height
+		int n = 0;
+		for (const auto& s : stems)
+		{
+			if (n++ > 0 && Hash01(s[0], 2, s[1], salt) < 0.25f) continue;
+			for (int y = 0; y < s[2]; ++y) m.Set(s[0], y, s[1], Bud);
+			m.Set(s[0], s[2], s[1], Petal);   // the flower head (one block, on top)
+			if (s[2] < 3) m.Set(s[0], s[2] - 1, s[1], PetalMid);
+		}
+		return m;
+	}
+
+	// A low bush: a lumpy ball of dark leaves.
+	VoxelModel Bush(uint32_t salt)
+	{
+		VoxelModel m = NewCover(7, 5, 7, 0);
+		for (int y = 0; y < 5; ++y)
+			for (int z = 0; z < 7; ++z)
+				for (int x = 0; x < 7; ++x)
+				{
+					const float dx = x - 3.0f, dy = (y - 1.5f) * 1.3f, dz = z - 3.0f;
+					if (dx * dx + dy * dy + dz * dz > 3.4f * 3.4f * (0.8f + 0.35f * Hash01(x, y, z, salt))) continue;
+					m.Set(x, y, z, y < 2 ? GDark : (Hash01(x, y, z, salt + 1) < 0.25f ? GLight : GMid));
+				}
+		return m;
+	}
+
+	// Pebbles: a few stones half sunk in the ground.
+	VoxelModel Pebbles(uint32_t salt)
+	{
+		VoxelModel m = NewCover(3, 2, 3, 0);
+		for (int z = 0; z < 3; ++z)
+			for (int x = 0; x < 3; ++x)
+			{
+				const float h = Hash01(x, 0, z, salt);
+				if (h < 0.55f) continue;
+				m.Set(x, 0, z, h < 0.7f ? StoneDark : Stone);
+				if (h > 0.9f) m.Set(x, 1, z, Stone);
+			}
+		return m;
+	}
+
 	bool Write(const fs::path& folder, const char* name, const VoxelModel& model)
 	{
 		std::string error;
@@ -767,5 +854,12 @@ int main(int argc, char** argv)
 	ok &= Write(folder, "Footbridge.vox", Footbridge());
 	ok &= Write(folder, "MineFrame.vox", MineFrame());
 	ok &= Write(folder, "Stump.vox", Stump());
+	ok &= Write(folder, "GrassTuft.vox", GrassTuft(3, 3, 1));
+	ok &= Write(folder, "GrassTuftTall.vox", GrassTuft(4, 4, 2));
+	ok &= Write(folder, "FlowersYellow.vox", Flowers(0xf0d040, 3));
+	ok &= Write(folder, "FlowersWhite.vox", Flowers(0xf2f0e6, 4));
+	ok &= Write(folder, "FlowersPurple.vox", Flowers(0x9a6ad0, 5));
+	ok &= Write(folder, "Bush.vox", Bush(6));
+	ok &= Write(folder, "Pebbles.vox", Pebbles(7));
 	return ok ? 0 : 1;
 }

@@ -245,6 +245,23 @@ namespace cfg
 	constexpr uint32_t kTerrainRock2 = 0x6a6258;
 	constexpr uint32_t kTerrainSnow = 0xe8eef4;
 	constexpr uint32_t kTerrainPath = 0x8a7656;
+	constexpr uint32_t kTerrainMoss = 0x46602e;   // the forest floor
+	constexpr float kMossPatch = 0.15f;           // how wooded (Valley::ForestPatch) before the floor turns mossy
+
+	// Ground cover on the detailed valley floor (ValleyScenery): tall grass, flowers, bushes
+	// and pebbles (Models/Placeholders), one try per spot of a kCoverSpacing grid.
+	constexpr float kCoverSpacing = 1.25f;        // m between spots (each is jittered)
+	constexpr float kCoverGrass = 0.30f;          // chance of a tuft of tall grass on grass
+	constexpr float kCoverFlowers = 0.20f;        // chance of flowers inside a flower patch
+	constexpr float kCoverFlowerPatch = 0.62f;    // noise (0..1) above which flowers grow: patches across meadows
+	constexpr float kCoverBush = 0.10f;           // chance of a bush on the forest floor and its edge
+	constexpr float kCoverPebbles = 0.025f;       // chance of pebbles anywhere grassy
+	constexpr float kCoverClear = 1.2f;           // m kept clear around building pads
+
+	// Wind (foliage sway; Content/Shaders/Foliage.hlsl). It blows the way the clouds drift.
+	constexpr float kWindStrength = 1.0f;         // average (0 calm .. 1 breezy)
+	constexpr float kWindVariation = 0.45f;       // how much it rises and falls over a minute or so
+	constexpr float kWindGustSpeed = 0.9f;        // how fast gusts roll across (radians of gust phase per second)
 	constexpr uint32_t kWaterColor = 0x2f6f8a;
 	constexpr float kWaterOpacity = 0.72f;
 
@@ -395,6 +412,38 @@ namespace cfg
 	// Eras by years since you arrived (Design.md section 4): Settlement from 2, Boomtown 10,
 	// Industry 30, Abandoned 60, Gone 100.
 	constexpr float kEraStartYears[5] = { 2.0f, 10.0f, 30.0f, 60.0f, 100.0f };
+
+	// The colour grade per era (RenderSettings::colorGrade): the valley looks like a photo of
+	// its time. Inside the cave it eases to kCaveGrade, the same in every era, so coming out
+	// shows how the era has changed.
+	struct Grade
+	{
+		float tint[3];       // white balance (multiplies the scene's light)
+		float saturation;
+		float contrast;
+		float lift[3];       // raises the shadows (a faded print)
+		float gain[3];       // scales the highlights
+		float vignette;
+	};
+	constexpr Grade kEraGrades[6] = {
+		{ { 1.08f, 1.00f, 0.84f }, 0.78f, 1.06f, { 0.035f, 0.022f, 0.000f }, { 1.00f, 0.97f, 0.90f }, 0.30f },   // Camp: warm sepia
+		{ { 1.05f, 1.00f, 0.92f }, 0.92f, 1.05f, { 0.015f, 0.008f, 0.000f }, { 1.00f, 0.99f, 0.96f }, 0.24f },   // Settlement: warm
+		{ { 1.02f, 1.00f, 0.97f }, 1.15f, 1.10f, { 0.000f, 0.000f, 0.000f }, { 1.00f, 1.00f, 0.98f }, 0.20f },   // Boomtown: rich
+		{ { 0.92f, 0.98f, 1.08f }, 0.78f, 1.12f, { 0.000f, 0.006f, 0.022f }, { 0.97f, 0.99f, 1.02f }, 0.26f },   // Industry: cold
+		{ { 1.00f, 0.98f, 0.93f }, 0.55f, 0.88f, { 0.060f, 0.055f, 0.050f }, { 0.95f, 0.95f, 0.93f }, 0.32f },   // Abandoned: faded
+		{ { 0.98f, 1.02f, 0.97f }, 1.10f, 1.02f, { 0.000f, 0.004f, 0.000f }, { 1.00f, 1.00f, 1.00f }, 0.16f },   // Gone: green, natural
+	};
+	constexpr Grade kCaveGrade = { { 1.0f, 1.0f, 1.0f }, 1.0f, 1.04f, { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f }, 0.30f };
+	constexpr float kGradeCaveDepth = 8.0f;        // m in from the face where the cave's grade has taken over
+	constexpr float kGradeSeconds = 1.5f;          // how quickly the grade follows (a change of era, going in)
+
+	// Eye adaptation (RenderSettings::eyeAdaptation): the exposure follows how bright the view
+	// is, never below 1 (the valley by day looks as tuned), up to kEyeMaxExposure in the dark.
+	constexpr float kEyeKey = 0.2f;                // the average brightness the view is shown at
+	constexpr float kEyeMaxExposure = 2.2f;        // how far the eyes open in the cave
+	constexpr float kEyeMaxExposureNight = 1.5f;   // ... outside at night (so night stays night)
+	constexpr float kEyeSpeedBrighter = 1.6f;      // per second: dazzled coming out, for about a second
+	constexpr float kEyeSpeedDarker = 0.35f;       // per second: the cave slowly opens up
 	constexpr float kEraWarningSeconds = 20.0f;   // the watch warns when the next era is this close (real seconds at the current rate)
 	constexpr float kSkipHours = 2.0f;            // debug: T skips ahead this far
 

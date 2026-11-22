@@ -58,6 +58,30 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 		}
 	}
 	color *= gView.exposure;
+	if (gDraw.exposureTextureIndex != CHERRY_INVALID_INDEX)
+	{
+		// Eye adaptation (EyeAdaptation.hlsl).
+		Texture2D<float> adapted = ResourceDescriptorHeap[gDraw.exposureTextureIndex];
+		color *= adapted[uint2(0, 0)];
+	}
+	const bool grade = gFrame.gradeEnabled != 0;
+	if (grade)
+	{
+		// White balance and saturation on the scene's light, before the tone curve.
+		color *= gFrame.gradeTint;
+		const float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
+		color = max(lerp(luma.xxx, color, gFrame.gradeSaturation), 0.0);
+	}
 	color = ACESFilm(color);
-	output[id.xy] = float4(LinearToSrgb(color), 1.0);
+	float3 display = LinearToSrgb(color);
+	if (grade)
+	{
+		// Contrast, lift and gain on what's shown, then the vignette.
+		display = saturate((display - 0.5) * gFrame.gradeContrast + 0.5);
+		display = saturate(display * gFrame.gradeGain + gFrame.gradeLift * (1.0 - display));
+		const float2 centred = ((id.xy + 0.5) / float2(gDraw.width, gDraw.height) - 0.5) * float2(float(gDraw.width) / gDraw.height, 1.0);
+		const float corner = smoothstep(0.35, 1.0, length(centred) * 1.25);
+		display *= 1.0 - gFrame.gradeVignette * corner;
+	}
+	output[id.xy] = float4(display, 1.0);
 }

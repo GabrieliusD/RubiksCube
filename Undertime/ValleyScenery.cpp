@@ -13,6 +13,16 @@
 
 using namespace DirectX;
 
+namespace
+{
+	float CoverHash(int x, int z, uint32_t salt)
+	{
+		uint32_t h = static_cast<uint32_t>(x) * 374761393u + static_cast<uint32_t>(z) * 668265263u + salt * 2246822519u;
+		h = (h ^ (h >> 13)) * 1274126177u;
+		return ((h ^ (h >> 16)) & 0xFFFFFF) / 16777216.0f;
+	}
+}
+
 void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, PhysicsWorld* physics)
 {
 	Destroy(engine, scene, physics);
@@ -31,6 +41,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 	colours[static_cast<int>(Ground::Rock2)] = color::Linear(cfg::kTerrainRock2);
 	colours[static_cast<int>(Ground::Snow)] = color::Linear(cfg::kTerrainSnow);
 	colours[static_cast<int>(Ground::Path)] = color::Linear(cfg::kTerrainPath);
+	colours[static_cast<int>(Ground::Moss)] = color::Linear(cfg::kTerrainMoss);
 
 	// Water: translucent, each block of the surface slowly brightening and dimming.
 	SurfaceShaderOptions waterOptions;
@@ -60,6 +71,97 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 		mOwnedMeshes.push_back(mesh);
 		mItems.push_back({ mesh, material, Transform{} });
 	};
+	// Ground cover models (tall grass, flowers, bushes, pebbles), baked once with their corner
+	// at the origin; each vertex's alpha carries how far it sways (Shaders/Foliage.hlsl:
+	// 0.99 at the foot, 0.01 at the tip).
+	const MaterialHandle foliageMaterial = assets.GetMaterial("Materials/Foliage.mat");
+	const MaterialHandle plantMaterial = foliageMaterial.IsValid() ? foliageMaterial : blockMaterial;
+	enum CoverKind { CoverTuft, CoverTuftTall, CoverYellow, CoverWhite, CoverPurple, CoverBush, CoverPebbles, CoverKinds };
+	const char* const kCoverModels[CoverKinds] = {
+		"Models/Placeholders/GrassTuft.vox", "Models/Placeholders/GrassTuftTall.vox", "Models/Placeholders/FlowersYellow.vox",
+		"Models/Placeholders/FlowersWhite.vox", "Models/Placeholders/FlowersPurple.vox", "Models/Placeholders/Bush.vox", "Models/Placeholders/Pebbles.vox" };
+	MeshData coverMeshes[CoverKinds];
+	float coverWidth[CoverKinds]{};
+	for (int i = 0; i < CoverKinds; ++i)
+	{
+		VoxelModel model;
+		if (!assets.ReadVoxelModel(kCoverModels[i], model)) continue;
+		VoxelBakeOptions options;
+		options.pivot = VoxelPivot::Corner;
+		coverMeshes[i] = BakeVoxelMesh(model, options);
+		const float height = std::max(model.size.y * cfg::kVoxelSize, 0.25f);
+		const bool sways = i != CoverPebbles;
+		for (Vertex& v : coverMeshes[i].vertices) v.color.w = sways ? 0.99f - 0.98f * std::clamp(v.position.y / height, 0.0f, 1.0f) : 0.99f;
+		coverWidth[i] = model.size.x * cfg::kVoxelSize;
+	}
+	const std::vector<GroundPad>& pads = valley.Pads();
+	const Perlin3 flowerNoise(977);
+	// Scatters cover over a detailed chunk, standing on the patch's columns.
+	auto scatterCover = [&](const TerrainPatch& patch, MeshData& out)
+	{
+		const float spacing = cfg::kCoverSpacing;
+		const float size = patch.block * patch.n;
+		const int cells = static_cast<int>(size / spacing);
+		auto columnAt = [&](float x, float z, int& i, int& j) { i = static_cast<int>(std::floor((x - patch.x0) / patch.block)); j = static_cast<int>(std::floor((z - patch.z0) / patch.block)); };
+		for (int cz = 0; cz < cells; ++cz)
+			for (int cx = 0; cx < cells; ++cx)
+			{
+				const int gx = static_cast<int>(std::lround(patch.x0 / spacing)) + cx, gz = static_cast<int>(std::lround(patch.z0 / spacing)) + cz;
+				const float x = patch.x0 + (cx + 0.15f + 0.7f * CoverHash(gx, gz, 41)) * spacing;
+				const float z = patch.z0 + (cz + 0.15f + 0.7f * CoverHash(gx, gz, 42)) * spacing;
+				int i, j;
+				columnAt(x, z, i, j);
+				if (i < 0 || j < 0 || i >= patch.n || j >= patch.n) continue;
+				const Ground ground = patch.ground[patch.Index(i, j)];
+				if (ground != Ground::Grass && ground != Ground::Grass2 && ground != Ground::Moss) continue;
+				if (patch.water[patch.Index(i, j)] > patch.Top(i, j) - 0.5f) continue;
+				bool onPad = false;
+				for (const GroundPad& pad : pads)
+					if (std::fabs(x - pad.x) < pad.halfX + cfg::kCoverClear && std::fabs(z - pad.z) < pad.halfZ + cfg::kCoverClear) { onPad = true; break; }
+				if (onPad) continue;
+				// What grows here.
+				const float roll = CoverHash(gx, gz, 43);
+				const float wooded = valley.ForestPatch(x, z);
+				const float flowers = 0.5f + 0.5f * flowerNoise.Fbm(x / 18.0f, 0.5f, z / 18.0f, 2);
+				int kind = -1;
+				if (roll < cfg::kCoverPebbles) kind = CoverPebbles;
+				else if (ground == Ground::Moss || wooded > cfg::kMossPatch - 0.15f)
+				{
+					if (roll < cfg::kCoverPebbles + cfg::kCoverBush) kind = CoverBush;
+					else if (roll < cfg::kCoverPebbles + cfg::kCoverBush + 0.5f * cfg::kCoverGrass) kind = CoverTuft;
+				}
+				else if (flowers > cfg::kCoverFlowerPatch && roll < cfg::kCoverPebbles + cfg::kCoverFlowers)
+					kind = flowers > cfg::kCoverFlowerPatch + 0.08f ? CoverPurple : (CoverHash(gx, gz, 44) < 0.55f ? CoverYellow : CoverWhite);
+				else if (roll < cfg::kCoverPebbles + cfg::kCoverGrass)
+					kind = CoverHash(gx, gz, 45) < 0.4f ? CoverTuftTall : CoverTuft;
+				if (kind < 0 || coverMeshes[kind].vertices.empty()) continue;
+				// On flat ground only (not hanging over a step), on the block grid.
+				const float w = coverWidth[kind];
+				const float x0 = std::floor((x - 0.5f * w) / patch.block) * patch.block, z0 = std::floor((z - 0.5f * w) / patch.block) * patch.block;
+				int i0, j0, i1, j1;
+				columnAt(x0 + 0.01f, z0 + 0.01f, i0, j0);
+				columnAt(x0 + w - 0.01f, z0 + w - 0.01f, i1, j1);
+				if (i0 < -1 || j0 < -1 || i1 > patch.n || j1 > patch.n) continue;
+				const float top = patch.Top(i, j);
+				bool flat = true;
+				for (int b = 0; b < 4 && flat; ++b) flat = std::fabs(patch.Top(b & 1 ? i1 : i0, b & 2 ? j1 : j0) - top) < 0.01f;
+				if (!flat) continue;
+				// A quarter turn about the footprint centre keeps the blocks on the grid.
+				const int turn = static_cast<int>(CoverHash(gx, gz, 46) * 4.0f) & 3;
+				const float c = 0.5f * w;
+				const uint32_t base = static_cast<uint32_t>(out.vertices.size());
+				for (Vertex v : coverMeshes[kind].vertices)
+				{
+					float px = v.position.x - c, pz = v.position.z - c, nx = v.normal.x, nz = v.normal.z;
+					for (int t = 0; t < turn; ++t) { std::swap(px, pz); pz = -pz; std::swap(nx, nz); nz = -nz; }
+					v.position = { x0 + c + px, top + v.position.y, z0 + c + pz };
+					v.normal = { nx, v.normal.y, nz };
+					out.vertices.push_back(v);
+				}
+				for (uint32_t index : coverMeshes[kind].indices) out.indices.push_back(base + index);
+			}
+	};
+
 	auto addCollision = [&](const MeshData& data)
 	{
 		if (physics && !data.indices.empty()) mBodies.push_back(physics->CreateStaticMesh(MeshTriangles(data)));
@@ -72,7 +174,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 	{
 		float x0, z0, block;
 		std::array<float, 4> skirts;
-		MeshData ground, water, shape;
+		MeshData ground, water, shape, cover;
 	};
 	const float chunkSize = cfg::kTerrainChunk, skirt = 3.0f;
 	std::vector<ChunkJob> jobs;
@@ -101,6 +203,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 			const TerrainPatch patch = SampleTerrain(valley, job.x0, job.z0, job.block, static_cast<int>(std::lround(chunkSize / job.block)));
 			job.ground = BuildTerrainMesh(patch, colours, job.skirts);
 			job.water = BuildWaterMesh(patch, { 1, 1, 1 });
+			if (job.block < 0.5f) scatterCover(patch, job.cover);
 			if (!collision) continue;
 			// Collision: the same shape, except on mountains away from the detailed valley
 			// (nobody walks there), where 4 m blocks are plenty.
@@ -116,7 +219,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 	for (std::thread& worker : workers) worker.join();
 
 	// Chunks merged into regions of kTerrainRegion x kTerrainRegion: far fewer meshes and bodies.
-	size_t triangles = 0;
+	size_t triangles = 0, coverTriangles = 0;
 	const int region = cfg::kTerrainRegion;
 	const int columns = static_cast<int>(std::lround((cfg::kValleyWorld[2] - cfg::kValleyWorld[0]) / chunkSize));
 	const int rows = static_cast<int>(std::lround((cfg::kValleyWorld[3] - cfg::kValleyWorld[1]) / chunkSize));
@@ -124,7 +227,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 	{
 		for (int rx = 0; rx < columns; rx += region)
 		{
-			MeshData ground, waterMesh, shape;
+			MeshData ground, waterMesh, shape, cover;
 			for (int cz = rz; cz < std::min(rz + region, rows); ++cz)
 			{
 				for (int cx = rx; cx < std::min(rx + region, columns); ++cx)
@@ -133,9 +236,12 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 					AppendMesh(ground, job.ground);
 					AppendMesh(waterMesh, job.water);
 					AppendMesh(shape, job.shape);
+					AppendMesh(cover, job.cover);
 				}
 			}
 			addMesh(ground, blockMaterial);
+			addMesh(cover, plantMaterial);
+			coverTriangles += cover.indices.size() / 3;
 			addMesh(waterMesh, mWaterMaterial);
 			addCollision(shape);
 			triangles += ground.indices.size() / 3;
@@ -170,7 +276,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 		Transform transform;
 		transform.position = { x, y, z };
 		transform.SetRotationEuler(0.0f, std::floor(tree.yaw / XM_PIDIV2) * XM_PIDIV2, 0.0f);
-		mItems.push_back({ mesh, blockMaterial, transform });
+		mItems.push_back({ mesh, plantMaterial, transform });
 		if (physics && !tree.distant) mBodies.push_back(physics->CreateStaticBox({ x, y + 1.6f, z }, { 0.25f, 1.6f, 0.25f }));   // the trunk
 		++trees;
 	}
@@ -243,8 +349,8 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 
 	Spawn(scene);
 	mBuildMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
-	CHERRY_LOG("UNDERTIME valley: %zu terrain triangles, %d trees, %d outcrops, %s collision, built in %.0f ms on %u threads",
-		triangles, trees, outcrops, physics ? "with" : "no", mBuildMs, threadCount);
+	CHERRY_LOG("UNDERTIME valley: %zu terrain triangles, %zu ground cover triangles, %d trees, %d outcrops, %s collision, built in %.0f ms on %u threads",
+		triangles, coverTriangles, trees, outcrops, physics ? "with" : "no", mBuildMs, threadCount);
 }
 
 void ValleyScenery::Spawn(Scene& scene)

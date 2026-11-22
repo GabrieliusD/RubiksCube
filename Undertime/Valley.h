@@ -20,6 +20,7 @@ enum class Ground : uint8_t
 	Rock2,
 	Snow,
 	Path,       // trodden trails between places
+	Moss,       // the forest floor: darker, mossy
 	Count
 };
 
@@ -90,6 +91,9 @@ public:
 	static float PathDistance(float x, float z);
 	// Is a tree allowed here? (clearings, water, steepness, tree line)
 	bool TreeAllowed(float x, float z) const;
+	// How wooded it is here: the forest grows where this is above about -0.15, thickly from
+	// about 0.3 (the same measure Trees uses).
+	float ForestPatch(float x, float z) const;
 
 private:
 	float Noise2(float x, float z, int octaves) const { return mNoise.Fbm(x, 0.37f, z, octaves); }

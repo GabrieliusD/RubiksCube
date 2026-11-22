@@ -187,7 +187,7 @@ MeshData BuildTerrainMesh(const TerrainPatch& p, const std::array<XMFLOAT3, stat
 				// Grass and snow show one block of their colour on top of dirt or rock.
 				// A grass (or snow) top shows a block-high band of it down the side; only on fine
 				// ground: on coarse far terrain the bands are thinner than a pixel and glitter.
-				const bool banded = b < 0.5f && (run.ground == Ground::Grass || run.ground == Ground::Grass2 || run.ground == Ground::Snow);
+				const bool banded = b < 0.5f && (run.ground == Ground::Grass || run.ground == Ground::Grass2 || run.ground == Ground::Moss || run.ground == Ground::Snow);
 				if (banded && run.top - run.bottom > b * 1.01f)
 				{
 					// The grass (or snow) block, a block of soil under grass, then rock.
