@@ -241,6 +241,19 @@ struct SsaoSettings
 	float bias = 0.03f;             // metres: ignores occluders this close (flat surfaces)
 };
 
+// Height fog: haze that's thickest low down and thins with height (mist in a valley, clear
+// peaks), replacing the linear distance fog when enabled. It uses RenderSettings::fogColor,
+// warming towards `sunColor` looking at the sun, and starts after fogStart metres.
+struct HeightFogSettings
+{
+	bool enabled = false;
+	float density = 0.004f;         // per metre at baseHeight (so about 1 - e^-density*d of the view is hidden after d metres)
+	float baseHeight = 0.0f;        // world height where it's that thick
+	float falloff = 0.03f;          // per metre: it halves every ln(2)/falloff metres up
+	DirectX::XMFLOAT3 sunColor{ 1.0f, 0.9f, 0.7f };   // linear
+	float sunPower = 8.0f;
+};
+
 // Light shafts: sunlight scattered by the air, so it shows as beams where it passes between
 // shadows (through trees, past a rim, down a shaft into the interior). Marched through the
 // sun's shadow maps, so it needs `shadows` on to have gaps; clouds dim it.
@@ -304,6 +317,8 @@ struct ParticleInstance
 	float rotation = 0.0f;                     // radians in the view plane
 	bool additive = false;                     // adds light instead of covering
 	bool square = false;                       // a square block, else a soft round puff
+	DirectX::XMFLOAT3 velocity{ 0, 0, 0 };     // m/s (for stretch)
+	float stretch = 0.0f;                      // seconds of motion drawn as a streak along the velocity
 };
 
 // Scene-wide lighting and presentation settings. Games may change any of these every frame.
@@ -329,6 +344,7 @@ struct RenderSettings
 	CloudSettings clouds;
 	SsaoSettings ssao;
 	LightShaftSettings lightShafts;
+	HeightFogSettings heightFog;
 	ColorGradeSettings colorGrade;
 	EyeAdaptationSettings eyeAdaptation;
 	EdgeHighlightSettings edgeHighlights;

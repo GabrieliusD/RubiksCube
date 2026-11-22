@@ -96,5 +96,29 @@ int ClockTests()
 		Check(StrobeBlend(cfg::kSurfaceRate) == 0.0f && StrobeBlend(cfg::kZoneRate[0]) == 0.0f && StrobeBlend(cfg::kZoneRate[4]) == 1.0f,
 			"day: no blur at normal speeds, full blur when days flash by (no strobing)");
 	}
+	// ---- Weather ----------------------------------------------------------------------------
+	{
+		bool inRange = true, sameEachTime = true, rainNeedsCloud = true;
+		float most = 0.0f, least = 1.0f, rainy = 0.0f, biggestStep = 0.0f;
+		Weather last = WeatherAt(0.0);
+		for (int i = 0; i < 4000; ++i)
+		{
+			const double days = i * 0.01;
+			const Weather w = WeatherAt(days);
+			inRange &= w.overcast >= 0.0f && w.overcast <= 1.0f && w.rain >= 0.0f && w.rain <= 1.0f && w.wet >= 0.0f && w.wet <= 1.0f;
+			sameEachTime &= WeatherAt(days).overcast == w.overcast;
+			rainNeedsCloud &= w.rain <= w.overcast + 1e-4f;
+			most = std::max(most, w.overcast);
+			least = std::min(least, w.overcast);
+			rainy += w.rain > 0.3f ? 1.0f : 0.0f;
+			biggestStep = std::max(biggestStep, std::fabs(w.overcast - last.overcast));
+			last = w;
+		}
+		Check(inRange && sameEachTime, "weather: values in range, the same for the same day");
+		Check(rainNeedsCloud, "weather: it only rains when it's overcast");
+		Check(most > 0.9f && least < 0.1f, "weather: both clear and fully overcast days happen");
+		Check(rainy > 100.0f && rainy < 2000.0f, "weather: it rains some of the time, not most of it");
+		Check(biggestStep < 0.05f, "weather: it changes gradually (no jumps from one quarter hour to the next)");
+	}
 	return gClockFailures;
 }

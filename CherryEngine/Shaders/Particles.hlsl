@@ -56,9 +56,25 @@ VertexOut VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 	const float2 corner = kCorners[vertexId];
 	const float c = cos(particle.rotation), s = sin(particle.rotation);
 	const float2 turned = float2(corner.x * c - corner.y * s, corner.x * s + corner.y * c);
-	const float3 right = gView.invView[0].xyz;
-	const float3 up = gView.invView[1].xyz;
-	const float3 positionW = particle.position + (right * turned.x + up * turned.y) * (particle.size * 0.5);
+	float3 right = gView.invView[0].xyz;
+	float3 up = gView.invView[1].xyz;
+	float3 positionW = particle.position + (right * turned.x + up * turned.y) * (particle.size * 0.5);
+	if (particle.stretch > 0.0)
+	{
+		// A streak: from where it was `stretch` seconds ago to where it is, as wide as its size,
+		// facing the camera as much as it can.
+		const float3 trail = particle.velocity * particle.stretch;
+		const float trailLength = length(trail);
+		if (trailLength > 1e-4)
+		{
+			const float3 along = trail / trailLength;
+			const float3 toEye = normalize(gView.eyePosW - particle.position);
+			float3 across = cross(along, toEye);
+			across = dot(across, across) > 1e-6 ? normalize(across) : right;
+			const float back = corner.y < 0.0 ? 1.0 : 0.0;   // the quad's lower edge trails behind
+			positionW = particle.position - trail * back + across * (corner.x * particle.size * 0.5);
+		}
+	}
 
 	VertexOut vout;
 	vout.position = mul(float4(positionW, 1.0), gView.viewProj);

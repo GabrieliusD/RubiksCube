@@ -100,6 +100,15 @@ private:
 	void RockDust(Engine& engine, const DirectX::XMFLOAT3& at, int count, const DirectX::XMFLOAT4& colour, const DirectX::XMFLOAT3& out, float size);
 	void CreateShaftDust(Engine& engine);
 	std::vector<Entity> shaftDust;
+	// The cave comes alive: lamps in the first zone, light around Time crystal, lantern motes.
+	void CreateCaveLife(Engine& engine);
+	void CountCrystals(const VoxelWorld::Box& box);
+	struct MineLamp { Entity entity; DirectX::XMFLOAT3 light; float phase; };
+	std::vector<MineLamp> mineLamps;
+	std::unordered_map<uint32_t, int> crystalCells;   // 2 m cell -> crystal voxels in it
+	Entity lanternMotes = INVALID_ENTITY;
+	Entity rainEmitter = INVALID_ENTITY;   // drops falling around you outside
+	float devWeather[3] = { -1.0f, 0.0f, 0.0f };   // UNDERTIME_DEV_WEATHER (overcast < 0: none)
 
 	float Depth() const { return player.position.z; }   // metres into the mountain (x10 on the HUD)
 	// In the cave grid (the mountain over it is outside: you can climb it).
@@ -185,6 +194,8 @@ private:
 	float hitStop = 0.0f;           // seconds the pick stays frozen in the rock after a hit
 	float hitFeedback = 0.0f;       // seconds left of the impact jolt / shake / pick recoil
 	float hitStrength = 0.0f;       // 1 for a clean bite, less for a hollow hit
+	float rumble = 0.0f;            // 0..1: the ground shaking after a cave-in
+	void Sparks(Engine& engine, const Target& at, float hardness);
 	int voxelsMined = 0;
 
 	// Shovel

@@ -25,6 +25,19 @@ DayLight DayLightAt(float hour);
 const DayLight& DayLightAverage();
 // a + (b - a) * t, field by field (the direction is renormalised).
 DayLight Blend(const DayLight& a, const DayLight& b, float t);
+// The weather on outside day `days` (since you arrived): the same every run for the same
+// day, changing over a day or two. overcast 0 clear .. 1 grey; rain 0 dry .. 1 pouring
+// (only when overcast enough); wet: how wet the ground is (it dries out slowly after rain).
+struct Weather
+{
+	float overcast = 0.0f;
+	float rain = 0.0f;
+	float wet = 0.0f;
+};
+Weather WeatherAt(double days);
+// The weather averaged over many days (what racing days blur into).
+Weather WeatherAverage();
+
 // How far to blend towards the average when outside time runs at `rate` outside seconds per
 // real second: 0 while a day takes longer than kStrobeSlowDay, 1 from kStrobeFastDay.
 float StrobeBlend(float rate);

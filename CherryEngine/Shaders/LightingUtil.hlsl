@@ -298,13 +298,43 @@ float3 ApplyFog(float3 color, float distance, float3 fogColor, float fogStart, f
 	return lerp(color, fogColor, f);
 }
 
+// Height fog (RenderSettings::heightFog) over `length` metres of the view ray from `eye`
+// along `dir`: density falls off exponentially with height, integrated exactly along the ray.
+// Returns how much of what's behind is hidden (0..1).
+float HeightFogAmount(float3 eye, float3 dir, float length)
+{
+	const float skip = min(gFrame.fogStart, length);
+	const float3 start = eye + dir * skip;
+	const float rest = length - skip;
+	if (rest <= 0.0)
+		return 0.0;
+	const float k = gFrame.fogFalloff;
+	const float rise = dir.y * rest * k;
+	const float along = abs(rise) > 1e-4 ? (1.0 - exp(-rise)) / rise : 1.0;
+	const float depth = gFrame.fogDensity * exp(-k * (start.y - gFrame.fogBaseHeight)) * rest * along;
+	return 1.0 - exp(-max(depth, 0.0));
+}
+
+// The haze's colour along `dir`: warmer looking towards the sun.
+float3 HeightFogColor(float3 dir)
+{
+	const float3 toSun = -normalize(gFrame.lights[0].Direction);
+	return lerp(gFrame.fogColor, gFrame.fogSunColor, pow(saturate(dot(dir, toSun)), gFrame.fogSunPower));
+}
+
 // The frame's fog between the eye and a surface: the world's fog over the part of the view
 // ray outside the interior, then the interior's over the part inside.
 float3 ApplySceneFog(float3 color, float3 eye, float3 positionW)
 {
 	const float total = distance(eye, positionW);
 	const float inside = InteriorRayLength(eye, positionW);
-	color = ApplyFog(color, total - inside, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
+	if (gFrame.fogHeightEnabled != 0)
+	{
+		const float3 dir = (positionW - eye) / max(total, 1e-4);
+		color = lerp(color, HeightFogColor(dir), HeightFogAmount(eye, dir, total - inside));
+	}
+	else
+		color = ApplyFog(color, total - inside, gFrame.fogColor, gFrame.fogStart, gFrame.fogEnd);
 	return ApplyFog(color, inside, gFrame.interiorFogColor, gFrame.interiorFogStart, gFrame.interiorFogEnd);
 }
 

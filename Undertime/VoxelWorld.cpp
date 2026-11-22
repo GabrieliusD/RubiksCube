@@ -384,6 +384,11 @@ std::vector<XMFLOAT4> VoxelWorld::BuildPalette()
 	return palette;
 }
 
+DirectX::XMFLOAT4 VoxelWorld::PaletteLayout()
+{
+	return { static_cast<float>(cfg::kStoneBands), static_cast<float>(kOreFirst), static_cast<float>(kCrackFirst), static_cast<float>(kCrackSet) };
+}
+
 uint8_t VoxelWorld::PaletteIndex(Block block, int voxelZ, int crack)
 {
 	if (crack > 0 && block != Block::Air && !cfg::Unbreakable(block))

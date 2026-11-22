@@ -116,7 +116,7 @@
 				},
 				"CaveWorld": {
 					"seed": 0,
-					"rockMaterial": "Materials/Rock.mat"
+					"rockMaterial": "Materials/CaveRock.mat"
 				}
 			}
 		},

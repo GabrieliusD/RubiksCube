@@ -393,6 +393,20 @@ namespace cfg
 	constexpr int kShaftSteps = 32;
 	constexpr float kOutsideFogStart = 110.0f;
 	constexpr float kOutsideFogEnd = 520.0f;
+	// Valley haze (RenderSettings::heightFog): thickest on the valley floor, thinning upwards,
+	// so mist lies low and the peaks stand clear; bluer like the sky, warmer towards the sun.
+	constexpr float kHazeStart = 25.0f;           // m of clear air around you
+	constexpr float kHazeDensity = 0.0032f;       // per metre on the valley floor
+	constexpr float kHazeFalloff = 0.022f;        // per metre up (halves every ~30 m)
+	constexpr float kHazeBlue = 0.3f;             // how much of the sky's zenith colour it takes (aerial perspective)
+	constexpr float kHazeSunWarmth = 0.45f;       // how much of the sunlight it takes looking towards the sun
+	// Dawn mist: thicker and lower around sunrise, a little at dusk.
+	constexpr float kMistDawnHour = 6.5f;
+	constexpr float kMistDawnHours = 2.5f;        // its half width
+	constexpr float kMistDawn = 3.0f;             // extra density at its peak (x kHazeDensity)
+	constexpr float kMistDusk = 0.8f;
+	constexpr float kMistDuskHour = 20.0f;
+	constexpr float kMistFalloff = 0.07f;         // ... and how low it lies at its peak
 	constexpr float kCaveAmbient = 0.012f;
 	constexpr uint32_t kDaySky = 0x8fb8e8;        // flat background when the sky is off
 	constexpr uint32_t kDayFog = 0xb9cde0;        // also the sky's horizon, so distant land meets it
@@ -466,6 +480,22 @@ namespace cfg
 	// set of shadow maps). 0 = off: each step jumps. J toggles it while playing (debug).
 	constexpr float kShadowFadeSeconds = 0.5f;
 	constexpr float kSkipHours = 2.0f;            // debug: T skips ahead this far
+
+	// ---- Weather (WeatherAt in DayNight.h) --------------------------------------
+	constexpr double kWeatherDays = 1.3;          // days between independent weather values (it changes over about this long)
+	constexpr float kOvercastStart = 0.45f;       // weather noise (0..1) where clouds start to gather...
+	constexpr float kOvercastFull = 0.8f;         // ... and where it's fully grey
+	constexpr float kRainStart = 0.45f;           // second noise where rain starts (when overcast)...
+	constexpr float kRainFull = 0.75f;            // ... and pours
+	constexpr double kDryDays = 0.6;              // days the ground takes to dry after rain
+	constexpr float kOvercastCoverage = 0.97f;    // cloud cover when fully overcast
+	constexpr float kOvercastSun = 0.25f;         // the sun's strength left when fully overcast
+	constexpr float kOvercastGrey = 0.65f;        // how far the sky turns grey
+	constexpr float kOvercastHaze = 1.8f;         // haze density multiplier when overcast
+	constexpr float kOvercastWind = 0.8f;         // extra wind when overcast
+	constexpr int kRainRate = 1800;               // drops per second around you in a downpour
+	constexpr int kRainMax = 2600;
+	constexpr float kRainSpeed = 11.0f;           // m/s
 	constexpr float kDebugRunMultiplier = 4.0f;   // debug: holding Shift moves this much faster (walking and flying)
 	constexpr float kFlySpeed = 12.0f;            // debug: m/s flying (G), no collision
 	constexpr int kDebugTimeScaleMax = 3;         // debug: ] and [ multiply outside time by 10^0 .. 10^this
@@ -511,8 +541,32 @@ namespace cfg
 	constexpr int kDustPerBiteMax = 60;
 	constexpr float kDustSpeed = 1.2f;            // m/s out of the face
 	constexpr int kCaveInDustPerMetre = 6;        // dust per cubic metre that falls in a cave-in
+	// Sparks when the pick strikes ore or rock too hard to break (the softest stone gives none).
+	constexpr float kSparkHardness = 1.3f;        // block hardness from which strikes spark
+	constexpr int kSparksPerStrike = 14;          // ... more for harder blocks
+	constexpr int kSparksMax = 40;
+	// Cave-ins shake the ground: a rumble that grows with the rock that fell and fades with distance.
+	constexpr float kRumblePerMetre = 0.12f;      // rumble per cubic metre fallen (1 = strong)
+	constexpr float kRumbleReach = 18.0f;         // m beyond which a cave-in isn't felt
+	constexpr float kRumbleSeconds = 1.2f;        // how long it takes to die down
+	constexpr float kRumbleShake = 0.035f;        // m of camera shake at full rumble
+	constexpr float kRumbleKick = 0.035f;         // radians the view jolts at full rumble
 	constexpr int kCaveInDustMax = 160;
 	constexpr int kShaftDustRate = 30;            // motes per second hanging in each shaft
+	// The cave comes alive (milestone 14).
+	constexpr uint32_t kMineLampColor = 0xffb060; // lamps hung in the first zone's caverns
+	constexpr float kMineLampIntensity = 2.6f;
+	constexpr float kMineLampRange = 7.0f;
+	constexpr float kMineLampFlicker = 0.18f;
+	constexpr float kMineLampMinHeadroom = 4.0f;  // m: only caverns at least this high get one (it hangs 1.5 m)
+	constexpr uint32_t kCrystalLightColor = 0x5ff4ff;   // around clusters of Time crystal
+	constexpr float kCrystalLightPerVoxel = 0.05f;      // intensity per crystal voxel in the cluster
+	constexpr float kCrystalLightMax = 1.6f;
+	constexpr float kCrystalLightRange = 4.0f;
+	constexpr float kCrystalLightReach = 24.0f;   // m: clusters further than this from you aren't lit
+	constexpr int kCrystalClusterMin = 3;         // crystal voxels in a 2 m cell to make a light
+	constexpr int kLanternMoteRate = 18;          // dust motes per second drifting around you in the cave
+	constexpr int kLanternMoteMax = 140;
 	constexpr int kShaftDustMax = 350;
 
 	// ---- UI -------------------------------------------------------------------

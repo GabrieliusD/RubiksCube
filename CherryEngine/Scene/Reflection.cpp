@@ -69,7 +69,8 @@ namespace
 			.Field("colorEnd", &ParticleEmitter::colorEnd, Field_Color)
 			.Field("emissive", &ParticleEmitter::emissive, 0.0f, 50.0f).Speed(0.05f)
 			.Field("additive", &ParticleEmitter::additive)
-			.Field("square", &ParticleEmitter::square);
+			.Field("square", &ParticleEmitter::square)
+			.Field("stretch", &ParticleEmitter::stretch);
 
 		registry.Component<Environment>("Environment")
 			.Field("skyColor", &Environment::skyColor, Field_Color)

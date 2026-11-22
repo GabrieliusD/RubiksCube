@@ -89,5 +89,10 @@ float4 PSMain(VertexOut pin) : SV_Target
 	if (gFrame.starIntensity > 0.0 && up > 0.0)
 		color += gFrame.starIntensity * Stars(dir) * saturate(up * 8.0) * float3(0.9, 0.95, 1.0);
 
+	// Height fog: the sky low down disappears into the same haze as the far land (warmer
+	// towards the sun), so the horizon and the land meet.
+	if (gFrame.fogHeightEnabled != 0)
+		color = lerp(color, HeightFogColor(dir), HeightFogAmount(origin, dir, 3000.0) * saturate(1.0 - up * 3.0));
+
 	return float4(color, 1.0);
 }

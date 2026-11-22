@@ -31,6 +31,9 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 	AssetManager& assets = engine.GetAssets();
 
 	const MaterialHandle blockMaterial = assets.GetMaterial("engine/VoxelModel");
+	// The terrain gets wet after rain (Shaders/Ground.hlsl).
+	const MaterialHandle wetGround = assets.GetMaterial("Materials/Ground.mat");
+	const MaterialHandle groundMaterial = wetGround.IsValid() ? wetGround : blockMaterial;
 	std::array<XMFLOAT3, static_cast<int>(Ground::Count)> colours{};
 	colours[static_cast<int>(Ground::Grass)] = color::Linear(cfg::kTerrainGrass);
 	colours[static_cast<int>(Ground::Grass2)] = color::Linear(cfg::kTerrainGrass2);
@@ -237,7 +240,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 					AppendMesh(cover, job.cover);
 				}
 			}
-			addMesh(ground, blockMaterial);
+			addMesh(ground, groundMaterial);
 			addMesh(cover, plantMaterial);
 			coverTriangles += cover.indices.size() / 3;
 			addMesh(waterMesh, mWaterMaterial);

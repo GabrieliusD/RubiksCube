@@ -3,6 +3,7 @@
 #include "Config.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 using namespace DirectX;
 
@@ -68,6 +69,68 @@ DayLight DayLightAt(float hour)
 		d.diskBrightness = cfg::kMoonDiskBrightness / cfg::kMoonStrength;
 	}
 	return d;
+}
+
+namespace
+{
+	float WeatherHash(int64_t i)
+	{
+		uint32_t h = static_cast<uint32_t>(i) * 374761393u + static_cast<uint32_t>(i >> 32) * 668265263u + 911u;
+		h = (h ^ (h >> 13)) * 1274126177u;
+		return ((h ^ (h >> 16)) & 0xFFFFFF) / 16777216.0f;
+	}
+
+	// Smooth value noise over days: one value per kWeatherDays.
+	float WeatherNoise(double days, int salt)
+	{
+		const double t = days / cfg::kWeatherDays + salt * 1000.0;
+		const double cell = std::floor(t);
+		const float f = static_cast<float>(t - cell);
+		const float u = f * f * (3.0f - 2.0f * f);
+		const int64_t i = static_cast<int64_t>(cell);
+		return Mix(WeatherHash(i * 2 + salt), WeatherHash((i + 1) * 2 + salt), u);
+	}
+
+	float RainAt(double days)
+	{
+		const float overcast = Smooth(cfg::kOvercastStart, cfg::kOvercastFull, WeatherNoise(days, 0));
+		return overcast * Smooth(cfg::kRainStart, cfg::kRainFull, WeatherNoise(days, 1));
+	}
+}
+
+Weather WeatherAt(double days)
+{
+	Weather w;
+	w.overcast = Smooth(cfg::kOvercastStart, cfg::kOvercastFull, WeatherNoise(days, 0));
+	w.rain = RainAt(days);
+	// Wet: the most recent rain, drying over kDryDays.
+	float wet = 0.0f;
+	for (int k = 0; k <= 8; ++k)
+	{
+		const double back = cfg::kDryDays * k / 8.0;
+		wet = std::max(wet, std::min(1.0f, RainAt(days - back) * 2.0f) * (1.0f - static_cast<float>(back / cfg::kDryDays)));
+	}
+	w.wet = wet;
+	return w;
+}
+
+Weather WeatherAverage()
+{
+	// Sampled once over a long stretch of days.
+	static const Weather average = []
+	{
+		Weather sum;
+		constexpr int kSamples = 400;
+		for (int i = 0; i < kSamples; ++i)
+		{
+			const Weather w = WeatherAt(i * 0.37);
+			sum.overcast += w.overcast / kSamples;
+			sum.rain += w.rain / kSamples;
+			sum.wet += w.wet / kSamples;
+		}
+		return sum;
+	}();
+	return average;
 }
 
 const DayLight& DayLightAverage()

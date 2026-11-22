@@ -127,6 +127,9 @@ void UndertimeModule::OnStartup(Engine& engine)
 	// The module object lives across plays in the editor: start each one fresh.
 	state = State::Title;
 	devHold = false;
+	lanternMotes = INVALID_ENTITY;   // a fresh play world
+	rainEmitter = INVALID_ENTITY;
+	mineLamps.clear();
 	debugTimeScale = 0;
 	player.flying = false;
 
@@ -242,6 +245,15 @@ void UndertimeModule::OnStartup(Engine& engine)
 			SetEra(engine, clock.Era());
 		}
 	}
+	// UNDERTIME_DEV_WEATHER="overcast rain wet" (0..1 each): fixed weather (screenshots).
+	char* devWeatherText = nullptr;
+	size_t devWeatherLength = 0;
+	if (_dupenv_s(&devWeatherText, &devWeatherLength, "UNDERTIME_DEV_WEATHER") == 0 && devWeatherText)
+	{
+		std::istringstream in(devWeatherText);
+		std::free(devWeatherText);
+		in >> devWeather[0] >> devWeather[1] >> devWeather[2];
+	}
 	char* view = nullptr;
 	size_t viewLength = 0;
 	if (_dupenv_s(&view, &viewLength, "UNDERTIME_DEV_VIEW") == 0 && view)
@@ -311,6 +323,7 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	layout = GenerateCaves(world, seed);
 	skylight.Build(world);
 	CreateShaftDust(engine);
+	CreateCaveLife(engine);
 	teleportZone = -1;
 	map.Rebuild(world, layout);
 	generationMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -465,6 +478,7 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	renderer.Settings().ssao.enabled = false;
 	renderer.Settings().lightShafts.enabled = false;
 	renderer.Settings().colorGrade = {};
+	renderer.Settings().heightFog.enabled = false;
 	renderer.Settings().edgeHighlights.enabled = false;
 	renderer.Settings().eyeAdaptation = {};
 	renderer.Settings().rooms.clear();
@@ -686,6 +700,7 @@ void UndertimeModule::UpdateMining(Engine& engine, float dt)
 	target = next;
 
 	hitFeedback = std::max(hitFeedback - dt, 0.0f);
+	rumble = std::max(rumble - dt / cfg::kRumbleSeconds, 0.0f);
 	const bool mining = !waitForRelease && input.IsMouseDown(MouseButton::Left);
 	swingAmount = std::clamp(swingAmount + (mining ? dt : -dt) * 6.0f, 0.0f, 1.0f);
 	if (!mining)
@@ -738,6 +753,7 @@ void UndertimeModule::Swing(Engine& engine)
 	{
 		hitFeedback = cfg::kHitFeedbackTime;
 		hitStrength = cfg::kHollowHitScale;
+		Sparks(engine, target, 3.0f);
 		const bool farWall = target.z >= (cfg::kGridZ - 1) * cfg::kVoxelsPerMeter;
 		if (farWall)
 			messages.Show("The rock here is warm, and it hums.\nSomething is on the other side.", cfg::kMessageSeconds);
@@ -749,6 +765,7 @@ void UndertimeModule::Swing(Engine& engine)
 	// Bite centred just inside the surface we hit.
 	const XMFLOAT3 center{ target.point.x + dir.x * 0.08f, target.point.y + dir.y * 0.08f, target.point.z + dir.z * 0.08f };
 	const VoxelWorld::CarveResult result = world.Carve(center, cfg::kPickSpeed[pickLevel], target.x, target.y, target.z, ++swingCount);
+	if (cfg::Info(target.block).hardness >= cfg::kSparkHardness) Sparks(engine, target, cfg::Info(target.block).hardness);
 	hitFeedback = cfg::kHitFeedbackTime;
 	hitStrength = result.removed > 0 ? 1.0f : (result.cracked.Empty() ? cfg::kHollowHitScale : cfg::kCrackHitScale);
 	if (!result.cracked.Empty())
@@ -983,6 +1000,8 @@ void UndertimeModule::ApplyWorldChange(Engine& engine, const VoxelWorld::Box& bo
 
 	if (!checkSupport) return;
 
+	CountCrystals(box);
+
 	// Anything left hanging free breaks off and falls.
 	DetachResult detached = DetachUnsupported(world, box, cfg::kSupportSearchBudget);
 	lastSupportVisited = detached.visited;
@@ -995,6 +1014,11 @@ void UndertimeModule::ApplyWorldChange(Engine& engine, const VoxelWorld::Box& bo
 		const float volume = (removed.max[0] - removed.min[0] + 1) * (removed.max[1] - removed.min[1] + 1) * (removed.max[2] - removed.min[2] + 1) * s * s * s;
 		const int count = std::min(static_cast<int>(volume * cfg::kCaveInDustPerMetre) + 12, cfg::kCaveInDustMax);
 		RockDust(engine, middle, count, VoxelWorld::VoxelColor(Block::Stone, removed.min[0], removed.min[1], removed.min[2]), { 0, -0.5f, 0 }, 0.16f);
+		// The ground shakes: more for more rock, less further away.
+		const XMFLOAT3 eye = player.EyePosition();
+		const float away = std::sqrt((middle.x - eye.x) * (middle.x - eye.x) + (middle.y - eye.y) * (middle.y - eye.y) + (middle.z - eye.z) * (middle.z - eye.z));
+		const float felt = std::clamp(1.0f - away / cfg::kRumbleReach, 0.0f, 1.0f);
+		rumble = std::min(1.0f, rumble + volume * cfg::kRumblePerMetre * felt);
 	}
 	std::mt19937 rng(swingCount * 31u + 5u);
 	std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
@@ -1099,6 +1123,17 @@ void UndertimeModule::UpdateCamera(Engine& engine)
 		transform.position.y += shake * std::sin(time * 77.0f + 1.3f);
 		transform.position.z += shake * std::sin(time * 83.0f + 2.1f);
 	}
+	// Cave-in: a low, heavy shake, and a jolt that fades with it.
+	if (rumble > 0.0f)
+	{
+		const float amount = rumble * rumble;
+		const float shake = cfg::kRumbleShake * amount;
+		transform.position.x += shake * (0.6f * std::sin(time * 23.0f) + 0.4f * std::sin(time * 41.0f + 0.7f));
+		transform.position.y += shake * (0.6f * std::sin(time * 29.0f + 1.1f) + 0.4f * std::sin(time * 37.0f));
+		const float roll = cfg::kRumbleKick * amount * std::sin(time * 17.0f + 0.4f);
+		const float pitch = cfg::kRumbleKick * amount * 0.6f * std::sin(time * 13.0f + 2.0f);
+		rotation = XMQuaternionMultiply(XMQuaternionRotationRollPitchYaw(pitch, 0.0f, roll), rotation);
+	}
 	XMStoreFloat4(&transform.rotation, rotation);
 
 	// Horizontal FOV from the config, converted to the vertical FOV the camera uses.
@@ -1194,6 +1229,28 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 		day.lightColor = color::Scale(day.lightColor, pulse);
 		day.ambient *= pulse;
 	}
+	// The weather: overcast greys the sky and weakens the sun; racing days blur it to its average.
+	Weather weather = WeatherAt(clock.Days());
+	if (devWeather[0] >= 0.0f) weather = { devWeather[0], devWeather[1], devWeather[2] };
+	if (strobe > 0.0f)
+	{
+		const Weather average = WeatherAverage();
+		weather.overcast += (average.overcast - weather.overcast) * strobe;
+		weather.rain *= 1.0f - strobe;
+		weather.wet += (average.wet - weather.wet) * strobe;
+	}
+	{
+		auto grey = [&](const XMFLOAT3& c)
+		{
+			const float luma = (0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z) * 0.85f;
+			return color::Lerp(c, { luma, luma, luma * 1.04f }, cfg::kOvercastGrey * weather.overcast);
+		};
+		day.zenith = grey(day.zenith);
+		day.horizon = grey(day.horizon);
+		day.lightColor = color::Scale(day.lightColor, 1.0f - (1.0f - cfg::kOvercastSun) * weather.overcast);
+		day.diskBrightness *= 1.0f - weather.overcast;
+		day.ambient *= 1.0f + 0.25f * weather.overcast;   // a grey sky lights evenly
+	}
 	settings.clearColor = { day.horizon.x, day.horizon.y, day.horizon.z, 1.0f };
 	settings.sky.zenith = day.zenith;
 	settings.sky.horizon = day.horizon;
@@ -1219,7 +1276,7 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	settings.ambient = color::Scale(tint, day.ambient);
 
 	// Lamps and lit windows (Shaders/TownVoxel.hlsl reads the globals).
-	settings.shaderGlobals[0] = { day.night, day.sunHeight, 0.0f, 0.0f };
+	settings.shaderGlobals[0] = { day.night, day.sunHeight, weather.wet, weather.rain };   // z, w: wet ground, rain (Shaders/Ground.hlsl)
 	const XMFLOAT3 windowLight = color::Linear(cfg::kWindowLightColor);
 	settings.shaderGlobals[1] = { windowLight.x, windowLight.y, windowLight.z, 0.0f };
 	// Wind for the trees and grass (Shaders/Foliage.hlsl): the way the clouds drift, rising
@@ -1227,9 +1284,10 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	{
 		const float length = std::max(std::hypot(cfg::kCloudWind[0], cfg::kCloudWind[1]), 1e-3f);
 		const float swell = 0.6f * std::sin(time * 0.11f) + 0.4f * std::sin(time * 0.047f + 2.0f);
-		const float strength = std::max(0.0f, cfg::kWindStrength * (1.0f + cfg::kWindVariation * swell));
+		const float strength = std::max(0.0f, cfg::kWindStrength * (1.0f + cfg::kWindVariation * swell) * (1.0f + cfg::kOvercastWind * weather.overcast));
 		settings.shaderGlobals[2] = { cfg::kCloudWind[0] / length, cfg::kCloudWind[1] / length, strength, time * cfg::kWindGustSpeed };
 	}
+	settings.shaderGlobals[3] = VoxelWorld::PaletteLayout();   // the cave rock's palette (Shaders/CaveRock.hlsl)
 	props.SetLightLevel(engine.GetScene(), cfg::kLampDayLevel + (1.0f - cfg::kLampDayLevel) * day.night);
 
 	// Indoors: the rooms of the buildings that stand in this era (nearest first, up to the
@@ -1251,6 +1309,20 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	settings.fogColor = day.horizon;
 	settings.fogStart = cfg::kOutsideFogStart;
 	settings.fogEnd = cfg::kOutsideFogEnd;
+	// Valley haze: height fog, with a mist that lies low around dawn (and a little at dusk).
+	{
+		const float hour = static_cast<float>(clock.HourOfDay());
+		auto bump = [](float x, float centre, float half) { const float t = std::clamp(1.0f - std::fabs(x - centre) / half, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); };
+		const float mist = std::max(bump(hour, cfg::kMistDawnHour, cfg::kMistDawnHours), cfg::kMistDusk / cfg::kMistDawn * bump(hour, cfg::kMistDuskHour, cfg::kMistDawnHours)) * (1.0f - strobe);
+		HeightFogSettings& haze = settings.heightFog;
+		haze.enabled = true;
+		haze.density = cfg::kHazeDensity * (1.0f + cfg::kMistDawn * mist) * (1.0f + (cfg::kOvercastHaze - 1.0f) * weather.overcast);
+		haze.baseHeight = cfg::kGroundY;
+		haze.falloff = cfg::kHazeFalloff + (cfg::kMistFalloff - cfg::kHazeFalloff) * mist;
+		settings.fogColor = color::Lerp(day.horizon, day.zenith, cfg::kHazeBlue);
+		haze.sunColor = { day.horizon.x + day.lightColor.x * cfg::kHazeSunWarmth, day.horizon.y + day.lightColor.y * cfg::kHazeSunWarmth, day.horizon.z + day.lightColor.z * cfg::kHazeSunWarmth };
+		settings.fogStart = cfg::kHazeStart;
+	}
 
 	// The cave is the renderer's interior (per pixel, so the valley seen through the mouth
 	// stays lit): the cave's own dim ambient, plus the daylight that reaches in from the mouth
@@ -1269,7 +1341,7 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	interior.sunFromLight = cfg::kSkylightSunReach;
 
 	settings.clouds.enabled = true;
-	settings.clouds.coverage = cfg::kCloudCoverage;
+	settings.clouds.coverage = cfg::kCloudCoverage + (cfg::kOvercastCoverage - cfg::kCloudCoverage) * weather.overcast;
 	settings.clouds.scale = cfg::kCloudScale;
 	settings.clouds.softness = cfg::kCloudSoftness;
 	settings.clouds.darkness = cfg::kCloudDarkness;
@@ -1347,6 +1419,72 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	lantern.intensity = cfg::kLanternIntensity * flicker;
 	lantern.range = lanternRange;
 	settings.pointLights.assign(1, lantern);
+	// Lamps in the first zone, flickering; light around the Time crystal near you. The renderer
+	// keeps the ones that matter most where you are.
+	{
+		const XMFLOAT3 lampColour = color::Linear(cfg::kMineLampColor);
+		for (const MineLamp& lamp : mineLamps)
+		{
+			PointLight light;
+			light.position = lamp.light;
+			light.color = lampColour;
+			light.intensity = cfg::kMineLampIntensity * (1.0f + cfg::kMineLampFlicker * (0.6f * std::sin(time * 9.7f + lamp.phase) + 0.4f * std::sin(time * 21.3f + lamp.phase * 2.0f)));
+			light.range = cfg::kMineLampRange;
+			settings.pointLights.push_back(light);
+		}
+		const XMFLOAT3 eye = player.EyePosition();
+		const XMFLOAT3 crystalColour = color::Linear(cfg::kCrystalLightColor);
+		for (const auto& [key, count] : crystalCells)
+		{
+			if (count < cfg::kCrystalClusterMin) continue;
+			const XMFLOAT3 at{ (static_cast<float>(key & 0x3FF) + 0.5f) * 2.0f, (static_cast<float>((key >> 10) & 0x3FF) + 0.5f) * 2.0f, (static_cast<float>(key >> 20) + 0.5f) * 2.0f };
+			const float dx = at.x - eye.x, dy = at.y - eye.y, dz = at.z - eye.z;
+			if (dx * dx + dy * dy + dz * dz > cfg::kCrystalLightReach * cfg::kCrystalLightReach) continue;
+			PointLight light;
+			light.position = at;
+			light.color = crystalColour;
+			light.intensity = std::min(count * cfg::kCrystalLightPerVoxel, cfg::kCrystalLightMax) * (0.9f + 0.1f * std::sin(time * 1.7f + at.x));
+			light.range = cfg::kCrystalLightRange;
+			settings.pointLights.push_back(light);
+		}
+	}
+	// Rain around you while you're outside (the cave's roof keeps it off inside).
+	{
+		Scene& scene = engine.GetScene();
+		if (!scene.IsAlive(rainEmitter))
+		{
+			rainEmitter = scene.CreateEntity();   // no EntityInfo: never saved
+			scene.Add(rainEmitter, Transform{});
+			ParticleEmitter drops;
+			drops.maxParticles = cfg::kRainMax;
+			drops.lifetime = 1.3f;
+			drops.lifetimeJitter = 0.1f;
+			drops.spawnBox = { 10.0f, 1.0f, 10.0f };
+			drops.offset = { 0.0f, 9.0f, 0.0f };
+			drops.velocity = { 0.0f, -cfg::kRainSpeed, 0.0f };
+			drops.velocityJitter = { 0.3f, 1.0f, 0.3f };
+			drops.sizeStart = drops.sizeEnd = 0.012f;   // streaks: thin, and long from their speed
+			drops.sizeJitter = 0.3f;
+			drops.stretch = 0.045f;
+			drops.colorStart = { 0.8f, 0.85f, 0.92f, 0.45f };
+			drops.colorEnd = { 0.8f, 0.85f, 0.92f, 0.3f };
+			scene.Add(rainEmitter, drops);
+		}
+		const XMFLOAT3 eye = player.EyePosition();
+		scene.Get<Transform>(rainEmitter).position = { eye.x + player.velocity.x * 0.6f, eye.y, eye.z + player.velocity.z * 0.6f };
+		ParticleEmitter& drops = scene.Get<ParticleEmitter>(rainEmitter);
+		const bool outside = !IsInside() || player.position.z < cfg::kInteriorFadeStart;
+		drops.rate = static_cast<float>(cfg::kRainRate) * weather.rain;
+		drops.enabled = outside && weather.rain > 0.02f;
+	}
+
+	// Dust motes drifting around you in the cave (they only show in the lantern's light).
+	if (engine.GetScene().IsAlive(lanternMotes))
+	{
+		Scene& scene = engine.GetScene();
+		scene.Get<Transform>(lanternMotes).position = player.EyePosition();
+		scene.Get<ParticleEmitter>(lanternMotes).enabled = IsInside() && player.position.z > cfg::kInteriorFadeStart + 2.0f;
+	}
 
 	// Deep in the mountain the valley can't be seen: skip drawing it.
 	scenery.SetVisible(engine.GetScene(), !(IsInside() && player.position.z > cfg::kHideValleyDepth));
@@ -1375,6 +1513,115 @@ void UndertimeModule::RockDust(Engine& engine, const XMFLOAT3& at, int count, co
 	dust.colorEnd = { colour.x * 1.4f + 0.08f, colour.y * 1.4f + 0.08f, colour.z * 1.4f + 0.08f, 0.0f };
 	dust.square = true;
 	engine.GetParticles().Burst(dust, at, count, out);
+}
+
+void UndertimeModule::Sparks(Engine& engine, const Target& at, float hardness)
+{
+	// Hot sparks off the pick where it struck, bouncing out of the face and falling.
+	ParticleEmitter sparks;
+	sparks.lifetime = 0.45f;
+	sparks.lifetimeJitter = 0.5f;
+	sparks.spawnBox = { 0.04f, 0.04f, 0.04f };
+	sparks.velocity = { 0, 0.8f, 0 };
+	sparks.velocityJitter = { 2.2f, 1.6f, 2.2f };
+	sparks.gravity = 9.0f;
+	sparks.drag = 1.5f;
+	sparks.sizeStart = 0.035f;
+	sparks.sizeEnd = 0.01f;
+	sparks.sizeJitter = 0.4f;
+	sparks.colorStart = { 1.0f, 0.75f, 0.35f, 1.0f };
+	sparks.colorEnd = { 1.0f, 0.35f, 0.08f, 0.0f };
+	sparks.emissive = 8.0f;
+	sparks.additive = true;
+	sparks.square = true;
+	sparks.stretch = 0.025f;   // short bright streaks
+	const float out = 2.5f;
+	const XMFLOAT3 point{ at.point.x + at.normal[0] * 0.03f, at.point.y + at.normal[1] * 0.03f, at.point.z + at.normal[2] * 0.03f };
+	const int count = std::min(static_cast<int>(cfg::kSparksPerStrike * hardness / cfg::kSparkHardness), cfg::kSparksMax);
+	engine.GetParticles().Burst(sparks, point, count, { at.normal[0] * out, at.normal[1] * out, at.normal[2] * out });
+}
+
+void UndertimeModule::CreateCaveLife(Engine& engine)
+{
+	Scene& scene = engine.GetScene();
+	for (const MineLamp& lamp : mineLamps) if (scene.IsAlive(lamp.entity)) scene.DestroyEntity(lamp.entity);
+	mineLamps.clear();
+
+	// A lamp hanging from the ceiling of each cavern of the first zone (miners were here).
+	const MeshHandle lampMesh = engine.GetAssets().GetMesh("Models/Placeholders/MineLamp.vox");
+	if (!layout.zones.empty() && lampMesh.IsValid())
+	{
+		uint32_t salt = 1;
+		for (const CaveRoom& room : layout.zones[0].rooms)
+		{
+			const XMFLOAT3 from{ room.center.x, room.center.y + 0.6f, room.center.z };
+			const VoxelWorld::RayHit up = world.Raycast(from, { 0, 1, 0 }, 12.0f);
+			if (!up.hit || up.distance + 0.6f < cfg::kMineLampMinHeadroom) continue;
+			const float ceiling = up.point.y;
+			const Entity entity = scene.CreateEntity();   // no EntityInfo: never saved
+			Transform transform;
+			transform.position = { room.center.x, ceiling - 1.5f, room.center.z };   // the model is 1.5 m tall, chain at the top
+			scene.Add(entity, transform);
+			scene.Add(entity, MeshRenderer{ lampMesh, engine.GetAssets().GetMaterial("engine/VoxelModel") });
+			mineLamps.push_back({ entity, { room.center.x, ceiling - 1.1f, room.center.z }, static_cast<float>(salt++) * 2.3f });
+		}
+	}
+
+	// Time crystal, counted per 2 m cell (lights around the clusters).
+	crystalCells.clear();
+	VoxelWorld::Box all;
+	all.min[0] = all.min[1] = all.min[2] = 0;
+	all.max[0] = cfg::kVoxX - 1;
+	all.max[1] = cfg::kVoxY - 1;
+	all.max[2] = cfg::kVoxZ - 1;
+	CountCrystals(all);
+	int clusters = 0;
+	for (const auto& [key, count] : crystalCells) clusters += count >= cfg::kCrystalClusterMin ? 1 : 0;
+	CHERRY_LOG("UNDERTIME: %d mine lamps%s, %d Time crystal clusters lit", static_cast<int>(mineLamps.size()),
+		mineLamps.empty() ? "" : (" (first at " + std::to_string(static_cast<int>(mineLamps[0].light.x)) + " " + std::to_string(static_cast<int>(mineLamps[0].light.y)) + " " + std::to_string(static_cast<int>(mineLamps[0].light.z)) + ")").c_str(), clusters);
+
+	// Motes drifting around the player in the cave, lit by the lantern.
+	if (!scene.IsAlive(lanternMotes))
+	{
+		lanternMotes = scene.CreateEntity();
+		scene.Add(lanternMotes, Transform{});
+		ParticleEmitter motes;
+		motes.rate = static_cast<float>(cfg::kLanternMoteRate);
+		motes.maxParticles = cfg::kLanternMoteMax;
+		motes.lifetime = 7.0f;
+		motes.lifetimeJitter = 0.4f;
+		motes.spawnBox = { 2.2f, 1.4f, 2.2f };
+		motes.velocity = { 0.0f, -0.01f, 0.0f };
+		motes.velocityJitter = { 0.05f, 0.03f, 0.05f };
+		motes.turbulence = 0.06f;
+		motes.drag = 0.6f;
+		motes.sizeStart = motes.sizeEnd = 0.012f;
+		motes.sizeJitter = 0.4f;
+		motes.colorStart = { 0.95f, 0.9f, 0.8f, 0.45f };
+		motes.colorEnd = { 0.95f, 0.9f, 0.8f, 0.0f };
+		motes.square = true;
+		motes.enabled = false;
+		scene.Add(lanternMotes, motes);
+	}
+}
+
+void UndertimeModule::CountCrystals(const VoxelWorld::Box& box)
+{
+	// Recount every 2 m cell the box touches.
+	constexpr int kCell = 2 * cfg::kVoxelsPerMeter;
+	for (int cz = box.min[2] / kCell; cz <= box.max[2] / kCell; ++cz)
+		for (int cy = box.min[1] / kCell; cy <= box.max[1] / kCell; ++cy)
+			for (int cx = box.min[0] / kCell; cx <= box.max[0] / kCell; ++cx)
+			{
+				int count = 0;
+				for (int z = cz * kCell; z < (cz + 1) * kCell && z < cfg::kVoxZ; ++z)
+					for (int y = cy * kCell; y < (cy + 1) * kCell && y < cfg::kVoxY; ++y)
+						for (int x = cx * kCell; x < (cx + 1) * kCell && x < cfg::kVoxX; ++x)
+							count += world.Get(x, y, z) == Block::TimeCrystal ? 1 : 0;
+				const uint32_t key = static_cast<uint32_t>(cx) | (static_cast<uint32_t>(cy) << 10) | (static_cast<uint32_t>(cz) << 20);
+				if (count > 0) crystalCells[key] = count;
+				else crystalCells.erase(key);
+			}
 }
 
 void UndertimeModule::CreateShaftDust(Engine& engine)

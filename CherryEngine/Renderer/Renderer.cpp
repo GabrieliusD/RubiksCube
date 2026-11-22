@@ -1595,6 +1595,14 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants(const XMFLOAT3* eye)
 	frame.cloudOffset = { -(clouds.wind.x * totalTime + clouds.drift.x), -(clouds.wind.y * totalTime + clouds.drift.y) };
 	frame.cloudBlur = std::clamp(clouds.blur, 0.0f, 1.0f);
 
+	const HeightFogSettings& heightFog = settings.heightFog;
+	frame.fogHeightEnabled = heightFog.enabled && settings.fogEnabled ? 1u : 0u;
+	frame.fogDensity = std::max(heightFog.density, 0.0f);
+	frame.fogBaseHeight = heightFog.baseHeight;
+	frame.fogFalloff = std::max(heightFog.falloff, 1e-4f);
+	frame.fogSunColor = heightFog.sunColor;
+	frame.fogSunPower = std::max(heightFog.sunPower, 1.0f);
+
 	const ColorGradeSettings& grade = settings.colorGrade;
 	frame.gradeEnabled = grade.enabled ? 1u : 0u;
 	frame.gradeTint = grade.tint;
@@ -1901,6 +1909,8 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 			data.emissive = p.emissive;
 			data.rotation = p.rotation;
 			data.flags = p.square ? 1u : 0u;
+			data.stretch = p.stretch;
+			data.velocity = p.velocity;
 			r.particleScratch.push_back(data);
 		}
 		list.clear();

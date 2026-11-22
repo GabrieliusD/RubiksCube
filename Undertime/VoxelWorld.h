@@ -82,6 +82,9 @@ public:
 	static std::vector<DirectX::XMFLOAT4> BuildPalette();       // sRGB
 	// crack: 0 = intact, 1 = lightly cracked, 2 = badly cracked.
 	static uint8_t PaletteIndex(Block block, int voxelZ, int crack = 0);
+	// The palette's layout for shaders (Content/Shaders/CaveRock.hlsl): stone bands, the first
+	// ore entry (one per block type), the first cracked entry and the size of a cracked set.
+	static DirectX::XMFLOAT4 PaletteLayout();
 	int CrackLevel(int x, int y, int z) const;
 	float Damage(int x, int y, int z) const;
 	void ClearDamage() { mDamage.clear(); }

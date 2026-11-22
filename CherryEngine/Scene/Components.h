@@ -145,7 +145,7 @@ struct Particle
 	float age = 0.0f, life = 1.0f;
 	float size0 = 0.1f, size1 = 0.1f;
 	DirectX::XMFLOAT4 color0{ 1, 1, 1, 1 }, color1{ 1, 1, 1, 0 };
-	float gravity = 0.0f, drag = 0.0f, turbulence = 0.0f, emissive = 0.0f, rotation = 0.0f;
+	float gravity = 0.0f, drag = 0.0f, turbulence = 0.0f, emissive = 0.0f, rotation = 0.0f, stretch = 0.0f;
 	bool additive = false, square = false;
 };
 
@@ -172,6 +172,7 @@ struct ParticleEmitter
 	float emissive = 0.0f;                           // glow (x colour), e.g. sparks
 	bool additive = false;                           // add light (sparks, glow) instead of covering
 	bool square = false;                             // square blocks instead of soft round puffs
+	float stretch = 0.0f;                            // seconds of motion drawn as a streak (rain, sparks); 0 = none
 
 	// Runtime (not saved)
 	std::vector<Particle> particles;

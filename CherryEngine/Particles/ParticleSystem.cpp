@@ -39,6 +39,7 @@ Particle ParticleSystem::Spawn(const ParticleEmitter& s, const XMFLOAT3& at, uin
 	p.emissive = s.emissive;
 	p.additive = s.additive;
 	p.square = s.square;
+	p.stretch = s.stretch;
 	p.rotation = s.square ? 0.0f : Rand01(rng) * 6.2831853f;
 	return p;
 }
@@ -123,6 +124,8 @@ void ParticleSystem::Submit(Scene& scene, Renderer& renderer) const
 		instance.additive = p.additive;
 		instance.square = p.square;
 		instance.rotation = p.rotation;
+		instance.velocity = p.velocity;
+		instance.stretch = p.stretch;
 		if (instance.color.w > 0.003f && instance.size > 0.0f) out.push_back(instance);
 	};
 	for (const Particle& p : mFree) add(p);

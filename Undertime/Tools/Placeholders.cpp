@@ -706,6 +706,19 @@ namespace
 		return m;
 	}
 
+	// A miner's lamp for the first zone of the cave: a chain from the ceiling, an iron cage and a
+	// flame that always burns (UndertimeModule hangs one in each cavern and lights it).
+	VoxelModel MineLamp()
+	{
+		VoxelModel m = NewBuilding(3, 6, 3);
+		Fill(m, 1, 4, 1, 1, 5, 1, BIron);                  // chain
+		Fill(m, 0, 3, 0, 2, 3, 2, BIron);                  // cap
+		Fill(m, 0, 0, 0, 2, 0, 2, BIron);                  // base
+		for (int x : { 0, 2 }) for (int z : { 0, 2 }) Fill(m, x, 1, z, x, 2, z, BIron);   // cage
+		Fill(m, 1, 1, 1, 1, 2, 1, BFire);                  // flame
+		return m;
+	}
+
 	VoxelModel Stump()
 	{
 		VoxelModel m = NewTown(3, 3, 3);
@@ -854,6 +867,7 @@ int main(int argc, char** argv)
 	ok &= Write(folder, "Footbridge.vox", Footbridge());
 	ok &= Write(folder, "MineFrame.vox", MineFrame());
 	ok &= Write(folder, "Stump.vox", Stump());
+	ok &= Write(folder, "MineLamp.vox", MineLamp());
 	ok &= Write(folder, "GrassTuft.vox", GrassTuft(3, 3, 1));
 	ok &= Write(folder, "GrassTuftTall.vox", GrassTuft(4, 4, 2));
 	ok &= Write(folder, "FlowersYellow.vox", Flowers(0xf0d040, 3));

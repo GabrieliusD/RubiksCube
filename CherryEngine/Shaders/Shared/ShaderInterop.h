@@ -140,6 +140,13 @@ struct FrameConstants
 	float  gradeVignette;          // corner darkening, 0..1
 	uint   gradeEnabled;
 	float  pad5, pad6, pad7;
+	// Height fog (RenderSettings::heightFog): replaces the linear fog outside the interior.
+	float3 fogSunColor;            // the haze's colour looking towards the sun
+	float  fogDensity;             // per metre at fogBaseHeight
+	float  fogBaseHeight;
+	float  fogFalloff;             // per metre of height: how quickly it thins upwards
+	uint   fogHeightEnabled;
+	float  fogSunPower;            // how tightly the sun's colour gathers around it
 	RoomBox rooms[CHERRY_MAX_ROOMS];
 };
 
@@ -220,6 +227,8 @@ struct ParticleData
 	float  emissive;
 	float  rotation;
 	uint   flags;                  // bit 0: square
+	float  stretch;                // seconds of motion drawn as a streak
+	float3 velocity;               // m/s
 	float  pad;
 };
 
