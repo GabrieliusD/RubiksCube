@@ -219,6 +219,8 @@ struct CloudSettings
 	float darkness = 0.65f;         // how much of the sun a cloud takes
 	float height = 320.0f;          // metres above y = 0
 	DirectX::XMFLOAT2 wind{ 5.0f, 2.0f };   // metres per second the clouds drift (x, z)
+	DirectX::XMFLOAT2 drift{ 0.0f, 0.0f };  // metres the game has moved them itself (added to wind x time)
+	float blur = 0.0f;                      // 0..1: they pass too fast to see; shadows and sky even out
 };
 
 // Screen-space ambient occlusion: darkens creases, corners and the ground under things,
@@ -229,6 +231,20 @@ struct SsaoSettings
 	float radius = 0.7f;            // metres around each pixel that can occlude it
 	float strength = 0.8f;          // 0 off .. 1 full
 	float bias = 0.03f;             // metres: ignores occluders this close (flat surfaces)
+};
+
+// Light shafts: sunlight scattered by the air, so it shows as beams where it passes between
+// shadows (through trees, past a rim, down a shaft into the interior). Marched through the
+// sun's shadow maps, so it needs `shadows` on to have gaps; clouds dim it.
+struct LightShaftSettings
+{
+	bool enabled = false;
+	float density = 0.003f;         // scattering per metre of air outside
+	float interiorDensity = 0.03f;  // ... inside the interior box (dusty cave air)
+	float anisotropy = 0.6f;        // how much more it scatters towards the sun (0..0.95)
+	float intensity = 1.0f;
+	float maxDistance = 160.0f;     // metres along the view ray
+	int steps = 32;
 };
 
 // One particle to draw this frame (Renderer::Particles): a billboard facing the camera, lit
@@ -266,6 +282,7 @@ struct RenderSettings
 	InteriorSettings interior;
 	CloudSettings clouds;
 	SsaoSettings ssao;
+	LightShaftSettings lightShafts;
 	std::vector<RoomSettings> rooms;
 	bool antiAliasing = true;   // FXAA after the tonemap: smooths stair-stepped edges
 

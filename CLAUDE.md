@@ -94,6 +94,7 @@ The `.github/` folder exists but is empty: there is no CI.
   - **Light volumes, clouds, SSAO:**
     - `Renderer::CreateLightVolume` makes an R8 3D texture; `InteriorSettings::lightVolume` stretches one over the interior box. Inside, the world's ambient × level × `lightStrength` is added to the interior's, and the sun reaches in where level × `sunFromLight` ≥ 1 (its shadows decide exactly where).
     - `RenderSettings::clouds`: noise on a layer at `height`, drifting with `wind`. It shades the sun (`CloudShadow` in `LightingUtil.hlsl`) and is drawn in `SkyPass.hlsl`.
+    - `RenderSettings::lightShafts`: `Shaders/LightShafts.hlsl` marches the view rays at half size through the sun's shadow maps, clouds and (inside) the light volume, after SSAO; the tonemap adds it to the world like the AO.
     - `RenderSettings::ssao`: `Shaders/Ssao.hlsl` (`CSMain`, then the depth-aware `CSBlur`) runs before the view models clear the depth. The tonemap applies it only where the final depth is at the far plane, so view models are left alone.
   - **Particles (`Particles/ParticleSystem.h`, `Shaders/Particles.hlsl`):**
     - **Emitters:** `ParticleEmitter` is a scene component (settings, plus its live particles at runtime). It spawns from its entity in play and in the editor. Game code adds one-off bursts with `engine.GetParticles().Burst(settings, position, count, direction)`.
@@ -160,7 +161,7 @@ The game is first-person mining in a procedurally generated mountain. One world 
   - **Trails** are `cfg::kPathSegments` (trodden ground, no trees).
   - **Houses:** the placeholder generator gives buildings open doorways, furniture (`Furnish`, by `Inside` kind) and a hanging lamp. Windows are glass. Town props use `Materials/Town.mat` and `Materials/TownGlass.mat` (`Shaders/TownGlass.hlsl`: the glass glows at night). `ValleyProps::Rooms` derives each building's room from its windows, and `UpdateLighting` passes the nearest 16 to the renderer.
   - **Building pads:** every ValleyProp with `collide` and `flattenGround` levels the ground under its footprint (`Valley::SetPads`, from `ValleyProps::Pads`, before the terrain is built; a house inside its plot takes the plot's height). Pads cover all eras. In the editor, moving a building needs "Rebuild valley" to re-level the ground. Turn `flattenGround` off for things over water (the footbridge).
-  - **Dev screenshots:** the environment variable `UNDERTIME_DEV_VIEW="x y z yaw pitch [hold]"` skips the title and starts there (`hold`: the player stays put, for views in mid-air); `UNDERTIME_DEV_SUN="x y z"` overrides the sun direction (e.g. a low sun to check shadows); `UNDERTIME_DEV_TIME="hour [years]"` starts at that hour, optionally that many years after arriving (and in that era).
+  - **Dev screenshots:** the environment variable `UNDERTIME_DEV_VIEW="x y z yaw pitch [hold]"` skips the title and starts there (`hold`: the player stays put, for views in mid-air); `UNDERTIME_DEV_SUN="x y z"` overrides the sun direction (e.g. a low sun to check shadows); `UNDERTIME_DEV_TIME="hour [years]"` starts at that hour, optionally that many years after arriving (and in that era); `UNDERTIME_DEV_SEED=N` always builds that mountain (the log prints each shaft's foot, for views in the cave).
 - **The outside clock (`Clock.h`, `DayNight.h`, both pure and tested in `Tests/ClockTests.cpp`):**
   - **Clock and rate:** `OutsideClock` counts outside days since you arrived. `UndertimeModule::UpdateClock` advances it at `OutsideClock::Rate` (the surface rate outside, rising through the entrance passage, then `cfg::kZoneRate` per zone).
   - **Eras and the summary:** the era follows the clock, but only changes while the valley can't be seen (deep in, or inside and facing away from the mouth). Coming out shows how much time passed.
@@ -202,10 +203,12 @@ The game is first-person mining in a procedurally generated mountain. One world 
   10. The mountain matches its face (ledges and strata on steep terrain). **Done**, not yet tested by the user.
   11. Houses: interiors, glass windows, indoor light. **Done**, not yet tested by the user.
   12. Particles (engine): dust in the shaft beams, smoke, sparks, mining dust. **Done**, not yet tested by the user.
+  - After milestone 12: cloud seams fixed (integer hash), clouds drift with outside time (`UndertimeModule::UpdateClock`, `CloudSettings::drift`/`blur`), stronger sun against a weaker sky so cloud and object shadows read. Not committed yet.
+  13. Visual polish II (in progress; light shafts done, not yet tested by the user): light shafts (sun and natural shafts), living foliage, a colour grade per era, eye adaptation, flowing water, voxel edge highlights (in that order). Details in Design.md §8, milestone 13. Seasons later.
 
   Valley life, activities, shops and story come after (ideas in Design.md §9).
 - **User testing:** milestones 2–7 were tested by the user (2026-11-21).
-- **Commits:** the user commits when they ask. Milestones 1–4 are in `813c198`, 5–6 in the commit after it.
+- **Commits:** the user commits when they ask. Milestones 1–4 are in `813c198`, 5–6 in `328a135`, 7–12 in `e8bf6d6` (pushed to `origin/features/voxel-town`).
 - **Style:** everything is 0.25 m voxels. The cave is real (diggable) voxels; everything outside is voxel models baked to meshes. Placeholder art is generated as `.vox` files; MagicaVoxel is the editor for now, and a built-in voxel designer may replace it later.
 
 ## Working rules for UNDERTIME (from the user)

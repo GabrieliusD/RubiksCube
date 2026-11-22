@@ -151,6 +151,8 @@ private:
 	OutsideClock clock;
 	float timeRate = cfg::kSurfaceRate;   // outside seconds per real second where the player is
 	float strobe = 0.0f;                  // 0..1: how far the light blends to the day's average (smoothed)
+	double cloudDrift[2] = { 0.0, 0.0 };  // metres the clouds have drifted (with outside time)
+	float cloudBlur = 0.0f;               // 0..1, smoothed
 	bool wasInside = false;
 	double daysAtEntry = 0.0;             // when you last went in (for the summary when you come out)
 	int eraAtEntry = 1;

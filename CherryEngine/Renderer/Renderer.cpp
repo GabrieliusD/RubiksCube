@@ -284,6 +284,7 @@ struct Renderer::Impl
 	std::unique_ptr<rhi::Texture> ldrBeforeAA;   // the tonemap's output when anti-aliasing is on
 	std::unique_ptr<rhi::Texture> depth;
 	std::unique_ptr<rhi::Texture> aoRaw, ao;   // screen-space ambient occlusion
+	std::unique_ptr<rhi::Texture> shaftRaw, shaft;   // light shafts, half size
 	std::unique_ptr<rhi::Texture> ldr;
 	uint32_t viewWidth = 0, viewHeight = 0;
 	uint32_t requestedViewWidth = 1280, requestedViewHeight = 720;
@@ -504,6 +505,14 @@ void Renderer::Impl::CreatePipelines()
 	ssaoBlur.shaderFile = "Ssao.hlsl";
 	ssaoBlur.entry = "CSBlur";
 	pipelines.AddCompute("ssao_blur", ssaoBlur);
+	rhi::ComputePipelineDesc shafts;
+	shafts.shaderFile = "LightShafts.hlsl";
+	shafts.entry = "CSMain";
+	pipelines.AddCompute("shafts", shafts);
+	rhi::ComputePipelineDesc shaftsBlur;
+	shaftsBlur.shaderFile = "LightShafts.hlsl";
+	shaftsBlur.entry = "CSBlur";
+	pipelines.AddCompute("shafts_blur", shaftsBlur);
 
 	rhi::ComputePipelineDesc bloomDown;
 	bloomDown.shaderFile = "Bloom.hlsl";
@@ -618,6 +627,18 @@ void Renderer::Impl::CreateViewTargets(uint32_t width, uint32_t height)
 	aoRaw = rhi::Texture::Create(device, aoDesc);
 	aoDesc.name = "AmbientOcclusion";
 	ao = rhi::Texture::Create(device, aoDesc);
+
+	// Light shafts: half size, raw then blurred.
+	rhi::TextureDesc shaftDesc;
+	shaftDesc.width = std::max((width + 1) / 2, 1u);
+	shaftDesc.height = std::max((height + 1) / 2, 1u);
+	shaftDesc.format = kHdrFormat;
+	shaftDesc.usage = rhi::TextureUsage_ShaderResource | rhi::TextureUsage_UnorderedAccess;
+	shaftDesc.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+	shaftDesc.name = "LightShaftsRaw";
+	shaftRaw = rhi::Texture::Create(device, shaftDesc);
+	shaftDesc.name = "LightShafts";
+	shaft = rhi::Texture::Create(device, shaftDesc);
 
 	// Bloom chain: half size, then halving while it's at least 8 texels, up to 6 levels.
 	bloomChain.clear();
@@ -1385,7 +1406,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f };
+	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((size + 7) / 8, (size + 7) / 8, 1);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1520,7 +1541,8 @@ gpu::FrameConstants Renderer::Impl::BuildFrameConstants(const XMFLOAT3* eye)
 
 	const CloudSettings& clouds = settings.clouds;
 	frame.cloudsEnabled = clouds.enabled ? 1u : 0u;
-	frame.cloudOffset = { -clouds.wind.x * totalTime, -clouds.wind.y * totalTime };
+	frame.cloudOffset = { -(clouds.wind.x * totalTime + clouds.drift.x), -(clouds.wind.y * totalTime + clouds.drift.y) };
+	frame.cloudBlur = std::clamp(clouds.blur, 0.0f, 1.0f);
 	frame.cloudScale = std::max(clouds.scale, 1.0f);
 	frame.cloudCoverage = std::clamp(clouds.coverage, 0.0f, 1.0f);
 	frame.cloudSoftness = std::max(clouds.softness, 0.001f);
@@ -2015,6 +2037,33 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_DEPTH_WRITE);
 	}
 
+	// ---- Light shafts (compute, half size), from the world's depth ------------------
+	const LightShaftSettings& shaftSettings = r.settings.lightShafts;
+	const bool shaftsOn = shaftSettings.enabled && shaftSettings.intensity > 0.0f && r.shaft;
+	if (shaftsOn)
+	{
+		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		if (shadows)
+			for (auto& map : r.shadowMaps) map->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		const uint32_t w = r.shaft->Width(), h = r.shaft->Height();
+		r.shaftRaw->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("shafts"));
+		gpu::LightShaftConstants constants{ CHERRY_INVALID_INDEX, r.shaftRaw->UavIndex(), w, h, r.depth->SrvIndex(),
+			std::max(shaftSettings.density, 0.0f), std::max(shaftSettings.interiorDensity, 0.0f), std::clamp(shaftSettings.anisotropy, 0.0f, 0.95f),
+			shaftSettings.intensity, std::max(shaftSettings.maxDistance, 1.0f), static_cast<uint32_t>(std::clamp(shaftSettings.steps, 4, 128)), 0 };
+		cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(constants) / 4, &constants, 0);
+		cmd->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+		r.shaftRaw->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.shaft->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		cmd->SetPipelineState(r.pipelines.Get("shafts_blur"));
+		constants.sourceIndex = r.shaftRaw->SrvIndex();
+		constants.destIndex = r.shaft->UavIndex();
+		cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(constants) / 4, &constants, 0);
+		cmd->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+		r.shaft->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		r.depth->Transition(cmd, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+	}
+
 	// ---- View models: depth cleared so they always draw on top of the world --
 	if (firstViewModel != r.drawScratch.cend())
 	{
@@ -2051,10 +2100,11 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	rhi::Texture& tonemapped = antiAliasing ? *r.ldrBeforeAA : *r.ldr;
 	tonemapped.Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	if (ssaoOn) r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+	if (ssaoOn || shaftsOn) r.depth->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	gpu::TonemapConstants tonemap{ r.hdr->SrvIndex(), tonemapped.UavIndex(), r.viewWidth, r.viewHeight,
 		bloomOn ? r.bloomChain[0]->SrvIndex() : CHERRY_INVALID_INDEX, bloom.intensity,
-		ssaoOn ? r.ao->SrvIndex() : CHERRY_INVALID_INDEX, r.depth->SrvIndex(), std::clamp(ssaoSettings.strength, 0.0f, 1.0f) };
+		ssaoOn ? r.ao->SrvIndex() : CHERRY_INVALID_INDEX, r.depth->SrvIndex(), std::clamp(ssaoSettings.strength, 0.0f, 1.0f),
+		shaftsOn ? r.shaft->SrvIndex() : CHERRY_INVALID_INDEX };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
 	if (antiAliasing)

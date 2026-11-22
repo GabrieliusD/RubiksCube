@@ -176,6 +176,15 @@ void UndertimeModule::OnStartup(Engine& engine)
 	uint32_t startSeed = sceneSeed != 0 ? sceneSeed : RandomSeed();
 	unsigned reloadSeed = 0;
 	if (std::istringstream(engine.HotReloadState()) >> reloadSeed && reloadSeed != 0) startSeed = reloadSeed;
+	// Development: UNDERTIME_DEV_SEED=N always builds that mountain (screenshots of the cave).
+	char* devSeed = nullptr;
+	size_t devSeedLength = 0;
+	if (_dupenv_s(&devSeed, &devSeedLength, "UNDERTIME_DEV_SEED") == 0 && devSeed)
+	{
+		unsigned value = 0;
+		if (std::istringstream(devSeed) >> value && value != 0) startSeed = value;
+		free(devSeed);
+	}
 	NewWorld(engine, startSeed);
 
 	Camera& camera = engine.GetScene().Get<Camera>(engine.MainCamera());
@@ -339,6 +348,8 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	scoopPreview.clear();
 	CHERRY_LOG("UNDERTIME: seed %u: %d zones, %d pockets, %d floating voxels removed, generated in %.0f ms (collision %.0f ms)",
 		seed, static_cast<int>(layout.zones.size()), static_cast<int>(layout.pockets.size()), layout.floatingVoxelsRemoved, generationMs, collision.BuildMs());
+	for (const CaveShaft& shaft : layout.shafts)   // for UNDERTIME_DEV_VIEW
+		CHERRY_LOG("UNDERTIME: shaft into zone %d, foot at %.1f %.1f %.1f", shaft.zone + 1, shaft.bottom.x, shaft.bottom.y, shaft.bottom.z);
 }
 
 void UndertimeModule::SetWorldRenderer(Engine& engine, WorldRenderer mode)
@@ -444,10 +455,11 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	renderer.DestroyMaterial(vertexColorMaterial);
 	renderer.DestroyLightVolume(skylightVolume);
 	skylightVolume = {};
-	// The editor's view has no cave lighting, clouds or SSAO.
+	// The editor's view has no cave lighting, clouds, SSAO or light shafts.
 	renderer.Settings().interior = {};
 	renderer.Settings().clouds.enabled = false;
 	renderer.Settings().ssao.enabled = false;
+	renderer.Settings().lightShafts.enabled = false;
 	renderer.Settings().rooms.clear();
 }
 
@@ -1213,13 +1225,24 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 	settings.clouds.enabled = true;
 	settings.clouds.coverage = cfg::kCloudCoverage;
 	settings.clouds.scale = cfg::kCloudScale;
+	settings.clouds.softness = cfg::kCloudSoftness;
 	settings.clouds.darkness = cfg::kCloudDarkness;
 	settings.clouds.height = cfg::kCloudHeight;
-	settings.clouds.wind = { cfg::kCloudWind[0], cfg::kCloudWind[1] };
+	settings.clouds.wind = { 0.0f, 0.0f };   // the game drifts them with outside time (UpdateClock)
+	settings.clouds.drift = { static_cast<float>(cloudDrift[0]), static_cast<float>(cloudDrift[1]) };
+	settings.clouds.blur = cloudBlur;      // too fast to see: an even veil
 	settings.ssao.enabled = true;
 	settings.ssao.radius = cfg::kSsaoRadius;
 	settings.ssao.strength = cfg::kSsaoStrength;
 	settings.ssao.bias = cfg::kSsaoBias;
+	LightShaftSettings& shafts = settings.lightShafts;
+	shafts.enabled = true;
+	shafts.density = cfg::kShaftDensity;
+	shafts.interiorDensity = cfg::kShaftCaveDensity;
+	shafts.anisotropy = cfg::kShaftAnisotropy;
+	shafts.intensity = cfg::kShaftIntensity * (1.0f - strobe);   // no flickering beams while days race by
+	shafts.maxDistance = cfg::kShaftDistance;
+	shafts.steps = cfg::kShaftSteps;
 
 	// Lantern with a slight flicker.
 	const float flicker = 1.0f + cfg::kLanternFlicker * (0.6f * std::sin(time * 11.3f) + 0.4f * std::sin(time * 23.7f + 1.3f));
@@ -1316,6 +1339,15 @@ void UndertimeModule::UpdateClock(Engine& engine, float dt)
 	const bool inside = IsInside();
 	timeRate = OutsideClock::Rate(inside, player.position.z, ZoneStarts());
 	clock.Advance(dt, timeRate);
+	// Clouds drift with outside time: on the surface at the wind's speed, faster as time
+	// speeds up underground.
+	const double speedUp = timeRate / cfg::kSurfaceRate;
+	cloudDrift[0] += cfg::kCloudWind[0] * dt * speedUp;
+	cloudDrift[1] += cfg::kCloudWind[1] * dt * speedUp;
+	const float cloudSpeed = std::hypot(cfg::kCloudWind[0], cfg::kCloudWind[1]) * static_cast<float>(speedUp);
+	const float crossing = cfg::kCloudScale / std::max(cloudSpeed, 0.01f);   // seconds for a cloud to pass
+	const float blurTarget = std::clamp((cfg::kCloudBlurSlow - crossing) / (cfg::kCloudBlurSlow - cfg::kCloudBlurFast), 0.0f, 1.0f);
+	cloudBlur += (blurTarget - cloudBlur) * std::min(1.0f, dt / 0.5f);
 	strobe += (StrobeBlend(timeRate) - strobe) * std::min(1.0f, dt / 0.5f);
 
 	// The town changes only while you can't see it: deep in, or inside and facing away from

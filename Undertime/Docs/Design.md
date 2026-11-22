@@ -1,6 +1,29 @@
 # UNDERTIME design
 
-What has been decided for UNDERTIME, as of 2026-11-21. Sections marked **Open** or **Idea** are not decided yet.
+What has been decided for UNDERTIME, as of 2026-11-22. Sections marked **Open** or **Idea** are not decided yet.
+
+## Where it stands (2026-11-22)
+
+- **Playable now:**
+  - **The cave game:** mining, cave-ins, boulders, loose blocks, shovel, backpack.
+  - **The valley:** river, lake, forest, mountains in rock strata.
+  - **The town:** the Camp and Settlement eras, with furnished houses and glass windows.
+  - **The cave mouth:** a craggy rock face that matches the mountain, with a rough rock portal.
+  - **Time:** the outside clock (time faster with depth), day and night, the HUD watch, and eras that change by themselves.
+  - **Light:** daylight reaching into the cave from the mouth and from three natural shafts, clouds and their shadows, SSAO.
+  - **Particles:** smoke, sparks and dust.
+- **Committed:** milestones 1–12 are on the branch `features/voxel-town` (pushed). The fixes after milestone 12 (clouds) aren't committed yet.
+- **Not tested by the user yet:** milestones 8–12 (the list is in section 8, under each milestone).
+- **Not built yet:**
+  - the shops and the economy;
+  - the run reset;
+  - the story (letters, watches, NPCs);
+  - the heart and the ending;
+  - the Boomtown, Industry, Abandoned and Gone eras;
+  - seasons;
+  - the valley coming alive (people and animals);
+  - activities.
+- **Next:** the visual polish proposed in section 8 ("Visual polish, proposed"), then the game systems (shops, the run reset, story), in an order to be decided.
 
 The images in `Images/` are sketches made with standalone renderers (not CherryEngine). They show layout, mood and colour, not final quality. The four era images (`era_*.png`) were drawn before the switch to the all-voxel style, so use them for layout and mood only.
 
@@ -231,19 +254,25 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 
 ---
 
-### Against the flat look (planned)
-- A lower, warmer sun and cooler sky light (the clock drives this).
-- Ambient occlusion in screen space (SSAO): corners, the feet of buildings, under eaves and trees.
-- Cloud shadows drifting over the valley.
-- Ground variety: grass colour patches, darker ground under trees, wildflowers, tall grass, stones and bushes, worn dirt around buildings.
-- Valley haze that pools low, blue distant mountains, sun shafts.
-- Swaying trees and grass, flowing water with foam at the falls.
-- A final colour curve and a soft vignette (with the per-era grade idea above).
+### Against the flat look
+- **Done:**
+  - A low, warm sun mornings and evenings, from the clock.
+  - A stronger sun against a weaker sky light (sun 1.3, day ambient 0.2), so shadows read clearly.
+  - SSAO.
+  - Cloud shadows drifting over the valley; they drift with outside time and blur into an even veil when days race past.
+  - Grass in two shades in patches.
+- **Not yet:**
+  - Darker ground under trees, wildflowers, tall grass, stones and bushes, worn dirt around buildings.
+  - Valley haze that pools low, blue distant mountains, sun shafts.
+  - Swaying trees and grass, flowing water with foam at the falls.
+  - A final colour curve and a soft vignette (with the per-era grade idea above).
 
-### The mountain matches its face (planned)
+  These are now in "Visual polish, proposed" (section 8).
+
+### The mountain matches its face (done, milestone 10)
 The cave's face is craggy ledges with grass on top; the rest of the mountain is smooth slopes today. Steep terrain gets the same look: layered rock breaking into ledges, grass on ledges that face up, darker strata bands. The terrain can't overhang, but ledges can match. Near the cave mouth, the cliffs use 0.25 m blocks like the face. Scattered rock outcrop models break up long smooth runs.
 
-### Houses (planned)
+### Houses (done, milestone 11)
 - **Interiors:** floors, a doorway, furniture (counter, shelves, beds, stove) and a lamp that's lit at night. Collision already follows the model, so you can walk in.
 - **See-through windows:** the glass voxels of a model are baked into their own translucent mesh (slightly tinted, reflecting the sky).
 - **Indoor light:** several interior boxes (one per building, turned to match it) instead of only the cave's, so rooms aren't sky-lit.
@@ -298,18 +327,81 @@ Each one must build and run. The time clock was moved later at the user's reques
 7. **Fixes:** the loose-block slowdown (profile first: physics, draw calls, per-entity work), voxel volumes casting shadows, anti-aliasing. **Done.** The slowdown was piles of blocks never falling asleep in the physics; settled blocks now sleep.
    The cave mouth was redone after it: a craggy rock face with grassy ledges that can't be mined from outside, a rough 3 m portal, and per-pixel cave lighting so the valley stays lit when you look out. **Done.**
 8. **The outside clock and day/night** ("Day and night" in section 2): the clock and its rate by depth, the sun, moon, sky and ambient through the day, lights at night, the HUD watch, eras from the clock, the summary when you come up. **Done** (not yet tested by the user). Seasons are not in yet. Town windows light up at night through `Materials/Town.mat`; the campfire and forge always glow.
-9. **Light and depth:** daylight spreading into the cave from the mouth (a light volume), natural shafts, darkness in place of the black fog, SSAO, cloud shadows, a tuned sun. **Done** (not yet tested by the user). Three shafts (into zones 1–3) with log grates at the surface; clouds drift in the sky and shade the land. The sun was left as the clock makes it (low and warm mornings and evenings). Not done: dust in the shaft beams (needs particles).
+9. **Light and depth:** daylight spreading into the cave from the mouth (a light volume), natural shafts, darkness in place of the black fog, SSAO, cloud shadows, a tuned sun. **Done** (not yet tested by the user). Three shafts (into zones 1–3) with log grates at the surface; clouds drift in the sky and shade the land. The sun was left as the clock makes it (low and warm mornings and evenings). Dust in the shaft beams came with particles (milestone 12).
 10. **The mountain matches its face:** ledges and strata on steep terrain, fine blocks near the mouth, outcrops. **Done** (not yet tested by the user). Steep ground climbs in 2.5 m layers (rock risers, grass ledges); tall rock walls show the layers as bands of three rock shades, and the cave's face uses the same layers and shades. Rock outcrops (three sizes, four times larger far away) stand on steep ground. Heightfield cliffs stay flat walls (no overhangs).
 11. **Houses:** interiors, glass windows, indoor light. **Done** (not yet tested by the user). Every building has an open doorway and furniture for its purpose: the store and trading post have counters, shelves and barrels; the offices desks, shelves and a safe; the saloon a bar and tables; the smithy a forge (always glowing), an anvil and a tool rack; homes beds, a table and a stove; the clockmaker a workbench and clocks on the wall. A lamp hangs in each and glows at night. Windows are real glass (see-through, glowing warm at night). Indoors the sky light drops to 30%; sunlight comes in through windows and doors. Not yet: doors that open, upstairs floors.
 12. **Particles (engine):** a particle system (emitters on entities or set by the game, billboards lit like the scene) and its first uses: dust hanging in the shaft beams (lit only where the sun patch is), chimney and campfire smoke, sparks at the forge, and dust when rock breaks or a cave-in falls. Later uses: falling leaves, fireflies, snow. **Done** (not yet tested by the user). Simulated on the CPU (a few thousand particles), not soft against geometry yet.
-13. Later: the valley alive (walkers, animals, smoke, places of interest), the shops and economy, activities, the run reset, story (letters, watches, NPCs), the heart and the ending, the remaining eras.
+   **Polish after milestone 12** (not committed yet, not tested by the user):
+   - **Cloud seams fixed:** the cloud noise hashed corner values with floating-point maths, which the shader compiler may reorder, so neighbouring cells disagreed and straight seams showed. It uses an integer hash now.
+   - **Clouds follow outside time:** wind × how much faster time runs, so they race past the mouth in the cave. They blur into a veil once a cloud would cross the sky in under 3 seconds (`kCloudBlurSlow`/`kCloudBlurFast`).
+   - **Cloud shadows made readable:** smaller clouds (130 m), crisper edges, 80% of the sun blocked, and the stronger sun / weaker sky light above.
+13. **Visual polish II** (agreed 2026-11-22). Six parts, built in this order (foliage and the era grade come before eye adaptation and water, at the user's request); each one builds and runs on its own:
+    1. **Light shafts (engine):** **done** (not yet tested by the user). One half-size compute pass (`Shaders/LightShafts.hlsl`, `RenderSettings::lightShafts`) marches each view ray through the sun's shadow maps and the clouds, and inside the cave only where the light volume lets the sun in, so trees, roofs and rims cut dark gaps into the light, and a natural shaft shows as a column. The air is thin and scatters mostly towards the sun (`kShaftDensity`, `kShaftAnisotropy`), so it shows as a golden haze with beams when you look towards a low sun, and it thins with distance (the far valley is left to the fog). The user asked to focus on outside; the cave column is there but subtle. Not yet: tuning in play, the cost on the user's machine.
+    2. **Living foliage:**
+       - **Sway:** trees and grass move in the wind (a vertex offset in their shader, stronger towards the top of a tree; wind direction and gusts as a shader global, the same wind as the clouds).
+       - **Ground cover:** tall grass tufts and flowers scattered as small instanced voxel props (thicker in meadows, none on trails and pads), bushes and stones at the forest edge.
+       - **Forest floor:** darker, mossy ground under the trees.
+    3. **Colour grade per era (engine):** a grade step in the tonemap (white balance, saturation, contrast curve, lift and gain, a soft vignette), with a grade per era that blends over a few seconds when the era changes: sepia-warm Camp, warm Settlement, rich Boomtown, cold Industry, faded Abandoned, natural and green Gone. Inside the cave the grade eases back to neutral, so the cave looks the same in every era and coming out shows how the era has changed. The grades' numbers live in `Config.h`.
+    4. **Eye adaptation (engine):** the tonemap measures the frame's average brightness (a small compute pass that reduces the HDR image, ignoring the brightest and darkest few percent) and eases an exposure towards it, faster into brightness than into the dark, like the eye. Walking out of the mine blinds for about a second and the valley settles; walking in, the cave slowly opens up. `RenderSettings` gets the exposure range and speeds; a fixed-exposure switch stays for screenshots. Bloom follows the same exposure.
+    5. **Water that flows** (game shader, a small engine helper if needed):
+       - **Flow:** the river's mesh carries its flow direction and speed (from `Valley`'s river path; steeper reaches flow faster, the lake barely moves). Ripples are two scrolling normal layers blended so they never visibly reset (flow mapping), so the water is seen to run downstream.
+       - **Light:** sky reflection by angle (Fresnel), the banks darkening it near the edge, a sharp sun glint that sparkles on the ripples, darker deep water, a lighter shallow edge.
+       - **Foam:** white foam that streams at the falls and fades downstream, and foam lines where the water meets the banks and rocks. Spray particles at the falls.
+       - **At night:** moonlight glints, and the town's lit windows shimmer in the river.
+    6. **Voxel edge highlights:** a thin lighter edge where block faces meet, and a slightly darker crease where they fold inwards, in the voxel surface shaders (both the ray-marched cave and the baked models). It fades with distance so far mountains don't shimmer.
+
+    **Seasons** stay out of this milestone: the era grade is enough for now. The grade is built so a season tint can later sit on top of it (seasons are in "Later").
+14. Later:
+    - the valley alive (walkers, animals, places of interest);
+    - the shops and economy;
+    - activities;
+    - the run reset;
+    - story (letters, watches, NPCs);
+    - the heart and the ending;
+    - the remaining eras;
+    - seasons.
+
+### Visual polish, proposed
+Ordered by how much each makes the game pop for the work. Items 1–5 and 7 became milestone 13 (above); the rest are not decided yet.
+1. **Eye adaptation:** exposure that adjusts slowly between the dark cave and daylight. Walking out of the mine is blinding for a second, then the valley settles; walking in, the cave slowly opens up. (Engine: average brightness, then an exposure that eases towards it.)
+2. **Sun shafts:** beams of light in screen space from the sun, through trees and the mouth's rim. Shafts of dusty light down the natural shafts (volumetric, along the sun direction, in the shaft's light volume).
+3. **Water:**
+   - reflections of the sky and the banks, and the sun glinting off it;
+   - ripples that move with the flow;
+   - white foam at the falls and where the river meets rocks;
+   - darker deep water;
+   - shoreline wetness.
+4. **Living foliage:**
+   - trees and grass swaying in the wind (vertex offset in their shader, wind as a shader global);
+   - tall grass and flowers scattered as small voxel props;
+   - darker, mossy ground under the forest.
+5. **Colour grade per era:** sepia-warm Camp, rich Boomtown, cold Industry, faded Abandoned (already an idea in section 7). Plus a soft vignette and a gentle contrast curve.
+6. **Valley haze:** mist pooling on the valley floor at dawn, aerial perspective (distant mountains bluer and lighter), light shafts through the mist.
+7. **Voxel edge highlights:** a thin lighter edge where block faces meet (bevel shading in the voxel surface shaders), so blocks catch the light and read at a distance.
+8. **The cave:**
+   - ore that glints (a sparkle in the lantern light);
+   - Time crystal casting cyan light (point lights from crystal clusters);
+   - wet rock with a specular sheen near water;
+   - lamps and timber props in zone 1 that flicker;
+   - motes drifting in the lantern's light.
+9. **Lamps that light rooms:** house lamps as real point lights at night. This needs more than 8 point lights per frame: clustered or tiled lights in the engine.
+10. **Weather and seasons:** overcast and rainy days (rain particles, puddles, darker sky), snow in winter on upward faces (season shader global), autumn colours.
+11. **Night life:** fireflies, moonlight glinting on water, lit windows reflected in the river.
+12. **Mining juice:** sparks when the pick hits hard ore, crack lines on damaged blocks, a small camera kick on cave-ins (the dust is done).
 
 ---
 
 ## 9. Parked and open
 
 - **Distant sparkle:** fixed in milestone 10 (no grass or snow bands down the sides of coarse terrain).
-- **The valley in the editor:** it's only built on Play today. Placing the town (milestone 5) will need a preview of it in the editor.
+- **The valley in the editor:** done (milestone 5).
+- **Not done in milestones 8–12:**
+  - doors that open;
+  - upstairs floors (the Saloon's and the Founders' House's upper windows have nothing behind them);
+  - house lamps as real lights;
+  - particles fading where they touch geometry (soft particles);
+  - seasons.
+- **Open: dropping into a shaft:** should a natural shaft be a way into the cave (rope, ladder)? See "the old shaft".
 
 - **Tree cutting (parked):** maybe later, if the player needs more to do. The idea was timber supports that prevent cave-ins, a forest that grows back with outside time, and the town buying your wood.
 - **Delivery jobs** for the courier (idea).

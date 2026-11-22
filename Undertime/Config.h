@@ -338,15 +338,28 @@ namespace cfg
 	constexpr float kSkylightStrength = 1.0f;     // x the outside ambient, where the level is 1
 	constexpr float kSkylightSunReach = 3.0f;     // the sun reaches in where the level x this >= 1 (its shadows decide where)
 	// Clouds (their shadows drift over the valley; the sky shows them).
-	constexpr float kCloudCoverage = 0.42f;
-	constexpr float kCloudScale = 240.0f;         // m across a typical cloud
-	constexpr float kCloudDarkness = 0.6f;        // how much sun a cloud takes
+	constexpr float kCloudCoverage = 0.45f;
+	constexpr float kCloudScale = 130.0f;         // m across a typical cloud (several shadows in view at once)
+	constexpr float kCloudSoftness = 0.05f;       // how soft their edges are (low: a shadow line you see sweep by)
+	constexpr float kCloudDarkness = 0.8f;        // how much sun a cloud takes
 	constexpr float kCloudHeight = 320.0f;
-	constexpr float kCloudWind[2] = { 4.0f, 1.5f };   // m/s (x, z)
+	constexpr float kCloudWind[2] = { 4.0f, 1.5f };   // m/s (x, z) on the surface; faster as outside time speeds up
+	// Clouds blur into an even veil once one passes overhead faster than kCloudBlurSlow
+	// seconds (fully by kCloudBlurFast), so fast time underground doesn't make them flicker.
+	constexpr float kCloudBlurSlow = 3.0f;
+	constexpr float kCloudBlurFast = 0.5f;
 	// Screen-space ambient occlusion (creases, the feet of buildings, under eaves).
 	constexpr float kSsaoRadius = 0.8f;
 	constexpr float kSsaoStrength = 0.75f;
 	constexpr float kSsaoBias = 0.04f;
+	// Light shafts: sunlight scattered by the air (beams through trees, past rims, a column of
+	// light down each natural shaft). Density is scattering per metre.
+	constexpr float kShaftDensity = 0.0012f;      // valley air
+	constexpr float kShaftCaveDensity = 0.035f;   // dusty cave air
+	constexpr float kShaftAnisotropy = 0.7f;      // brighter looking towards the sun
+	constexpr float kShaftIntensity = 1.0f;
+	constexpr float kShaftDistance = 160.0f;      // m marched along each view ray
+	constexpr int kShaftSteps = 32;
 	constexpr float kOutsideFogStart = 110.0f;
 	constexpr float kOutsideFogEnd = 520.0f;
 	constexpr float kCaveAmbient = 0.012f;
@@ -361,7 +374,7 @@ namespace cfg
 	constexpr float kShadowFar = 240.0f;          // softer ones out to here, fading away
 	constexpr float kBloomIntensity = 0.06f;      // glow around bright things (windows, fire, crystals)
 	constexpr float kBloomThreshold = 1.2f;
-	constexpr float kDayAmbient = 0.30f;
+	constexpr float kDayAmbient = 0.20f;
 
 	// ---- The outside clock (Clock.h; Design.md "Day and night") -----------------------
 	// Outside time runs at kSurfaceRate on the surface, faster in each cave zone (outside
@@ -391,7 +404,7 @@ namespace cfg
 	constexpr float kSunNoonElevation = 52.0f;    // degrees above the horizon at noon
 	constexpr uint32_t kSunNoonColor = 0xfff4e2;
 	constexpr uint32_t kSunLowColor = 0xffa25a;   // near the horizon
-	constexpr float kSunStrength = 1.0f;
+	constexpr float kSunStrength = 1.3f;          // strong sun against a weaker sky: shadows (trees, clouds) read clearly
 	constexpr uint32_t kMoonColor = 0x9fb4ff;
 	constexpr float kMoonStrength = 0.16f;
 	constexpr float kMoonDiskBrightness = 3.5f;

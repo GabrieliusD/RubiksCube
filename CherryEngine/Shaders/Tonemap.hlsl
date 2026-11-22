@@ -35,6 +35,17 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 		const float2 uv = (id.xy + 0.5) / float2(gDraw.width, gDraw.height);
 		color += bloom.SampleLevel(gLinearClamp, uv, 0).rgb * gDraw.bloomIntensity;
 	}
+	if (gDraw.shaftTextureIndex != CHERRY_INVALID_INDEX)
+	{
+		// Light shafts (LightShafts.hlsl) at half size, over the world only (as AO below).
+		Texture2D<float> depth = ResourceDescriptorHeap[gDraw.depthTextureIndex];
+		if (depth[id.xy] >= 1.0)
+		{
+			Texture2D<float4> shafts = ResourceDescriptorHeap[gDraw.shaftTextureIndex];
+			const float2 uv = (id.xy + 0.5) / float2(gDraw.width, gDraw.height);
+			color += shafts.SampleLevel(gLinearClamp, uv, 0).rgb;
+		}
+	}
 	if (gDraw.aoTextureIndex != CHERRY_INVALID_INDEX)
 	{
 		// Ambient occlusion (Ssao.hlsl) darkens the world; view models (drawn after the

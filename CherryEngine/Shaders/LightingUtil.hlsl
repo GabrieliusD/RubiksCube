@@ -186,19 +186,25 @@ float RoomAmount(float3 positionW, out float ambientScale)
 }
 
 // ---- Cloud shadows (RenderSettings::clouds) ----------------------------------------------
-float CloudHash(float2 p)
+// A value per grid corner, from its integer coordinates: integer maths gives every cell the
+// same value for a shared corner (a float hash can differ by rounding between the cells,
+// which shows as straight seams).
+float CloudHash(int2 c)
 {
-	p = frac(p * float2(123.34, 456.21));
-	p += dot(p, p + 45.32);
-	return frac(p.x * p.y);
+	uint h = asuint(c.x) * 0x8DA6B343u ^ asuint(c.y) * 0xD8163841u;
+	h ^= h >> 13;
+	h *= 0x5BD1E995u;
+	h ^= h >> 15;
+	return (h & 0xFFFFFFu) / 16777216.0;
 }
 
 float CloudValueNoise(float2 p)
 {
-	const float2 i = floor(p);
-	const float2 f = frac(p);
+	const float2 cell = floor(p);
+	const int2 i = int2(cell);
+	const float2 f = p - cell;
 	const float2 u = f * f * (3.0 - 2.0 * f);
-	return lerp(lerp(CloudHash(i), CloudHash(i + float2(1, 0)), u.x), lerp(CloudHash(i + float2(0, 1)), CloudHash(i + float2(1, 1)), u.x), u.y);
+	return lerp(lerp(CloudHash(i), CloudHash(i + int2(1, 0)), u.x), lerp(CloudHash(i + int2(0, 1)), CloudHash(i + int2(1, 1)), u.x), u.y);
 }
 
 // Cloud density 0..1 at a point of the cloud layer (world x, z).
@@ -207,7 +213,9 @@ float CloudDensity(float2 xz)
 	float2 p = (xz + gFrame.cloudOffset) / gFrame.cloudScale;
 	const float n = CloudValueNoise(p) * 0.55 + CloudValueNoise(p * 2.03 + 17.1) * 0.3 + CloudValueNoise(p * 4.11 + 41.7) * 0.15;
 	const float edge = 1.0 - gFrame.cloudCoverage;
-	return smoothstep(edge - gFrame.cloudSoftness, edge + gFrame.cloudSoftness, n);
+	const float density = smoothstep(edge - gFrame.cloudSoftness, edge + gFrame.cloudSoftness, n);
+	// Passing too fast to see: their average (about the coverage) everywhere.
+	return lerp(density, gFrame.cloudCoverage, gFrame.cloudBlur);
 }
 
 // How much sun gets past the clouds to a point (1 = all).

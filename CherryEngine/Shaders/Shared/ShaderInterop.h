@@ -123,6 +123,8 @@ struct FrameConstants
 	float  cloudDarkness;
 	float  cloudHeight;
 	uint   roomCount;
+	float  cloudBlur;              // 0..1: clouds blur into their average (they pass too fast to see)
+	float  pad2, pad3, pad4;
 	RoomBox rooms[CHERRY_MAX_ROOMS];
 };
 
@@ -234,6 +236,25 @@ struct TonemapConstants
 	uint aoTextureIndex;           // Texture2D<float> ambient occlusion, or CHERRY_INVALID_INDEX
 	uint depthTextureIndex;        // the view depth: pixels not at the far plane are view models (no AO)
 	float aoStrength;
+	uint shaftTextureIndex;        // Texture2D<float4> light shafts at half size, or CHERRY_INVALID_INDEX
+};
+
+// Light shafts (LightShafts.hlsl): CSMain marches the view rays into a half-size texture,
+// CSBlur smooths it. Sizes are the half-size texture's.
+struct LightShaftConstants
+{
+	uint sourceIndex;              // CSBlur: the raw shafts (Texture2D<float4>)
+	uint destIndex;                // RWTexture2D<float4>
+	uint width;
+	uint height;
+	uint depthIndex;               // the full-size view depth
+	float density;                 // scattering per metre outside the interior
+	float interiorDensity;         // ... and inside it
+	float anisotropy;              // 0 even .. towards 1: mostly towards the sun
+	float intensity;
+	float maxDistance;             // metres marched at most
+	uint steps;
+	uint pad;
 };
 
 // Screen-space ambient occlusion (Ssao.hlsl): CSMain reads the depth and writes raw AO;
