@@ -1,9 +1,11 @@
 // CaveRock.hlsl
 // The cave's rock (Materials/CaveRock.mat, on the scene's CaveWorld): the palette colour with
 // a mottled variation, plus
-//   ore that glints: metal facets that catch the lantern (each tiny facet tilted its own way)
-//   Time crystal glowing cyan, the strange watch pink
-//   cracks: dark lines across a damaged block's faces, more and wider as it weakens
+//   ore as nuggets: each ore block its own shade, glossy and tilted a little its own way (so
+//     whole faces catch the lantern), with a pixel-art bevel on an 8 x 8 grid per face
+//   Time crystal glowing cyan (bevelled the same way), the strange watch pink
+//   cracks: pixel-art cracks on the same 8 x 8 grid, one from an edge when lightly cracked,
+//     three meeting in the middle when badly cracked (like a block-breaking overlay)
 //   damp rock deeper down: a little darker, with a sheen in the lantern light
 // The palette layout comes from the game (VoxelWorld::PaletteLayout, ShaderGlobal(3)):
 //   x = stone bands, y = first ore entry (one per block type), z = first cracked entry,
@@ -26,23 +28,54 @@ float2 Hash22(float2 p)
 	return frac((a.xx + a.yz) * a.zy);
 }
 
-// Distance (metres) to the nearest edge between Voronoi cells in the face's plane: the cracks.
-// In world metres, so a crack runs on across neighbouring blocks.
-float CrackLines(float2 metres, float cells)
+float SegmentDistance(float2 p, float2 a, float2 b)
 {
-	const float2 p = metres * cells;
-	const float2 base = floor(p);
-	float first = 9.0, second = 9.0;
-	for (int y = -1; y <= 1; ++y)
-		for (int x = -1; x <= 1; ++x)
-		{
-			const float2 c = base + float2(x, y);
-			const float2 site = c + Hash22(c);
-			const float d = distance(p, site);
-			if (d < first) { second = first; first = d; }
-			else if (d < second) second = d;
-		}
-	return (second - first) / cells;
+	const float2 ab = b - a;
+	const float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-5));
+	return length(p - a - ab * t);
+}
+
+// A crack's way across one block face, on the face's 8 x 8 pixel grid. Each edge of the face
+// is crossed by a crack (or not) at a point picked from the edge's place in the world, so the
+// neighbouring block, which shares that edge, continues the crack from the same point. The
+// crossings join at a point near the middle with a kink on the way: jagged 1-pixel lines.
+//   face: integer coordinates of the face's block in the face's plane (u, v) and its depth w
+//   chance: how likely each edge is crossed (more when badly cracked)
+float CrackDistance(float2 pixelCentre, float3 face, float chance, float3 axisSeed)
+{
+	const float3 keys[4] = {
+		float3(face.x, face.y, face.z) + axisSeed,            // the u = 0 edge
+		float3(face.x + 1.0, face.y, face.z) + axisSeed,      // the u = 8 edge (the next block's u = 0)
+		float3(face.x, face.y, face.z) + axisSeed + 50.5,     // the v = 0 edge
+		float3(face.x, face.y + 1.0, face.z) + axisSeed + 50.5 };
+	const float2 middle = float2(4.0, 4.0) + (float2(Hash13(face * 1.7 + axisSeed), Hash13(face * 2.3 + axisSeed)) - 0.5) * 3.0;
+	float d = 99.0;
+	int crossings = 0;
+	[unroll] for (int e = 0; e < 4; ++e)
+	{
+		if (Hash13(keys[e] * 0.731) >= chance)
+			continue;
+		++crossings;
+		const float t = 1.5 + Hash13(keys[e] * 1.913) * 5.0;
+		const float2 start = e == 0 ? float2(0.0, t) : e == 1 ? float2(8.0, t) : e == 2 ? float2(t, 0.0) : float2(t, 8.0);
+		const float2 kink = lerp(start, middle, 0.5) + (float2(Hash13(keys[e] * 3.1), Hash13(keys[e] * 4.7)) - 0.5) * 2.5;
+		d = min(d, min(SegmentDistance(pixelCentre, start, kink), SegmentDistance(pixelCentre, kink, middle)));
+	}
+	return crossings > 0 ? d : 99.0;
+}
+
+// The pixel (0..7, 0..7) this point is on, on its block face.
+float2 FacePixel(float2 uv)
+{
+	return clamp(floor(uv * 8.0), 0.0, 7.0);
+}
+
+// A pixel-art bevel: the top-left rim of a face lighter, the bottom-right darker.
+float Bevel(float2 pixel)
+{
+	if (pixel.x < 0.5 || pixel.y > 6.5) return 1.18;
+	if (pixel.x > 6.5 || pixel.y < 0.5) return 0.8;
+	return 1.0;
 }
 
 SurfaceOutput EvaluateSurface(SurfaceInput input)
@@ -74,9 +107,10 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 	s.alpha = 1.0;
 	s.opacityMask = 1.0;
 
-	// The block this pixel is on, and a tiny facet inside it.
+	// The block this pixel is on, and where on its face (an 8 x 8 pixel grid).
 	const float3 cell = floor(input.positionL * 4.0 - input.normalW * 0.5);
-	const float3 facet = floor(input.positionL * 12.0);   // three per block
+	const float2 pixel = FacePixel(input.uv);
+	const float blockHash = Hash13(cell);
 
 	// Damp deeper down: darker, with a sheen.
 	const float damp = smoothstep(40.0, 110.0, input.positionL.z);
@@ -88,23 +122,22 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 	{
 		if (type == kCopper || type == kSilver || type == kGold)
 		{
-			// Metal flecks: tilted facets that flash in the lantern light as you move.
-			// (half metal: fully metallic flecks only mirror the dark cave and read as black)
-			const float fleck = step(0.7, Hash13(facet));
-			const float3 tilt = float3(Hash13(facet + 1.7), Hash13(facet + 3.1), Hash13(facet + 5.9)) - 0.5;
-			s.normalW = normalize(input.normalW + tilt * 0.9 * fleck);
-			s.metallic = 0.45 * fleck;
-			s.roughness = lerp(0.7, 0.22, fleck);
-			s.specular = lerp(0.25, 0.9, fleck);
-			s.baseColor = lerp(s.baseColor, colour * 1.35, fleck);
-			// ... and a faint twinkle of their own, so they read in the dark too.
-			const float twinkle = step(0.97, Hash13(facet + 9.3)) * (0.5 + 0.5 * sin(input.time * 3.0 + Hash13(facet) * 40.0));
-			s.emissive = colour * twinkle * 0.6;
+			// Nuggets: each block its own shade and a little tilt, glossy and half metal, so
+			// whole faces flash as the lantern moves (fully metallic would mirror the dark cave
+			// and read black). Richer blocks are brighter and shinier.
+			const float rich = smoothstep(0.35, 0.85, blockHash);
+			const float3 tilt = float3(Hash13(cell + 1.7), Hash13(cell + 3.1), Hash13(cell + 5.9)) - 0.5;
+			s.normalW = normalize(input.normalW + tilt * 0.35);
+			s.baseColor = colour * lerp(0.85, 1.3, rich) * Bevel(pixel);
+			s.metallic = lerp(0.2, 0.5, rich);
+			s.roughness = lerp(0.5, 0.22, rich);
+			s.specular = lerp(0.5, 0.9, rich);
 		}
 		else if (type == kTimeCrystal)
 		{
 			const float pulse = 0.85 + 0.15 * sin(input.time * 1.7 + dot(cell, float3(0.7, 1.3, 0.9)));
-			s.emissive = float3(0.35, 1.6, 1.9) * pulse * lerp(0.6, 1.2, Hash13(facet));
+			s.baseColor = colour * Bevel(pixel);
+			s.emissive = float3(0.35, 1.6, 1.9) * pulse * lerp(0.7, 1.15, blockHash) * Bevel(pixel);
 			s.roughness = 0.15;
 			s.specular = 0.6;
 		}
@@ -114,19 +147,19 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 		}
 	}
 
-	// Cracks across a damaged block's faces: a few long ones (cells about 0.6 m across, in the
-	// face's plane), wider when badly cracked; a second, finer set joins in then.
+	// Cracks: 1-pixel lines on the face's 8 x 8 grid, running on across neighbouring blocks.
 	if (crack > 0)
 	{
 		const float3 n = abs(input.normalW);
-		const float3 q = input.positionL;
-		const float2 plane = n.x > 0.5 ? q.yz : (n.y > 0.5 ? q.xz : q.xy);
-		const float width = crack == 1 ? 0.012 : 0.022;
-		float lines = CrackLines(plane, 1.6);
-		if (crack == 2)
-			lines = min(lines, CrackLines(plane + 17.3, 3.2) + 0.008);
-		const float onCrack = 1.0 - smoothstep(width * 0.5, width, lines);
-		s.baseColor *= 1.0 - 0.75 * onCrack;
+		const float3 q = input.positionL * 4.0;   // in blocks
+		// The face's plane coordinates (u, v) and its depth (w, the boundary it lies on).
+		const float3 uvw = n.x > 0.5 ? q.yzx : (n.y > 0.5 ? q.xzy : q.xyz);
+		const float3 face = float3(floor(uvw.xy), round(uvw.z));
+		const float2 pixelCentre = floor(frac(uvw.xy) * 8.0) + 0.5;
+		const float3 axisSeed = n.x > 0.5 ? float3(0.0, 0.0, 0.0) : (n.y > 0.5 ? float3(71.0, 0.0, 0.0) : float3(0.0, 137.0, 0.0));
+		const float d = CrackDistance(pixelCentre, face, crack == 1 ? 0.45 : 0.85, axisSeed);
+		const float onCrack = d < 0.55 ? 1.0 : 0.0;
+		s.baseColor *= 1.0 - 0.7 * onCrack;
 		s.emissive *= 1.0 - onCrack;
 	}
 	return s;

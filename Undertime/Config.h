@@ -336,7 +336,7 @@ namespace cfg
 	constexpr float kBiteRoughness = 0.35f;       // jagged edges: +- this fraction per voxel
 	constexpr float kPickPower = 1.25f;           // damage per hit at the centre for the starting pick in hardness-1 rock
 	constexpr float kBiteFalloff = 2.2f;          // full damage inside (1 - 1/this) of the radius
-	constexpr float kCrackShade[2] = { 0.74f, 0.52f };   // brightness of lightly / badly cracked voxels
+	constexpr float kCrackShade[2] = { 0.9f, 0.78f };     // brightness of lightly / badly cracked voxels (the cave rock shader draws the crack lines)
 	constexpr float kCrackHitScale = 0.7f;        // jolt on a hit that only cracked the rock
 
 	// ---- Shovel and backpack ------------------------------------------------------
