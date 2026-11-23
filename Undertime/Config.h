@@ -301,6 +301,11 @@ namespace cfg
 	constexpr uint32_t kGoldQuartz = 0xd6cdbb;    // ... in pale quartz
 	constexpr uint32_t kCopperVerdigris = 0x4f9a7c;   // green patches on copper
 	constexpr float kSilverTarnish = 0.5f;        // how dark tarnished silver gets
+	// Relief in the rock (CaveRock.hlsl): shading only (no shape), on the same pixel grid,
+	// so the lantern picks out chiselled facets and cracks look cut in. 0 turns each off.
+	constexpr float kRockRelief = 0.35f;          // how far the chiselled facets tilt
+	constexpr float kCrackGroove = 0.7f;          // how far the pixels beside a crack tilt into it
+	constexpr float kReliefFadeDistance = 14.0f;  // m: the relief fades out by here (it would shimmer)
 	constexpr float kStoneJitter = 0.15f;         // +-15% brightness per cell
 	constexpr float kOreJitter = 0.06f;
 	constexpr float kBedrockDarken = 0.55f;

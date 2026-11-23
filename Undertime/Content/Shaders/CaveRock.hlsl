@@ -9,11 +9,15 @@
 //   Time crystal glowing cyan (bevelled the same way), the strange watch pink
 //   cracks: pixel-art cracks on the same 8 x 8 grid, one from an edge when lightly cracked,
 //     three meeting in the middle when badly cracked (like a block-breaking overlay)
-//   damp rock deeper down: a little darker, with a sheen in the lantern light
+//   damp rock deeper down: a little darker, with a sheen in the lantern light (and smoother)
+//   relief (shading only): the rock chiselled into facets on the same pixel grid, and the
+//     pixels beside a crack tilted into it, so the lantern lights one side of the crack and
+//     not the other. Fades out with distance, where it would shimmer.
 // Material parameters (filled by UndertimeModule from Config.h, sRGB colours):
 //   0..2 stone at the entrance, 3..5 stone at the far wall, 6..8 copper, 9..11 silver,
 //   12..14 gold, 15..17 the quartz around gold, 18..20 verdigris,
-//   21 ore richness, 22 gold richness, 23 silver tarnish, 24 the grid's depth (m)
+//   21 ore richness, 22 gold richness, 23 silver tarnish, 24 the grid's depth (m),
+//   25 relief, 26 crack groove, 27 the distance the relief fades out by (m)
 // The palette layout comes from the game (VoxelWorld::PaletteLayout, ShaderGlobal(3)):
 //   x = stone bands, y = first ore entry (one per block type), z = first cracked entry,
 //   w = entries per cracked set (stone bands, then one per block type).
@@ -94,6 +98,20 @@ float LatticeNoise(float3 p)
 		lerp(lerp(Hash13(i + float3(0, 0, 1)), Hash13(i + float3(1, 0, 1)), u.x), lerp(Hash13(i + float3(0, 1, 1)), Hash13(i + float3(1, 1, 1)), u.x), u.y), u.z);
 }
 
+// The chiselled facets: the rock face broken into chips of about 3 x 3 pixels (on the 32 a
+// metre grid, in world space, shifted every 12 pixels so they don't line up with the blocks),
+// each tilted one of 8 ways or left flat. Returns the tilt along the face's u and v.
+float2 ChipTilt(float3 pixel)
+{
+	const float3 shift = floor(float3(Hash13(floor(pixel / 12.0) + 3.7), Hash13(floor(pixel / 12.0) + 8.1), Hash13(floor(pixel / 12.0) + 1.3)) * 3.0);
+	const float3 chip = floor((pixel + shift) / 3.0);
+	const float h = Hash13(chip * 1.37 + 5.0);
+	if (h < 0.3)
+		return 0.0;
+	const float angle = floor(Hash13(chip * 2.11 + 9.0) * 8.0) * 0.785398;
+	return float2(cos(angle), sin(angle)) * lerp(0.6, 1.0, h);
+}
+
 float3 ParamSrgb(SurfaceInput input, uint index)
 {
 	return SrgbToLinear(ParamFloat3(input, index));
@@ -139,6 +157,23 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 	s.roughness = lerp(0.85, 0.42, damp);
 	s.specular = lerp(0.25, 0.45, damp);
 
+	// The face's two axes along it (u, v as the cracks use them), the centre of the face
+	// pixel this point is on (32 a metre, in world space), and how much relief survives the distance.
+	const float3 nAbs = abs(input.normalW);
+	const float3 faceU = nAbs.x > 0.5 ? float3(0, 1, 0) : float3(1, 0, 0);
+	const float3 faceV = nAbs.z > 0.5 ? float3(0, 1, 0) : float3(0, 0, 1);
+	const float3 pixelW = (floor(input.positionL * 32.0 - input.normalW * 0.5) + 0.5) / 32.0;
+	const bool hasRelief = input.material.paramCount >= 28;
+	const float reliefNear = hasRelief ? 1.0 - smoothstep(ParamFloat(input, 27) * 0.45, ParamFloat(input, 27), distance(input.positionW, gView.eyePosW)) : 0.0;
+
+	// Chiselled facets: each chip of rock tilted its own way (less where damp).
+	const float relief = hasRelief ? ParamFloat(input, 25) * reliefNear * lerp(1.0, 0.4, damp) : 0.0;
+	if (relief > 0.0)
+	{
+		const float2 tilt = ChipTilt(floor(pixelW * 32.0));
+		s.normalW = normalize(input.normalW + (faceU * tilt.x + faceV * tilt.y) * relief);
+	}
+
 	if (ore)
 	{
 		if ((type == kCopper || type == kSilver || type == kGold) && input.material.paramCount >= 25)
@@ -151,7 +186,6 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 			float3 rock = SrgbToLinear(lerp(ParamFloat3(input, 0), ParamFloat3(input, 3), depth01));
 			// Metal: pixel clusters from a noise sampled at the middle of each face pixel in world
 			// space (32 pixels a metre), stretched along a gentle dip so they line up as seams.
-			const float3 pixelW = (floor(input.positionL * 32.0 - input.normalW * 0.5) + 0.5) / 32.0;
 			const float3 seamSpace = float3(pixelW.x * 2.2 + pixelW.y * 0.8, pixelW.y * 5.5, pixelW.z * 2.2 - pixelW.y * 0.6);
 			const float field = LatticeNoise(seamSpace) * 0.65 + LatticeNoise(pixelW * 9.0 + 7.3) * 0.35;
 			const float richness = (type == kGold ? ParamFloat(input, 22) : ParamFloat(input, 21)) * lerp(0.75, 1.2, blockHash);
@@ -188,11 +222,12 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 			s.specular = lerp(0.3, 0.85, metal);
 			// Each metal pixel tilted a little its own way, so they flash in turn as the lantern moves.
 			const float3 tilt = float3(Hash13(pixelW * 32.0 + 1.7), Hash13(pixelW * 32.0 + 3.1), Hash13(pixelW * 32.0 + 5.9)) - 0.5;
-			s.normalW = normalize(input.normalW + tilt * 0.5 * metal);
+			s.normalW = metal > 0.5 ? normalize(input.normalW + tilt * 0.5) : s.normalW;
 		}
 		else if (type == kTimeCrystal)
 		{
 			const float pulse = 0.85 + 0.15 * sin(input.time * 1.7 + dot(cell, float3(0.7, 1.3, 0.9)));
+			s.normalW = input.normalW;
 			s.baseColor = colour * Bevel(pixel);
 			s.emissive = float3(0.35, 1.6, 1.9) * pulse * lerp(0.7, 1.15, blockHash) * Bevel(pixel);
 			s.roughness = 0.15;
@@ -214,10 +249,24 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 		const float3 face = float3(floor(uvw.xy), round(uvw.z));
 		const float2 pixelCentre = floor(frac(uvw.xy) * 8.0) + 0.5;
 		const float3 axisSeed = n.x > 0.5 ? float3(0.0, 0.0, 0.0) : (n.y > 0.5 ? float3(71.0, 0.0, 0.0) : float3(0.0, 137.0, 0.0));
-		const float d = CrackDistance(pixelCentre, face, crack == 1 ? 0.45 : 0.85, axisSeed);
+		const float chance = crack == 1 ? 0.45 : 0.85;
+		const float d = CrackDistance(pixelCentre, face, chance, axisSeed);
 		const float onCrack = d < 0.55 ? 1.0 : 0.0;
 		s.baseColor *= 1.0 - 0.7 * onCrack;
 		s.emissive *= 1.0 - onCrack;
+		// The groove: the pixels beside the crack lean into it (towards where it gets closer).
+		const float groove = hasRelief ? ParamFloat(input, 26) * reliefNear : 0.0;
+		if (groove > 0.0 && onCrack < 0.5 && d < 1.6)
+		{
+			const float2 grad = float2(
+				CrackDistance(pixelCentre + float2(1, 0), face, chance, axisSeed) - CrackDistance(pixelCentre - float2(1, 0), face, chance, axisSeed),
+				CrackDistance(pixelCentre + float2(0, 1), face, chance, axisSeed) - CrackDistance(pixelCentre - float2(0, 1), face, chance, axisSeed));
+			if (dot(grad, grad) > 1e-4)
+			{
+				const float2 towards = -normalize(grad);
+				s.normalW = normalize(input.normalW + (faceU * towards.x + faceV * towards.y) * groove);
+			}
+		}
 	}
 	return s;
 }

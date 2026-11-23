@@ -382,6 +382,7 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 		add(cfg::kGoldQuartz);
 		add(cfg::kCopperVerdigris);
 		filled.params.insert(filled.params.end(), { cfg::kOreRichness, cfg::kGoldRichness, cfg::kSilverTarnish, static_cast<float>(cfg::kGridZ) });
+		filled.params.insert(filled.params.end(), { cfg::kRockRelief, cfg::kCrackGroove, cfg::kReliefFadeDistance });
 		renderer.SetMaterial(rock, filled);
 	}
 	fragments.Initialize(voxelVolume, rock);
