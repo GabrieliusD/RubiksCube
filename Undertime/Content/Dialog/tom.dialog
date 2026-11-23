@@ -1,0 +1,43 @@
+{
+	"npc": "tom",
+	"greetings": [
+		{ "when": { "met": false }, "say": "Well now! A stranger. Tom Harlan, gold man. Well, dust man, so far. You've the look of someone who digs.", "priority": 5 },
+		{ "when": { "dejaVu": true }, "say": "Funny. I'd swear you owe me a drink. Have we met?", "priority": 7 },
+		{ "when": { "away": ">=365" }, "say": "{away}! Mae said you were dead. I said you'd struck it rich. Which was it?", "priority": 6 },
+		{ "when": { "away": ">=30" }, "say": "There's the mole! {away} under the hill, was it?", "priority": 4 },
+		{ "when": { "rain": true }, "say": "Can't pan in this. River's all mud.", "priority": 3 },
+		{ "say": ["Courier! Any colour down there?", "How's the digging?"], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["One more bend, courier. One more bend!", "Found a flake this big. Well. This big."] }
+	],
+	"gifts": [
+		{ "when": { "gift": "liked" }, "say": "Gold! You beautiful soul. Mae! Mae, look!" }
+	],
+	"letters": [
+		{ "on": "away", "days": 45, "say": "Mole! Found a flake the size of a fingernail. Wanted you to see it. Where are you? Tom." }
+	],
+	"topics": [
+		{
+			"id": "gold", "title": "Any luck in the river?",
+			"steps": [
+				{ "say": "Dust, mostly. But dust comes from somewhere, don't it? Somewhere up that mountain there's the vein that's shedding it." },
+				{ "say": "You'll be the one to find it, I reckon. Just remember who told you." }
+			]
+		},
+		{
+			"id": "partners", "title": "Partners?", "once": true, "when": { "tier": ">=Friendly" },
+			"steps": [
+				{ "say": "Here's a thought. You dig, I pan, we split what comes down the river. What do you say?" },
+				{ "choice": [
+					{ "text": "Partners.", "do": [ { "regard": 8 }, { "flag": "tom.partners" } ], "then": [ { "say": "Ha! Shake on it. Mae'll be furious." } ] },
+					{ "text": "I work alone.", "do": [ { "regard": -3 } ], "then": [ { "say": "Suit yourself. Offer stands." } ] }
+				] }
+			]
+		},
+		{
+			"id": "mae", "title": "About Mae",
+			"steps": [ { "say": "{tie:wife}? Best thing that ever came up a river. She thinks the mountain's cursed. She thinks I am, too, some days." } ]
+		}
+	]
+}

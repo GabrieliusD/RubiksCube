@@ -1,0 +1,47 @@
+{
+	"npc": "clockmaker",
+	"greetings": [
+		{ "when": { "met": false }, "say": "You're early. Or I'm late. It's hard to tell, in this valley. Come in; mind the pendulums.", "priority": 5 },
+		{ "when": { "away": ">=3650" }, "say": "{away}, by their reckoning. By yours, an afternoon. I know which one I'd believe.", "priority": 6 },
+		{ "when": { "away": ">=30" }, "say": "Ah. {away} for them; for you, a little while. Sit.", "priority": 4 },
+		{ "say": ["Courier.", "The clocks told me you'd come."], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Tick.", "Listen: they're all a little fast today."] },
+		{ "when": { "met": true, "hour": [18, 20] }, "say": "The wheel keeps better time than any of my clocks.", "priority": 1 }
+	],
+	"gifts": [
+		{ "when": { "gift": "liked" }, "say": "Oh. Oh, that's from the deep rock. Do you know what you're holding? ...No. Not yet. Thank you." },
+		{ "when": { "gift": "neutral" }, "say": "Kind. I'll keep it on the shelf with the others." }
+	],
+	"letters": [
+		{ "on": "away", "days": 365, "say": "A year, by their count. The clocks and I are well. You will find the valley changed. You always do. -- The Clockmaker" }
+	],
+	"topics": [
+		{
+			"id": "clocks", "title": "All these clocks",
+			"steps": [ { "say": "Each one runs at its own pace. Like people. Like that mountain. I keep them so I remember what an ordinary hour feels like." } ]
+		},
+		{
+			"id": "mountain", "title": "Time in the mountain",
+			"steps": [
+				{ "say": "The deeper you go, the faster the valley ages around you. A minute in the first dark is a working day out here. Further down, a week. Further still..." },
+				{ "say": "Watch the cyan hand on that watch of yours. It doesn't lie." }
+			]
+		},
+		{
+			"id": "who", "title": "How long have you been here?", "once": true, "when": { "tier": ">=Friendly" },
+			"steps": [
+				{ "say": "Longer than the camp. Longer than the trees, some of them. I wind the clocks; the valley winds me." },
+				{ "choice": [
+					{ "text": "That's not an answer.", "do": [ { "regard": 2 } ], "then": [ { "say": "No. It's the only one I have that's true." } ] },
+					{ "text": "I'll stop asking.", "do": [ { "regard": 5 } ], "then": [ { "say": "Thank you. People rarely do." } ] }
+				] }
+			]
+		},
+		{
+			"id": "remember", "title": "You remember me?", "when": { "flag": "turned-time-back" },
+			"steps": [ { "say": "I remember all of you. Every turn of the hands. It's the price of keeping the clocks." } ]
+		}
+	]
+}

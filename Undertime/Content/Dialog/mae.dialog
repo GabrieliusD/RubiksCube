@@ -1,0 +1,42 @@
+{
+	"npc": "mae",
+	"greetings": [
+		{ "when": { "met": false }, "say": "You'll be hungry. Everyone who comes out of that hole is. I'm Mae. Sit, if you like.", "priority": 5 },
+		{ "when": { "dejaVu": true }, "say": "Oh! You gave me a turn. You looked at me like... never mind. Hungry?", "priority": 7 },
+		{ "when": { "away": ">=365" }, "say": "{away}. I set a place for you every night of the first year. Look at you. Not a day older.", "priority": 6 },
+		{ "when": { "away": ">=30" }, "say": "{away} and not a word. Sit down before you fall down.", "priority": 4 },
+		{ "say": ["Courier. There's stew.", "You look tired."], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Don't go too deep.", "Have you eaten?"] },
+		{ "when": { "met": true, "hour": [18, 23] }, "say": ["Fire's warm.", "Tom's telling the gold story again."], "priority": 1 }
+	],
+	"gifts": [
+		{ "when": { "gift": "liked" }, "say": "Copper! A pot that won't leak. You're a dear." },
+		{ "when": { "gift": "disliked" }, "say": "Take that back where it came from. I mean it. The mountain wants it more than I do." }
+	],
+	"letters": [
+		{ "on": "away", "days": 60, "say": "Courier, it's been months. I set a place for you anyway. Please come up out of that mountain. Mae." },
+		{ "on": "birth", "about": "ella", "say": "Courier! A girl. Ella. She's loud and perfect and Tom won't stop grinning. Come and meet her. Mae." },
+		{ "on": "death", "about": "tom", "say": "Courier. The river took Tom. One more bend, he always said. Ella keeps asking when you're coming. Mae." }
+	],
+	"topics": [
+		{
+			"id": "mountain", "title": "What's wrong with the mountain?",
+			"steps": [
+				{ "say": "Time's wrong in there. Tom went in once, came out for supper. Except it was the next supper." },
+				{ "say": "Some things are meant to stay where they're put." }
+			]
+		},
+		{
+			"id": "stay", "title": "Why stay, then?", "once": true, "when": { "tier": ">=Friendly" },
+			"steps": [
+				{ "say": "Because Tom won't leave, and I won't leave Tom. And because the valley's beautiful, when you're not underneath it." },
+				{ "choice": [
+					{ "text": "I'll be careful down there.", "do": [ { "regard": 6 } ], "then": [ { "say": "See that you are." } ] },
+					{ "text": "The deeper ore pays better.", "do": [ { "regard": -4 } ], "then": [ { "say": "It always does, at first." } ] }
+				] }
+			]
+		}
+	]
+}

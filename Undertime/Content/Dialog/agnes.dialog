@@ -1,0 +1,53 @@
+{
+	"npc": "agnes",
+	"greetings": [
+		{ "when": { "met": false }, "say": "A new face. Agnes Rook; this is my post. If you've something to sell, I'll weigh it. If you've something to say, be quick.", "priority": 5 },
+		{ "when": { "dejaVu": true }, "say": "Have we met? No... I'd remember a face that looks at me like that.", "priority": 7 },
+		{ "when": { "away": ">=365" }, "say": "{away}. I kept your tab open the first winter. Then I closed it.", "priority": 6 },
+		{ "when": { "away": ">=30" }, "say": "Back, are you? It's been {away}. Thought you'd gone over the pass.", "priority": 4 },
+		{ "when": { "tier": ">=Friend" }, "say": ["Courier! Sit, sit. The kettle's on.", "My favourite customer, and you never buy anything."], "priority": 2 },
+		{ "when": { "dead": "bram", "away": ">=30" }, "say": "You weren't here when we buried Bram. No. I know. You'd have come if you could.", "priority": 6 },
+		{ "when": { "dead": "bram" }, "say": ["The forge is cold. I keep thinking I hear it.", "Courier. The store's quiet without his hammering next door."], "priority": 3 },
+		{ "say": ["Courier.", "What can I do for you?"], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Prices are on the board.", "Mind the crates."] },
+		{ "when": { "hour": [7, 12] }, "say": ["Open till noon, then again after."], "priority": 1 }
+	],
+	"gifts": [
+		{ "when": { "gift": "liked" }, "say": "Now that's real metal. I'll weigh it later. Thank you, courier." },
+		{ "when": { "gift": "disliked" }, "say": "Stone? I've a whole mountain of it outside." }
+	],
+	"letters": [
+		{ "on": "wedding", "about": "bram", "say": "Courier, you missed it: Bram and I were married by the fire. He wore a clean shirt. Mae cried. I did not. Agnes Rook (Kettle, now, I suppose)." },
+		{ "on": "away", "days": 120, "say": "Courier, your tab is still open, which tells you something about my feelings. Come up for air. Agnes." },
+		{ "on": "death", "about": "bram", "say": "Courier. Bram's gone. The lungs, as Ruth said. I would have liked you there. Agnes." }
+	],
+	"topics": [
+		{
+			"id": "post", "title": "About the trading post",
+			"steps": [
+				{ "say": "Everything that comes up the pass goes through this counter, and everything that comes out of that mountain too." },
+				{ "say": "When the town comes, and it will, there'll be a proper store here. I mean to be standing behind its counter." }
+			]
+		},
+		{
+			"id": "debt", "title": "You came here owing money?", "once": true, "when": { "tier": ">=Acquaintance" },
+			"steps": [
+				{ "say": "Who told you that? Tom, I suppose. Yes. Two mules and a debt, and only one of the mules made it." },
+				{ "choice": [
+					{ "text": "That took courage.", "do": [ { "regard": 6 } ], "then": [ { "say": "It took stubbornness. People mix them up." } ] },
+					{ "text": "Sounds like bad planning.", "do": [ { "regard": -6 } ], "then": [ { "say": "Does it. Well. You're welcome to plan your way back over the pass." } ] }
+				] }
+			]
+		},
+		{
+			"id": "tom", "title": "About Tom Harlan",
+			"steps": [ { "say": "Tom pays me in dust and promises. The dust is real enough. Don't tell him I said so, but the camp would be poorer without him." } ]
+		},
+		{
+			"id": "clockmaker", "title": "Who lives by the water wheel?", "when": { "tier": ">=Friendly" },
+			"steps": [ { "say": "The clockmaker. Was there when I came up the pass, cottage and wheel and all. Never buys a thing from me. Never seems to need to." } ]
+		}
+	]
+}

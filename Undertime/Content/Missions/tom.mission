@@ -1,0 +1,18 @@
+{
+	"missions": [
+		{
+			"id": "tom_pan", "giver": "tom", "title": "Tom's lucky pan",
+			"brief": "Tom dropped his lucky gold pan in a cavern of the first zone and won't go back for it.",
+			"when": { "tier": ">=Acquaintance" },
+			"offer": "I went in the mountain once. Once! Dropped my lucky pan in the first big cavern and ran. Fetch it for me? Before the fortnight's out, mind; I'm not panning with this tin plate forever.",
+			"accept": "You're a saint. A mad saint.",
+			"status": "Any sign of my pan? It shines a bit, you can't miss it.",
+			"done": "My pan! Look at her. Here, take some colour; she'll find me more.",
+			"late": "Never mind the pan. Bought another off Agnes. Cost me a week's dust.",
+			"objective": { "type": "retrieve", "thing": "Tom's gold pan", "zone": 1 },
+			"deadline": 14,
+			"reward": { "regard": 12, "items": { "Gold": 2 } },
+			"penalty": 6
+		}
+	]
+}

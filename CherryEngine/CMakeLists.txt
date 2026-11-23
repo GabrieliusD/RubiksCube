@@ -209,7 +209,10 @@ find_path(CHERRY_CGLTF_INCLUDE_DIR "cgltf.h" REQUIRED)
 find_path(CHERRY_STB_INCLUDE_DIR "stb_image.h" REQUIRED)
 target_include_directories(CherryEngine PRIVATE "${CHERRY_CGLTF_INCLUDE_DIR}" "${CHERRY_STB_INCLUDE_DIR}")
 target_include_directories(CherryEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${NODE_EDITOR_DIR}")
-target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt nlohmann_json::nlohmann_json)
+target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt)
+# nlohmann/json (header-only) is public: game modules read and write JSON with it too
+# (UNDERTIME's dialog files and save game).
+target_link_libraries(CherryEngine PUBLIC nlohmann_json::nlohmann_json)
 
 target_compile_definitions(CherryEngine
   PUBLIC _UNICODE UNICODE NOMINMAX

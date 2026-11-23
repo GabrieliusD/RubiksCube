@@ -1818,7 +1818,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 			const float pad = surface->options.boundsPadding;
 			worldBounds.Extents = { worldBounds.Extents.x + pad, worldBounds.Extents.y + pad, worldBounds.Extents.z + pad };
 		}
-		const bool castsShadow = shadows && !viewModel && !(surface && surface->options.translucent);
+		const bool castsShadow = shadows && renderer.castShadows && !viewModel && !(surface && surface->options.translucent);
 		if (castsShadow)
 		{
 			// Shadow casters are found whether or not the camera sees them.

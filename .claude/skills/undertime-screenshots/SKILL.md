@@ -37,6 +37,8 @@ Look at the PNG with the Read tool; send it to the user with SendUserFile.
 | `-Seed N` | always the same cave (the cave is random every launch otherwise) |
 | `-Showcase` | the showcase cave: a fixed test hall just inside the entrance |
 | `-Sun "x y z"` | override the direction sunlight travels |
+| `-Talk "id [continues]"` | stand in front of a person (agnes, tom, mae, bram, clockmaker) and open a conversation, stepping past that many lines (1: the topic list); `-View` is still required but ignored |
+| `-Missions "ids... [journal\|board]"` | take on missions (agnes_roof, tom_pan, mae_supper, mae_list, bram_cache, clock_year) and open the journal or the notice board (stand at `"-10.1 1.6 -127.5 0 6"` to see the board) |
 | `-Wait s` | seconds before the capture (default 10; the cave's eye adaptation needs ~10) |
 
 ## Where to point the camera

@@ -115,6 +115,33 @@ namespace hud
 		}
 	}
 
+	void Prompt(const Frame& f, const std::string& text)
+	{
+		if (text.empty()) return;
+		const float size = f.fontSize * 1.1f;
+		const ImVec2 t = TextSize(size, text);
+		const ImVec2 c = f.Center();
+		const ImVec2 pos{ c.x - t.x * 0.5f, c.y + f.fontSize * 3.2f };
+		const float pad = size * 0.45f;
+		f.draw->AddRectFilled({ pos.x - pad, pos.y - pad * 0.6f }, { pos.x + t.x + pad, pos.y + t.y + pad * 0.6f }, kPanelBg, size * 0.3f);
+		f.draw->AddText(nullptr, size, pos, kText, text.c_str());
+	}
+
+	void Subtitle(const Frame& f, const std::string& speaker, const std::string& text, float alpha)
+	{
+		if (text.empty() || alpha <= 0.0f) return;
+		const float size = f.fontSize * 1.2f;
+		const std::string name = speaker + ":  ";
+		const ImVec2 n = TextSize(size, name), t = TextSize(size, text);
+		const float width = n.x + t.x;
+		const ImVec2 pos{ f.origin.x + (f.size.x - width) * 0.5f, f.origin.y + f.size.y * 0.8f };
+		const int a = static_cast<int>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f);
+		const float pad = size * 0.5f;
+		f.draw->AddRectFilled({ pos.x - pad, pos.y - pad * 0.6f }, { pos.x + width + pad, pos.y + t.y + pad * 0.6f }, IM_COL32(8, 6, 12, a * 170 / 255), size * 0.3f);
+		f.draw->AddText(nullptr, size, pos, IM_COL32(255, 196, 120, a), name.c_str());
+		f.draw->AddText(nullptr, size, { pos.x + n.x, pos.y }, IM_COL32(240, 232, 220, a), text.c_str());
+	}
+
 	void Watch(const Frame& f, float outsideHour, double personalSeconds, float night, float blur, bool warning, float time,
 		const std::vector<std::string>& lines)
 	{

@@ -1,0 +1,24 @@
+{
+	"npc": "jonah",
+	"greetings": [
+		{ "when": { "met": false }, "say": "Jonah Quill. This is my saloon. First one's on the house, the rest are on your tab.", "priority": 5 },
+		{ "when": { "away": ">=60" }, "say": "Look who crawled out. {away}, by my reckoning. Your stool's still there.", "priority": 4 },
+		{ "say": ["What'll it be?", "Courier."], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Heard a rumour you'd like.", "Saloon's open."] },
+		{ "when": { "night": true }, "say": "Last orders soon.", "priority": 1 }
+	],
+	"topics": [
+		{
+			"id": "rumours", "title": "Heard any rumours?",
+			"steps": [
+				{ "say": "Old timers say there are watches down there. Strange ones. Miners who went too deep and left them behind. Sixteen, someone said. Don't know who counted." }
+			]
+		},
+		{
+			"id": "silas", "title": "About Silas", "when": { "tier": ">=Friendly" },
+			"steps": [ { "say": "Silas owes me more than he'd admit. Weighs everyone else's gold careful enough." } ]
+		}
+	]
+}

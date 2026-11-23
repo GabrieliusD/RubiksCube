@@ -1,0 +1,15 @@
+{
+	"missions": [
+		{
+			"id": "clock_year", "giver": "clockmaker", "title": "A year's turn",
+			"brief": "The clockmaker asked you to come back when a year has passed outside, and say what changed.",
+			"when": { "met": true },
+			"offer": "A small favour. Come back when the valley has turned a whole year, and tell me what changed. It needn't take you a year. That's rather the point.",
+			"accept": "Good. The clocks and I will wait.",
+			"status": "Not yet. The valley hasn't turned a year since you promised.",
+			"done": "A year, by their count. And what did it cost you? An hour? Here: a little of the deep rock. You'll want it, one day.",
+			"objective": { "type": "wait", "days": 365 },
+			"reward": { "regard": 15, "items": { "Time crystal": 1 } }
+		}
+	]
+}

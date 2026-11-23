@@ -1,0 +1,28 @@
+{
+	"jobs": [
+		{
+			"id": "stone", "giver": "agnes", "title": "Stone for the porch",
+			"brief": "Agnes is paving the post's porch. She wants stone.",
+			"offer": "WANTED: stone, for the porch. Bring it to the post.",
+			"done": "That's the porch done, near enough. Here.",
+			"objective": { "type": "deliver", "item": "Stone", "count": [20, 40] },
+			"deadline": 7, "reward": { "regard": 3, "items": { "Copper": 2 } }, "penalty": 1, "era": [1, 1]
+		},
+		{
+			"id": "copper", "giver": "bram", "title": "Copper for the smith",
+			"brief": "Bram is out of copper for rivets.",
+			"offer": "COPPER wanted. See Bram at the lean-to.",
+			"done": "Rivets. Good.",
+			"objective": { "type": "deliver", "item": "Copper", "count": [5, 12] },
+			"deadline": 7, "reward": { "regard": 3, "items": { "Silver": 1 } }, "penalty": 1, "era": [1, 1]
+		},
+		{
+			"id": "letter", "giver": "agnes", "title": "A letter to carry",
+			"brief": "Agnes has a letter that came up the pass. Deliver it.",
+			"offer": "COURIER wanted: a letter to deliver. Ask at the counter.",
+			"done": "A letter? For me? ...Thank you.",
+			"objective": { "type": "courier", "thing": "a letter", "to": ["tom", "mae", "clockmaker"] },
+			"deadline": 5, "reward": { "regard": 2, "items": { "Copper": 3 } }, "penalty": 1, "era": [1, 1]
+		}
+	]
+}

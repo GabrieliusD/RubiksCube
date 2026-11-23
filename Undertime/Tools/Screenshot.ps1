@@ -14,6 +14,8 @@
 # -Time    "hour [years]" (UNDERTIME_DEV_TIME).    -Seed N (UNDERTIME_DEV_SEED).
 # -Weather "overcast rain wet" (0..1 each).        -Sun "x y z" (the sunlight's direction).
 # -Showcase  build the showcase cave (UNDERTIME_DEV_SHOWCASE=1).
+# -Talk    "id [continues]": stand in front of that person and talk to them (UNDERTIME_DEV_TALK).
+# -Missions "ids... [journal|board]": take on missions and open the journal or board (UNDERTIME_DEV_MISSIONS).
 # -Config  Release (default) or Debug.             -Log  where the game's output goes.
 param(
 	[Parameter(Mandatory = $true)][string]$View,
@@ -24,6 +26,8 @@ param(
 	[string]$Weather = "",
 	[string]$Sun = "",
 	[switch]$Showcase,
+	[string]$Talk = "",
+	[string]$Missions = "",
 	[string]$Config = "Release",
 	[string]$Log = ""
 )
@@ -61,6 +65,8 @@ $settings = @{
 	UNDERTIME_DEV_WEATHER = $Weather
 	UNDERTIME_DEV_SUN = $Sun
 	UNDERTIME_DEV_SHOWCASE = $(if ($Showcase) { "1" } else { "" })
+	UNDERTIME_DEV_TALK = $Talk
+	UNDERTIME_DEV_MISSIONS = $Missions
 }
 foreach ($k in $settings.Keys) { if ($settings[$k]) { Set-Item "Env:$k" $settings[$k] } else { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } }
 try {

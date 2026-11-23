@@ -200,6 +200,8 @@ The full proposal is in `Docs/NPCs.md`: each NPC's state is computed from the ou
 - **Hand-made models** in MagicaVoxel for the final look, one per character.
 - **Also in:** déjà vu for NPCs from a timeline you undid; faint time-lapse figures seen from the mine while time races; letters waiting when you come up; weddings, funerals and festivals on fixed dates.
 
+**Built (2026-11-23, not yet tested by the user):** NPC milestone 1, people in the valley (the Camp cast and the clockmaker living their day by the outside clock), and milestone 2, talking (E, the clock pauses), friendship that fades while you're away, gossip, gifts, barks and the save game (C on the title screen continues); milestone 3, missions (deliver, retrieve from the cave, courier, meet, wait) with outside-time deadlines, the notice board and the journal (Tab); milestone 4, lives across the eras: the Settlement's people (storekeeper, assayer, postmistress, saloon keeper, doctor, a child born in the town), weddings, funerals and Founders' Day, the graveyard, news when you come up, letters while you're away. Details in `Docs/NPCs.md` §10.
+
 ---
 
 ## 6. The valley and the town

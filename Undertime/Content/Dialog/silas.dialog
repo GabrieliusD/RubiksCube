@@ -1,0 +1,27 @@
+{
+	"npc": "silas",
+	"greetings": [
+		{ "when": { "met": false }, "say": "Silas Merrow, assayer. Put it on the scale and we'll see what it's worth. Less than you hoped, usually.", "priority": 5 },
+		{ "when": { "away": ">=90" }, "say": "Back? Prices moved while you were down there. Not in your favour.", "priority": 4 },
+		{ "say": ["Courier.", "Got something to weigh?"], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Gold's down this week.", "Everything's worth something. Less than you think."] }
+	],
+	"topics": [
+		{
+			"id": "prices", "title": "What's ore worth?",
+			"steps": [ { "say": "Copper's cheap, silver's fair, gold's gold. The cyan stuff from the deep... I don't buy that. Nobody sane does." } ]
+		},
+		{
+			"id": "pass", "title": "How did you get in, with the pass closed?", "once": true, "when": { "tier": ">=Acquaintance" },
+			"steps": [
+				{ "say": "Last cart through before the snow. Then the snow never left. Funny, that. Like the valley shut the door behind me." },
+				{ "choice": [
+					{ "text": "Maybe it did.", "do": [ { "regard": -2 } ], "then": [ { "say": "Don't you start. Mae Harlan's enough." } ] },
+					{ "text": "Bad luck.", "do": [ { "regard": 3 } ], "then": [ { "say": "Good luck, for business. A captive market." } ] }
+				] }
+			]
+		}
+	]
+}

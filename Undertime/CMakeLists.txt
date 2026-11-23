@@ -37,6 +37,24 @@ set(UndertimeSrc
     ValleyProps.h
     ValleyProps.cpp
     ValleyPreview.cpp
+    Npcs.h
+    Npcs.cpp
+    NpcTown.h
+    NpcTown.cpp
+    NpcWorld.h
+    NpcWorld.cpp
+    NpcLog.h
+    NpcLog.cpp
+    Dialog.h
+    Dialog.cpp
+    SaveGame.h
+    SaveGame.cpp
+    Missions.h
+    Missions.cpp
+    Life.h
+    Life.cpp
+    Letters.h
+    Letters.cpp
     Player.h
     Player.cpp
     Meshes.h
@@ -63,13 +81,14 @@ if(MSVC)
 endif()
 
 # Pure voxel/physics helper tests: ctest -C Debug
-add_executable(UndertimeTests Tests/UndertimeTests.cpp Tests/ValleyTests.cpp Tests/ClockTests.cpp Tests/LightTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp
-    Valley.cpp TerrainMesh.cpp Clock.cpp DayNight.cpp Skylight.cpp)
+add_executable(UndertimeTests Tests/UndertimeTests.cpp Tests/ValleyTests.cpp Tests/ClockTests.cpp Tests/LightTests.cpp Tests/NpcTests.cpp Tests/DialogTests.cpp Tests/MissionTests.cpp Tests/LifeTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp
+    Valley.cpp TerrainMesh.cpp Clock.cpp DayNight.cpp Skylight.cpp Npcs.cpp NpcTown.cpp NpcLog.cpp Dialog.cpp SaveGame.cpp Missions.cpp Life.cpp Letters.cpp)
 target_link_libraries(UndertimeTests PRIVATE CherryEngine)
+target_compile_definitions(UndertimeTests PRIVATE UNDERTIME_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Content")
 add_test(NAME UndertimeTests COMMAND UndertimeTests)
 
 # Writes the placeholder voxel models (Content/Models/Placeholders/*.vox). Run by hand:
 #   bin/<Config>/UndertimePlaceholders.exe
-add_executable(UndertimePlaceholders Tools/Placeholders.cpp)
+add_executable(UndertimePlaceholders Tools/Placeholders.cpp Npcs.cpp)
 target_link_libraries(UndertimePlaceholders PRIVATE CherryEngine)
 target_compile_definitions(UndertimePlaceholders PRIVATE UNDERTIME_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Content")

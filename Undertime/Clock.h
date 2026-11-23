@@ -24,6 +24,7 @@ public:
 	void Advance(float realSeconds, float rate);
 	void SkipHours(double hours) { mDays += hours / 24.0; }
 	void SetDays(double days) { mDays = days; }
+	void SetPersonalSeconds(double seconds) { mPersonal = seconds; }   // loading a save
 
 	double Days() const { return mDays; }          // outside days since you arrived (from midnight of day 0)
 	double Years() const { return mDays / 365.0; }

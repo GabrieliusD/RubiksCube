@@ -26,6 +26,10 @@ namespace hud
 	void Panel(const Frame& f, int anchor, const std::vector<std::string>& lines, float scale = 1.0f);
 	// Centred message in the upper third, faded by alpha.
 	void Message(const Frame& f, const std::string& text, float alpha);
+	// A small hint under the crosshair ("E  Talk to Agnes Rook").
+	void Prompt(const Frame& f, const std::string& text);
+	// A spoken line at the bottom of the view: the speaker's name, then the line, faded by alpha.
+	void Subtitle(const Frame& f, const std::string& speaker, const std::string& text, float alpha);
 	// The watch, bottom right: the outside time on the big dial (cyan hands), your own time on
 	// the small one (one turn a minute). `night` 0..1 darkens the face; `blur` 0..1 when
 	// outside days flash by, the hands smear into a glowing ring. `lines` go in a panel

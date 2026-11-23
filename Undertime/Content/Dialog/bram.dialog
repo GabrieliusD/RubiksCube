@@ -1,0 +1,38 @@
+{
+	"npc": "bram",
+	"greetings": [
+		{ "when": { "met": false }, "say": "Bram. Smith. Picks need mending, bring them here.", "priority": 5 },
+		{ "when": { "dejaVu": true }, "say": "...You. No. Thought you were someone.", "priority": 7 },
+		{ "when": { "away": ">=365" }, "say": "{away}. Huh.", "priority": 6 },
+		{ "when": { "away": ">=30" }, "say": "Long dig.", "priority": 4 },
+		{ "when": { "tier": ">=Friend" }, "say": "Courier. Good.", "priority": 2 },
+		{ "say": ["Mm.", "Courier."], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Mind the sparks.", "Mm."] }
+	],
+	"gifts": [
+		{ "when": { "gift": "liked" }, "say": "Good metal. ...Thanks." },
+		{ "when": { "gift": "disliked" }, "say": "Not touching that." }
+	],
+	"topics": [
+		{
+			"id": "work", "title": "What are you making?",
+			"steps": [ { "say": "Shoes for the mules. Hinges for Agnes. A pick for you, if you pay." } ]
+		},
+		{
+			"id": "agnes", "title": "You and Agnes go back?", "when": { "tier": ">=Friendly" },
+			"steps": [ { "say": "Came up the pass together. She talked. I carried." } ]
+		},
+		{
+			"id": "quiet", "title": "You don't talk much.", "once": true,
+			"steps": [
+				{ "say": "No." },
+				{ "choice": [
+					{ "text": "Fair enough.", "do": [ { "regard": 5 } ], "then": [ { "say": "Mm." } ] },
+					{ "text": "Come on, tell me something.", "do": [ { "regard": -2 } ], "then": [ { "say": "Iron's patient. People aren't. There. Something." } ] }
+				] }
+			]
+		}
+	]
+}

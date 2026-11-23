@@ -1,0 +1,17 @@
+{
+	"missions": [
+		{
+			"id": "bram_cache", "giver": "bram", "title": "The old miners' cache",
+			"brief": "Bram heard of a miners' tool cache in a cavern of the second zone. He wants it back up.",
+			"when": { "tier": ">=Friendly" },
+			"offer": "Old miners left tools deeper in. Second dark. Bring the box up. A month's plenty.",
+			"status": "Box. Second dark.",
+			"done": "Good steel. Better than mine. Here.",
+			"late": "Forget the box.",
+			"objective": { "type": "retrieve", "thing": "the miners' tool box", "zone": 2 },
+			"deadline": 30,
+			"reward": { "regard": 10, "items": { "Copper": 10 } },
+			"penalty": 4
+		}
+	]
+}

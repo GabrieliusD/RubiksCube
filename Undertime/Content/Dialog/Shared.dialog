@@ -1,0 +1,38 @@
+{
+	"npc": "*",
+	"greetings": [
+		{ "say": ["Hello.", "Yes?"], "priority": -10 },
+		{ "when": { "met": false }, "say": ["You're new.", "Don't know you."], "priority": -5 },
+		{ "when": { "tier": "Wary" }, "say": ["What now?", "Oh. It's you."], "priority": -3 },
+		{ "when": { "tier": "Hostile" }, "say": ["Say what you want and go."], "priority": -2 },
+		{ "when": { "tier": ">=Friendly" }, "say": ["Good to see you, courier.", "There you are."], "priority": -4 },
+		{ "when": { "away": ">=60" }, "say": ["{away}, courier. We'd stopped looking for you."], "priority": -1 }
+	],
+	"farewells": [
+		{ "say": ["Mind how you go.", "Right then."], "priority": -10 },
+		{ "when": { "voice": "terse" }, "say": ["Mm.", "Go on, then."], "priority": -9 },
+		{ "when": { "voice": "formal" }, "say": ["Good day to you.", "Until next time."], "priority": -9 },
+		{ "when": { "night": true }, "say": ["Get some sleep."], "priority": -8 }
+	],
+	"barks": [
+		{ "when": { "met": false, "voice": "chatty" }, "say": ["Haven't seen you before.", "Another one for the mountain?"] },
+		{ "when": { "met": false, "voice": "terse" }, "say": ["Hm."] },
+		{ "when": { "met": false, "voice": "formal" }, "say": ["Good day."] },
+		{ "when": { "met": false, "voice": "rough" }, "say": ["Huh. New face.", "You lost?"] },
+		{ "when": { "met": true, "voice": "rough" }, "say": ["Courier.", "Thirsty?"] },
+		{ "when": { "met": true, "voice": "chatty" }, "say": ["Afternoon, courier!", "Still in one piece?"] },
+		{ "when": { "met": true, "voice": "terse" }, "say": ["Courier.", "Mm."] },
+		{ "when": { "met": true, "voice": "formal" }, "say": ["Courier.", "A good day for it."] },
+		{ "when": { "rain": true }, "say": ["Wet enough for you?", "This rain won't quit."], "priority": 1 },
+		{ "when": { "hour": [5, 8] }, "say": ["Early start.", "Morning."], "priority": 1 },
+		{ "when": { "away": ">=30" }, "say": ["Back from the dead, are you?", "Thought the mountain had you."], "priority": 2 },
+		{ "when": { "tier": ">=Friend" }, "say": ["Come by the fire later.", "Good to see you."], "priority": 1 },
+		{ "when": { "tier": "<=Wary" }, "say": ["Hmph.", "Keep walking."], "priority": 3 }
+	],
+	"gifts": [
+		{ "when": { "gift": "liked" }, "say": ["For me? Oh, that's grand.", "Now that's a fine thing. Thank you."] },
+		{ "when": { "gift": "neutral" }, "say": ["Thank you. I'll find a use for it.", "Kind of you."] },
+		{ "when": { "gift": "disliked" }, "say": ["I'd rather you kept that.", "What would I want with that?"] },
+		{ "when": { "gift": "again" }, "say": ["You've given me plenty today.", "Another? You'll spoil me."] }
+	]
+}

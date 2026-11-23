@@ -17,6 +17,12 @@
 #include "Clock.h"
 #include "DayNight.h"
 #include "Skylight.h"
+#include "NpcWorld.h"
+#include "Dialog.h"
+#include "Missions.h"
+#include "Life.h"
+#include "Letters.h"
+#include "SaveGame.h"
 #include <array>
 #include <memory>
 #include <string>
@@ -41,7 +47,7 @@ public:
 	void LoadState(Engine& engine, const std::string& state) override;
 
 private:
-	enum class State { Title, Playing, Paused };
+	enum class State { Title, Playing, Paused, Talking, Board };
 	enum class WorldRenderer { RayMarched, Meshes };
 	enum class Tool { Pick, Shovel };
 
@@ -160,6 +166,65 @@ private:
 	std::unique_ptr<Valley> valley;
 	ValleyScenery scenery;
 	ValleyProps props;
+	NpcWorld people;                 // the cast in the valley (Docs/NPCs.md)
+	NpcWorld::View PeopleView() const;
+
+	// Talking (E): outside time stops; the conversation runs from Content/Dialog.
+	void StartTalk(Engine& engine, int npc);
+	void EndTalk(Engine& engine);
+	void UpdateTalk(Engine& engine, float dt);
+	void DrawConversation(Engine& engine);
+	// Barks: a line from someone you pass.
+	void UpdateBarks(Engine& engine, float dt);
+	npc::Conversation::Situation TalkSituation() const;
+	npc::DialogContext ContextFor(int npc) const;
+	std::string Speaker(int npc) const;   // their name once you've met, else what they are
+	npc::DialogLibrary dialogs;
+	npc::PlayerLog peopleLog;        // everything you did with the people (saved)
+	npc::Conversation conversation;
+	int talkTarget = -1;             // who E would talk to
+	float talkEase = 1.0f;           // 0..1: the view turning to them
+	float talkFromYaw = 0.0f, talkFromPitch = 0.0f;
+	bool choosingGift = false;
+	std::vector<float> barkCooldown;
+	float barkGlobal = 0.0f, barkLeft = 0.0f;
+	std::string barkSpeaker, barkText;
+	int devTalk = -1, devTalkSteps = 0;   // UNDERTIME_DEV_TALK="id [continues]": open a conversation at start (screenshots)
+
+	// Missions (Missions.h): from Content/Missions; the notice board by the trading post, lost
+	// things in the cave, meetings, deadlines; the journal (Tab).
+	void UpdateMissions(Engine& engine);
+	void MissionEffect(const npc::Effect& effect);
+	int BackpackItem(const std::string& item) const;   // how many of that block name you carry
+	void AddToBackpack(const std::map<std::string, int>& items);
+	// Whether you're looking at `point` within `reach` (the board, a lost thing).
+	bool AimedAt(const DirectX::XMFLOAT3& point, float reach) const;
+	void DrawBoard(Engine& engine);
+	void DrawJournal(Engine& engine);
+	npc::MissionBook missions;
+	struct LostThing { std::string mission; Entity entity = INVALID_ENTITY; DirectX::XMFLOAT3 at{}; };
+	std::vector<LostThing> lostThings;   // retrieve missions' things lying in caverns
+	int lostTarget = -1;                 // the one E would pick up
+	Entity noticeBoard = INVALID_ENTITY;
+	DirectX::XMFLOAT3 boardAt{};         // where people read it (its front, at eye height)
+	bool boardTarget = false;            // E would read it
+	bool journalOpen = false;
+	std::string boardPlaceName;          // where the board stands now ("post.board", "saloon.board")
+	// Lives (Life.h): gatherings you join, graves for the dead (E reads them).
+	void UpdateLives(Engine& engine);
+	struct Grave { int npc = -1; Entity entity = INVALID_ENTITY; DirectX::XMFLOAT3 at{}; };
+	std::vector<Grave> graves;
+	int graveTarget = -1;
+
+	// The save game (SaveGame.h): <project>/Saved/SaveGame.json.
+	std::string SavePath(Engine& engine) const;
+	void SaveGameNow(Engine& engine);
+	bool LoadSavedGame(Engine& engine);
+	bool savingAllowed = true;       // not in development views (screenshots must never replace a save)
+	bool saveExists = false;
+	std::string saveDate;
+	float autosaveTimer = 0.0f;
+	bool saveRequested = false;
 	int era = 1;                     // which era's town stands (the clock's, once the valley is out of sight)
 	int debugTimeScale = 0;            // debug ([ and ]): outside time runs 10^this times faster
 	bool shadowFade = true;            // debug (J): shadows fade between steps

@@ -1,0 +1,28 @@
+{
+	"npc": "hattie",
+	"greetings": [
+		{ "when": { "met": false }, "say": "Oh! You're the courier. Hattie Pell, postmistress. There's no post in or out, mind. I keep it anyway. Someone has to.", "priority": 5 },
+		{ "when": { "away": ">=180" }, "say": "{away}! I wrote to you. Did you get them? Of course you didn't. They're all here.", "priority": 4 },
+		{ "say": ["Courier! Anything to send?", "Morning, courier."], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Letters for you, if you want them.", "Write to someone, courier. It does them good."] }
+	],
+	"topics": [
+		{
+			"id": "post", "title": "A post office with no post?",
+			"steps": [
+				{ "say": "The pass closed the winter I came. But people still want to write, so they write to each other, and to you. I keep it all sorted." }
+			]
+		},
+		{
+			"id": "ruth", "title": "About Dr Calloway", "when": { "tier": ">=Friendly" },
+			"steps": [ { "say": "Ruth's the best of us. Don't tell her I said so. She's working herself thin over Bram's lungs." } ]
+		}
+	],
+	"letters": [
+		{ "on": "away", "days": 90, "say": "Dear courier, you've been gone a season. I keep your letters in a box with your name on it. It's getting full. Yours, Hattie." },
+		{ "on": "death", "say": "Courier, I'm sorry to write it: {about} has died. We buried them by the chapel. I thought you'd want to know. Hattie." },
+		{ "on": "birth", "about": "ella", "say": "Courier! Tom and Mae have a girl, Ella. Mae says to tell you she has Tom's chin and her own sense, thank goodness. Hattie." }
+	]
+}

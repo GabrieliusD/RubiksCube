@@ -1,0 +1,16 @@
+{
+	"npc": "ella",
+	"greetings": [
+		{ "when": { "met": false }, "say": "Are you the courier? Ma says you don't get older. Is that true? Can I see your watch?", "priority": 5 },
+		{ "say": ["Courier! Watch this!", "Hello!"], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Courier! Courier!", "Bet I can run faster than you."] }
+	],
+	"topics": [
+		{
+			"id": "watch", "title": "Show her the watch",
+			"steps": [ { "say": "The blue hand's going so fast! Is that us? Are we that fast?" } ]
+		}
+	]
+}

@@ -1,0 +1,18 @@
+{
+	"missions": [
+		{
+			"id": "agnes_roof", "giver": "agnes", "title": "Copper for the roof",
+			"brief": "Agnes wants copper to patch the trading post's roof before the autumn rains.",
+			"when": { "tier": ">=Acquaintance", "era": 1 },
+			"offer": "The roof leaks over my flour. Bring me fifteen copper and I'll have Bram beat it into flashing. Ten days; after that the rain beats me to it.",
+			"accept": "Ten days, courier. I'm counting.",
+			"status": "Fifteen copper. The sky's getting darker.",
+			"done": "That'll keep the flour dry. Here, for your trouble.",
+			"late": "Flour's ruined. Don't bother with the copper now.",
+			"objective": { "type": "deliver", "item": "Copper", "count": 15 },
+			"deadline": 10,
+			"reward": { "regard": 10, "items": { "Silver": 3 } },
+			"penalty": 8
+		}
+	]
+}

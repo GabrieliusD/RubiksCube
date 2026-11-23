@@ -9,6 +9,8 @@
 #include <cstdio>
 #include <sstream>
 #include <climits>
+#include <cctype>
+#include <filesystem>
 #include <random>
 #include <unordered_set>
 #include <algorithm>
@@ -100,7 +102,8 @@ std::string UndertimeModule::SaveState(Engine&)
 	const LooseBlocks::Options& o = blocks.GetOptions();
 	std::snprintf(text, sizeof(text), "%u %.4f %.4f %.4f %.4f %.9f %.3f %d %d %d %d %d", seed, player.position.x, player.position.y, player.position.z, player.yaw,
 		clock.Days(), clock.PersonalSeconds(), era, o.cap ? 1 : 0, o.piles ? 1 : 0, o.solidBlocks ? 1 : 0, o.solidPiles ? 1 : 0);
-	return text;
+	// The people's log on the second line (what you did with everyone).
+	return std::string(text) + "\n" + peopleLog.ToJson().dump();
 }
 
 void UndertimeModule::LoadState(Engine& engine, const std::string& text)
@@ -125,6 +128,17 @@ void UndertimeModule::LoadState(Engine& engine, const std::string& text)
 	{
 		blocks.SetOptions(engine, LooseBlocks::Options{ cap != 0, piles != 0, solidBlocks != 0, solidPiles != 0 });
 	}
+	std::string line;
+	std::getline(stream, line);   // the rest of the first line
+	if (std::getline(stream, line) && !line.empty())
+	{
+		std::string error;
+		try
+		{
+			if (!peopleLog.FromJson(nlohmann::json::parse(line), error)) CHERRY_LOG("UNDERTIME: the people's log didn't survive the reload: %s", error.c_str());
+		}
+		catch (const std::exception& e) { CHERRY_LOG("UNDERTIME: the people's log didn't survive the reload: %s", e.what()); }
+	}
 	UpdateCamera(engine);
 	CHERRY_LOG("UNDERTIME: kept seed %u and the player's position across the reload", savedSeed);
 }
@@ -139,6 +153,46 @@ void UndertimeModule::OnStartup(Engine& engine)
 	mineLamps.clear();
 	debugTimeScale = 0;
 	player.flying = false;
+	peopleLog.Clear();
+	talkTarget = -1;
+	choosingGift = false;
+	barkLeft = barkGlobal = 0.0f;
+	barkCooldown.assign(npc::Cast().size(), 0.0f);
+	autosaveTimer = 0.0f;
+	saveRequested = false;
+	devTalk = -1;
+	// What people say (Content/Dialog/*.dialog).
+	dialogs.LoadFolder((engine.Project().content / "Dialog").string());
+	for (const std::string& error : dialogs.Errors()) CHERRY_LOG("UNDERTIME: dialog: %s", error.c_str());
+	CHERRY_LOG("UNDERTIME: %zu dialog files, %zu problems", dialogs.FileCount(), dialogs.Errors().size());
+	missions.LoadFolder((engine.Project().content / "Missions").string());
+	for (const std::string& error : missions.Errors()) CHERRY_LOG("UNDERTIME: missions: %s", error.c_str());
+	CHERRY_LOG("UNDERTIME: %zu missions, %zu notice board jobs, %zu problems", missions.Count(), missions.JobTemplates(), missions.Errors().size());
+	{
+		npc::Conversation::Hooks hooks;
+		hooks.topics = [this](const npc::DialogContext& c, std::deque<npc::Topic>& out)
+		{
+			npc::LetterTopics(dialogs, c, out);
+			missions.Topics(c, out);
+		};
+		hooks.effect = [this](const npc::Effect& e) { MissionEffect(e); };
+		hooks.count = [this](const std::string& item) { return BackpackItem(item); };
+		conversation.SetHooks(hooks);
+	}
+	lostThings.clear();             // a fresh play world (the last one's entities are gone)
+	noticeBoard = INVALID_ENTITY;
+	boardPlaceName.clear();
+	graves.clear();
+	graveTarget = -1;
+	journalOpen = false;
+	// The save game: offered on the title screen.
+	{
+		SaveGame save;
+		std::string error;
+		saveExists = !SavePath(engine).empty() && save.Read(SavePath(engine), error);
+		saveDate = saveExists ? save.date : "";
+	}
+	savingAllowed = true;
 
 	// What the scene asks for.
 	Scene& startScene = engine.GetScene();
@@ -270,6 +324,7 @@ void UndertimeModule::OnStartup(Engine& engine)
 	size_t viewLength = 0;
 	if (_dupenv_s(&view, &viewLength, "UNDERTIME_DEV_VIEW") == 0 && view)
 	{
+		savingAllowed = false;
 		float x = 0, y = 0, z = 0, yaw = 0, pitch = 0;
 		std::istringstream in(view);
 		std::free(view);
@@ -284,6 +339,44 @@ void UndertimeModule::OnStartup(Engine& engine)
 		}
 	}
 
+	// UNDERTIME_DEV_MISSIONS="id id ... [journal|board]": take on those missions at the start
+	// and open the journal or the notice board (screenshots). Development runs never save.
+	char* devMissions = nullptr;
+	size_t devMissionsLength = 0;
+	if (_dupenv_s(&devMissions, &devMissionsLength, "UNDERTIME_DEV_MISSIONS") == 0 && devMissions)
+	{
+		std::istringstream in(devMissions);
+		std::free(devMissions);
+		savingAllowed = false;
+		for (std::string word; in >> word;)
+		{
+			if (word == "journal") journalOpen = true;
+			else if (word == "board") state = State::Board;
+			else missions.Accept(peopleLog, word, clock.Days());
+		}
+	}
+	// UNDERTIME_DEV_TALK="id [continues]": stand in front of that person (instead of the view)
+	// and talk to them, stepping past `continues` lines (screenshots of the conversation).
+	// Development runs never save.
+	char* devTalkText = nullptr;
+	size_t devTalkLength = 0;
+	if (_dupenv_s(&devTalkText, &devTalkLength, "UNDERTIME_DEV_TALK") == 0 && devTalkText)
+	{
+		std::istringstream in(devTalkText);
+		std::free(devTalkText);
+		std::string id;
+		in >> id >> devTalkSteps;
+		devTalk = npc::CastIndex(id);
+		savingAllowed = false;
+		if (devTalk >= 0)
+		{
+			const npc::Pose pose = people.Town().Evaluate(devTalk, clock.Days(), era);
+			player.Teleport({ pose.position.x + std::sin(pose.yaw) * 1.8f, pose.position.y + 0.3f, pose.position.z + std::cos(pose.yaw) * 1.8f }, pose.yaw + XM_PI);
+			player.pitch = 0.0f;
+			devHold = false;
+			state = State::Playing;
+		}
+	}
 	UpdateCamera(engine);
 	UpdateLighting(engine);
 }
@@ -458,6 +551,22 @@ void UndertimeModule::CreateScenery(Engine& engine)
 	props.Clear(&physics);
 	props.ApplyEra(engine, scene, era, &physics);
 	if (era > era::kFirst) clock.SetDays(OutsideClock::EraStartYears(era) * 365.0 + cfg::kArrivalHour / 24.0);
+	// The people: their places are on the props, which now stand on the ground.
+	people.Destroy(engine, scene, &physics);
+	people.Create(engine, scene, *valley);
+}
+
+NpcWorld::View UndertimeModule::PeopleView() const
+{
+	NpcWorld::View view;
+	view.days = clock.Days();
+	view.era = era;
+	view.timeRate = timeRate;
+	view.eye = player.EyePosition();
+	view.feet = player.position;
+	view.hidden = IsInside() && player.position.z > cfg::kHideValleyDepth;
+	view.log = &peopleLog;
+	return view;
 }
 
 void UndertimeModule::CreateViewModels(Engine& engine)
@@ -485,6 +594,13 @@ void UndertimeModule::CreateViewModels(Engine& engine)
 
 void UndertimeModule::OnShutdown(Engine& engine)
 {
+	if (state != State::Title) SaveGameNow(engine);
+	for (LostThing& thing : lostThings) if (engine.GetScene().IsAlive(thing.entity)) engine.GetScene().DestroyEntity(thing.entity);
+	lostThings.clear();
+	if (engine.GetScene().IsAlive(noticeBoard)) engine.GetScene().DestroyEntity(noticeBoard);
+	noticeBoard = INVALID_ENTITY;
+	for (Grave& g : graves) if (engine.GetScene().IsAlive(g.entity)) engine.GetScene().DestroyEntity(g.entity);
+	graves.clear();
 	engine.GetInput().SetMouseCaptured(false);
 	fragments.Clear(engine);
 	blocks.Shutdown(engine);
@@ -503,6 +619,7 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	for (MeshHandle m : chunkMeshes) renderer.DestroyMesh(m);
 	scenery.Destroy(engine, scene, &engine.GetPhysics());
 	props.Clear(&engine.GetPhysics());
+	people.Destroy(engine, scene, &engine.GetPhysics());
 	renderer.DestroyMesh(pickMesh);
 	renderer.DestroyMesh(shovelMesh);
 	renderer.DestroyMesh(lanternMesh);
@@ -613,6 +730,53 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 		}
 		if (!devHold) player.Update(input, dt, 1.0f, input.IsMouseCaptured());
 		UpdateClock(engine, dt);
+		// Who you could talk to; E starts it.
+		talkTarget = people.TalkTarget(player.EyePosition(), player.LookDirection());
+		if (devTalk >= 0 && people.Shown(devTalk)) talkTarget = devTalk;
+		if (talkTarget >= 0 && (input.WasKeyPressed('E') || devTalk == talkTarget))
+		{
+			devTalk = -1;
+			StartTalk(engine, talkTarget);
+		}
+		UpdateBarks(engine, dt);
+		UpdateMissions(engine);
+		UpdateLives(engine);
+		if (input.WasKeyPressed(VK_TAB)) journalOpen = !journalOpen;
+		if (talkTarget < 0 && input.WasKeyPressed('E'))
+		{
+			if (boardTarget)
+			{
+				state = State::Board;
+				input.SetMouseCaptured(false);
+			}
+			else if (graveTarget >= 0)
+			{
+				// The grave: their name, years and epitaph, and a line for you if you were close.
+				const int who = graves[graveTarget].npc;
+				const npc::NpcDef& dead = npc::Cast()[who];
+				const npc::LifeState life = npc::LifeAt(who, clock.Days(), &peopleLog);
+				OutsideClock born, died;
+				born.SetDays(dead.born * 365.0);
+				died.SetDays(life.diesDay);
+				std::string text = std::string(dead.name) + "\n" + std::to_string(born.Year()) + " - " + std::to_string(died.Year());
+				if (dead.epitaph) text += "\n\"" + std::string(dead.epitaph) + "\"";
+				if (peopleLog.StandingOf(who, life.diesDay).tier >= npc::Tier::Friend) text += "\nA friend of the courier.";
+				messages.Show(text, 5.0f);
+			}
+			else if (lostTarget >= 0)
+			{
+				const LostThing& thing = lostThings[lostTarget];
+				missions.Found(peopleLog, thing.mission, clock.Days());
+				if (const npc::MissionDef* m = missions.Find(thing.mission)) messages.Show("You found " + m->thing + ".", 2.5f);
+			}
+		}
+		autosaveTimer += dt;
+		if (autosaveTimer > cfg::kAutosaveSeconds || saveRequested)
+		{
+			SaveGameNow(engine);
+			autosaveTimer = 0.0f;
+			saveRequested = false;
+		}
 		if (tool == Tool::Pick) UpdateMining(engine, dt);
 		else UpdateShovel(engine, dt);
 
@@ -629,7 +793,15 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 	{
 		swingTimer = shovelTimer = 0.0f;
 		scoopPreview.clear();
+		if (state == State::Talking) UpdateTalk(engine, dt);
+		if (state == State::Board && engine.GetInput().WasKeyPressed(VK_ESCAPE))
+		{
+			state = State::Playing;
+			engine.GetInput().SetMouseCaptured(true);
+			waitForRelease = true;
+		}
 	}
+	barkLeft = std::max(0.0f, barkLeft - dt);
 
 	// Loose rock never goes back into the world. Past the boulder cap the oldest boulder
 	// comes apart into blocks; scooped blocks fly into the backpack.
@@ -649,6 +821,642 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 	UpdateCamera(engine);
 	UpdateViewModels(engine, dt);
 	UpdateLighting(engine);
+	// The people, where the outside clock says they are.
+	people.Update(engine, engine.GetScene(), engine.GetPhysics(), PeopleView(), dt);
+}
+
+// =============================================================================
+// People: talking, barks, the save game
+// =============================================================================
+
+npc::Conversation::Situation UndertimeModule::TalkSituation() const
+{
+	npc::Conversation::Situation s;
+	s.days = clock.Days();
+	s.hour = clock.HourOfDay();
+	const float rain = devWeather[0] >= 0.0f ? devWeather[1] : WeatherAt(clock.Days()).rain;
+	s.rain = rain > cfg::kNpcRainThreshold;
+	s.night = DayLightAt(s.hour).night > 0.5f;
+	s.era = era;
+	return s;
+}
+
+npc::DialogContext UndertimeModule::ContextFor(int npcIndex) const
+{
+	const npc::Conversation::Situation s = TalkSituation();
+	npc::DialogContext c;
+	c.npc = npcIndex;
+	c.days = s.days;
+	c.hour = s.hour;
+	c.rain = s.rain;
+	c.night = s.night;
+	c.era = s.era;
+	c.log = &peopleLog;
+	c.count = [this](const std::string& item) { return BackpackItem(item); };
+	c.standing = peopleLog.StandingOf(npcIndex, s.days);
+	return c;
+}
+
+std::string UndertimeModule::Speaker(int npcIndex) const
+{
+	const npc::NpcDef& who = npc::Cast()[npcIndex];
+	if (peopleLog.StandingOf(npcIndex, clock.Days()).met) return who.name;
+	std::string role = who.role;
+	if (!role.empty()) role[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(role[0])));
+	return "the " + role;
+}
+
+void UndertimeModule::StartTalk(Engine& engine, int npcIndex)
+{
+	if (people.PoseOf(npcIndex).activity == npc::Activity::Sleep)
+	{
+		std::string who = Speaker(npcIndex);
+		who[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(who[0])));
+		messages.Show(who + " is asleep.", 2.0f);
+		return;
+	}
+	conversation.Start(dialogs, peopleLog, npcIndex, TalkSituation());
+	state = State::Talking;
+	people.SetTalking(npcIndex);
+	choosingGift = false;
+	talkEase = 0.0f;
+	talkFromYaw = player.yaw;
+	talkFromPitch = player.pitch;
+	swingTimer = shovelTimer = 0.0f;
+	barkLeft = 0.0f;
+	engine.GetInput().SetMouseCaptured(false);
+}
+
+void UndertimeModule::EndTalk(Engine& engine)
+{
+	state = State::Playing;
+	people.SetTalking(-1);
+	choosingGift = false;
+	if (npc::Cast().size() == barkCooldown.size() && conversation.Npc() >= 0) barkCooldown[conversation.Npc()] = cfg::kBarkCooldown;
+	Input& input = engine.GetInput();
+	input.SetMouseCaptured(true);
+	waitForRelease = true;
+	SaveGameNow(engine);
+}
+
+void UndertimeModule::UpdateTalk(Engine& engine, float dt)
+{
+	Input& input = engine.GetInput();
+	const int who = conversation.Npc();
+	// The view eases round to their face.
+	talkEase = std::min(1.0f, talkEase + dt / cfg::kTalkTurnSeconds);
+	const XMFLOAT3 eye = player.EyePosition(), head = people.HeadPosition(who);
+	const float dx = head.x - eye.x, dy = head.y - eye.y, dz = head.z - eye.z;
+	const float toYaw = std::atan2(dx, dz), toPitch = -std::atan2(dy, std::hypot(dx, dz)) + 0.08f;   // a little below the eyes: the box sits low
+	float turn = toYaw - talkFromYaw;
+	while (turn > XM_PI) turn -= XM_2PI;
+	while (turn < -XM_PI) turn += XM_2PI;
+	const float t = talkEase * talkEase * (3.0f - 2.0f * talkEase);
+	player.yaw = talkFromYaw + turn * t;
+	player.pitch = talkFromPitch + (toPitch - talkFromPitch) * t;
+
+	if (input.WasKeyPressed(VK_ESCAPE))
+	{
+		EndTalk(engine);
+		return;
+	}
+	const bool canGive = BackpackCount() > 0;
+	if (conversation.GetMode() == npc::Conversation::Mode::Line)
+	{
+		if (input.WasKeyPressed('E') || input.WasKeyPressed(VK_SPACE) || input.WasKeyPressed(VK_RETURN)) conversation.Continue();
+	}
+	else
+	{
+		for (int i = 0; i < 9; ++i)
+		{
+			if (!input.WasKeyPressed('1' + i)) continue;
+			if (choosingGift)
+			{
+				int n = 0;
+				for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+				{
+					if (backpack[b] == 0) continue;
+					if (n++ == i)
+					{
+						--backpack[b];
+						conversation.Give(cfg::Info(static_cast<Block>(b)).name);
+						choosingGift = false;
+					}
+				}
+				if (i == n) choosingGift = false;   // never mind
+			}
+			else if (conversation.Choose(i, canGive)) choosingGift = true;
+			break;
+		}
+	}
+	// Development: step through the first lines on their own (screenshots).
+	if (devTalkSteps > 0 && conversation.GetMode() == npc::Conversation::Mode::Line && talkEase >= 1.0f)
+	{
+		--devTalkSteps;
+		conversation.Continue();
+	}
+	if (conversation.GetMode() == npc::Conversation::Mode::Over) EndTalk(engine);
+}
+
+void UndertimeModule::UpdateBarks(Engine& engine, float dt)
+{
+	(void)engine;
+	barkGlobal = std::max(0.0f, barkGlobal - dt);
+	for (float& c : barkCooldown) c = std::max(0.0f, c - dt);
+	if (barkGlobal > 0.0f || barkCooldown.size() != npc::Cast().size()) return;
+	for (size_t i = 0; i < npc::Cast().size(); ++i)
+	{
+		const int who = static_cast<int>(i);
+		if (!people.Shown(who) || barkCooldown[i] > 0.0f || people.PoseOf(who).activity == npc::Activity::Sleep) continue;
+		const XMFLOAT3 at = people.PoseOf(who).position;
+		if (std::hypot(at.x - player.position.x, at.z - player.position.z) > cfg::kBarkDistance) continue;
+		const std::string line = dialogs.Pick(&npc::DialogFile::barks, ContextFor(who), static_cast<uint32_t>(time * 7.0f) + static_cast<uint32_t>(i) * 31u);
+		barkCooldown[i] = cfg::kBarkCooldown;
+		if (line.empty()) continue;
+		barkSpeaker = Speaker(who);
+		barkSpeaker[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(barkSpeaker[0])));
+		barkText = line;
+		barkLeft = cfg::kBarkSeconds;
+		barkGlobal = cfg::kBarkGlobalCooldown;
+		break;
+	}
+}
+
+void UndertimeModule::DrawConversation(Engine& engine)
+{
+	const int who = conversation.Npc();
+	if (who < 0) return;
+	const npc::NpcDef& person = npc::Cast()[who];
+	const npc::Standing standing = peopleLog.StandingOf(who, clock.Days());
+	const ViewRect view = engine.GameViewRect();
+	const float scale = ImGui::GetFontSize() / 13.0f;
+	const float width = std::min(view.width * 0.72f, 760.0f * scale);
+	ImGui::SetNextWindowPos(ImVec2(view.x + view.width * 0.5f, view.y + view.height - 24.0f * scale), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+	ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Always);
+	ImGui::SetNextWindowBgAlpha(0.86f);
+	ImGui::Begin("##conversation", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+
+	// Their portrait: the head model, turning a little.
+	const float portrait = 104.0f * scale;
+	const unsigned long long texture = engine.GetRenderer().RenderPreview(people.HeadMesh(who), people.Material(), static_cast<uint32_t>(portrait),
+		XM_PI + 0.35f * std::sin(time * 0.6f), 0.12f);
+	if (texture) ImGui::Image(static_cast<ImTextureID>(texture), ImVec2(portrait, portrait));
+	else ImGui::Dummy(ImVec2(portrait, portrait));
+	ImGui::SameLine();
+	ImGui::BeginGroup();
+	ImGui::TextColored(ImVec4(1.0f, 0.77f, 0.47f, 1.0f), "%s", person.name);
+	ImGui::SameLine();
+	ImGui::TextDisabled("%s  -  %s", person.role, npc::TierName(standing.tier));
+	ImGui::Separator();
+	ImGui::PushTextWrapPos(width - 16.0f * scale);
+	ImGui::SetWindowFontScale(1.15f);
+	ImGui::TextUnformatted(conversation.Text().c_str());
+	ImGui::SetWindowFontScale(1.0f);
+	ImGui::PopTextWrapPos();
+	ImGui::EndGroup();
+	ImGui::Spacing();
+
+	const bool canGive = BackpackCount() > 0;
+	const npc::Conversation::Mode mode = conversation.GetMode();
+	if (mode == npc::Conversation::Mode::Line)
+	{
+		if (ImGui::Button("Continue  (E)")) conversation.Continue();
+	}
+	else if (choosingGift)
+	{
+		ImGui::TextDisabled("Give them one of:");
+		int n = 0;
+		for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+		{
+			if (backpack[b] == 0) continue;
+			char label[64];
+			std::snprintf(label, sizeof(label), "%d.  %s  (%d)", ++n, cfg::Info(static_cast<Block>(b)).name, backpack[b]);
+			if (ImGui::Button(label))
+			{
+				--backpack[b];
+				conversation.Give(cfg::Info(static_cast<Block>(b)).name);
+				choosingGift = false;
+			}
+		}
+		char never[32];
+		std::snprintf(never, sizeof(never), "%d.  Never mind", n + 1);
+		if (ImGui::Button(never)) choosingGift = false;
+	}
+	else
+	{
+		const std::vector<std::string> options = conversation.Options(canGive);
+		for (size_t i = 0; i < options.size(); ++i)
+		{
+			char label[256];
+			std::snprintf(label, sizeof(label), "%zu.  %s", i + 1, options[i].c_str());
+			if (ImGui::Button(label) && conversation.Choose(static_cast<int>(i), canGive)) choosingGift = true;
+		}
+	}
+	ImGui::End();
+	if (conversation.GetMode() == npc::Conversation::Mode::Over) EndTalk(engine);
+}
+
+// =============================================================================
+// Missions
+// =============================================================================
+
+int UndertimeModule::BackpackItem(const std::string& item) const
+{
+	int count = 0;
+	for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+		if (item == cfg::Info(static_cast<Block>(b)).name) count += backpack[b];
+	return count;
+}
+
+void UndertimeModule::AddToBackpack(const std::map<std::string, int>& items)
+{
+	for (const auto& [name, count] : items)
+		for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+			if (name == cfg::Info(static_cast<Block>(b)).name)
+			{
+				backpack[b] = std::max(0, backpack[b] + count);
+				if (count > 0) recentPickup[b] = count;
+				pickupToast = 2.5f;
+				break;
+			}
+}
+
+void UndertimeModule::MissionEffect(const npc::Effect& e)
+{
+	const double days = clock.Days();
+	switch (e.kind)
+	{
+	case npc::Effect::Kind::Accept:
+		missions.Accept(peopleLog, e.name, days);
+		if (const npc::MissionDef* m = missions.Find(e.name)) messages.Show("Journal (Tab): " + m->title, 2.5f);
+		break;
+	case npc::Effect::Kind::Complete:
+	{
+		const npc::MissionDef* m = missions.Find(e.name);
+		AddToBackpack(missions.Complete(peopleLog, e.name, days));
+		if (m) messages.Show("Done: " + m->title, 2.5f);
+		break;
+	}
+	case npc::Effect::Kind::Take:
+		AddToBackpack({ { e.name, -static_cast<int>(e.amount) } });
+		break;
+	default:
+		break;
+	}
+}
+
+bool UndertimeModule::AimedAt(const XMFLOAT3& point, float reach) const
+{
+	const XMFLOAT3 eye = player.EyePosition(), look = player.LookDirection();
+	const XMVECTOR to = XMVectorSubtract(XMLoadFloat3(&point), XMLoadFloat3(&eye));
+	const float distance = XMVectorGetX(XMVector3Length(to));
+	if (distance > reach || distance < 1e-3f) return false;
+	return XMVectorGetX(XMVector3Dot(XMVectorScale(to, 1.0f / distance), XMLoadFloat3(&look))) > cfg::kTalkAimCos - 0.3f / std::max(distance, 0.5f);
+}
+
+void UndertimeModule::UpdateMissions(Engine& engine)
+{
+	Scene& scene = engine.GetScene();
+	const double days = clock.Days();
+
+	// Time ran out on some.
+	for (const std::string& id : missions.Expire(peopleLog, days))
+		if (const npc::MissionDef* m = missions.Find(id)) messages.Show("Too late: " + m->title, 3.0f);
+	// Meetings you're at.
+	for (const std::string& id : missions.Arrived(peopleLog, days, [this](const std::string& place)
+		{
+			const int i = people.Town().PlaceIndex(place.c_str());
+			if (i < 0 || !people.Town().PlaceAt(i).resolved) return false;
+			const npc::RoutePoint& at = people.Town().PlaceAt(i).at;
+			return std::hypot(at.x - player.position.x, at.z - player.position.z) < 5.0f;
+		}))
+	{
+		const npc::MissionDef* m = missions.Find(id);
+		AddToBackpack(missions.Complete(peopleLog, id, days));
+		if (m)
+		{
+			barkSpeaker = npc::Cast()[npc::CastIndex(m->giver)].name;
+			barkText = m->done.empty() ? "You came." : m->done;
+			barkLeft = cfg::kBarkSeconds + 2.0f;
+		}
+	}
+
+	// The notice board: by the trading post in the Camp, by the saloon in the Settlement.
+	const char* boardName = era == 1 ? "post.board" : era == 2 ? "saloon.board" : "";
+	const int boardPlace = people.Town().PlaceIndex(boardName);
+	const bool boardStands = boardPlace >= 0 && people.Town().PlaceAt(boardPlace).resolved;
+	if (boardPlaceName != boardName && scene.IsAlive(noticeBoard))
+	{
+		scene.DestroyEntity(noticeBoard);
+		noticeBoard = INVALID_ENTITY;
+	}
+	boardPlaceName = boardName;
+	if (!scene.IsAlive(noticeBoard) && boardStands)
+	{
+		const npc::Place& place = people.Town().PlaceAt(boardPlace);
+		noticeBoard = scene.CreateEntity();
+		Transform t;
+		t.position = { place.at.x, people.Town().GroundY(place.at.x, place.at.z), place.at.z };
+		t.SetRotationEuler(0.0f, place.yaw + XM_PI, 0.0f);   // the model's front faces -z
+		scene.Add(noticeBoard, t);
+		scene.Add(noticeBoard, MeshRenderer{ engine.GetAssets().GetMesh("Models/Placeholders/NoticeBoard.vox"), engine.GetAssets().GetMaterial("Materials/Town.mat") });
+		boardAt = { t.position.x + std::sin(place.yaw) * 0.2f, t.position.y + 1.4f, t.position.z + std::cos(place.yaw) * 0.2f };
+	}
+	if (scene.IsAlive(noticeBoard)) scene.Get<MeshRenderer>(noticeBoard).visible = boardStands;
+	boardTarget = boardStands && AimedAt(boardAt, 3.0f);
+
+	// Lost things: one in a cavern of its zone for each retrieve mission running and not found.
+	std::vector<std::string> wanted;
+	for (const auto& entry : missions.Taken(peopleLog, days))
+		if (entry.first->type == npc::ObjectiveType::Retrieve && entry.second.state == npc::MissionState::Active && !entry.second.found) wanted.push_back(entry.first->id);
+	for (size_t i = 0; i < lostThings.size();)
+	{
+		if (std::find(wanted.begin(), wanted.end(), lostThings[i].mission) == wanted.end())
+		{
+			if (scene.IsAlive(lostThings[i].entity)) scene.DestroyEntity(lostThings[i].entity);
+			lostThings.erase(lostThings.begin() + i);
+		}
+		else ++i;
+	}
+	for (const std::string& id : wanted)
+	{
+		if (std::any_of(lostThings.begin(), lostThings.end(), [&](const LostThing& t) { return t.mission == id; })) continue;
+		const npc::MissionDef* m = missions.Find(id);
+		const int zone = m ? m->zone - 1 : -1;
+		if (zone < 0 || zone >= static_cast<int>(layout.zones.size()) || layout.zones[zone].rooms.empty()) continue;
+		// The same cavern for the same mountain and mission.
+		// Not the zone's entry or exit cavern ([0], [1]): somewhere you have to look.
+		const std::vector<CaveRoom>& rooms = layout.zones[zone].rooms;
+		const size_t first = rooms.size() > 2 ? 2 : 0;
+		const CaveRoom& room = rooms[first + (std::hash<std::string>{}(id) ^ (seed * 2654435761u)) % (rooms.size() - first)];
+		LostThing thing;
+		thing.mission = id;
+		thing.at = { room.center.x + 0.6f, room.center.y, room.center.z + 0.4f };
+		thing.entity = scene.CreateEntity();
+		Transform t;
+		t.position = thing.at;
+		t.SetRotationEuler(0.0f, static_cast<float>(std::hash<std::string>{}(id) % 628) / 100.0f, 0.0f);
+		scene.Add(thing.entity, t);
+		scene.Add(thing.entity, MeshRenderer{ engine.GetAssets().GetMesh("Models/Placeholders/LostThing.vox"), engine.GetAssets().GetMaterial("engine/VoxelModel") });
+		PointLightComponent glow;
+		glow.color = { 1.0f, 0.8f, 0.45f };
+		glow.intensity = 0.6f;
+		glow.range = 3.0f;
+		scene.Add(thing.entity, glow);
+		lostThings.push_back(thing);
+		CHERRY_LOG("UNDERTIME: %s lies at %.1f %.1f %.1f (zone %d)", m->thing.c_str(), thing.at.x, thing.at.y, thing.at.z, m->zone);
+	}
+	lostTarget = -1;
+	for (size_t i = 0; i < lostThings.size(); ++i)
+		if (AimedAt({ lostThings[i].at.x, lostThings[i].at.y + 0.25f, lostThings[i].at.z }, cfg::kRetrieveReach)) lostTarget = static_cast<int>(i);
+}
+
+void UndertimeModule::UpdateLives(Engine& engine)
+{
+	Scene& scene = engine.GetScene();
+	const double days = clock.Days();
+
+	// Gatherings: you're there when you're near the middle of its ring.
+	const auto joined = npc::SettleGatherings(peopleLog, days, [this](const npc::TownEvent& g)
+		{
+			float x = 0.0f, z = 0.0f;
+			int n = 0;
+			for (int k = 0; k < cfg::kGatherSlots; ++k)
+			{
+				const int i = people.Town().PlaceIndex(("gather." + g.gather + "#" + std::to_string(k)).c_str());
+				if (i < 0 || !people.Town().PlaceAt(i).resolved) continue;
+				x += people.Town().PlaceAt(i).at.x;
+				z += people.Town().PlaceAt(i).at.z;
+				++n;
+			}
+			return n > 0 && std::hypot(x / n - player.position.x, z / n - player.position.z) < cfg::kGatherReach;
+		});
+	for (const npc::TownEvent& g : joined)
+	{
+		std::string what = g.kind == npc::TownEventKind::Wedding ? std::string("the wedding of ") + npc::Cast()[g.npc].name + " and " + npc::Cast()[g.other].name
+			: g.kind == npc::TownEventKind::Funeral ? std::string("the funeral of ") + npc::Cast()[g.npc].name : std::string("Founders' Day");
+		messages.Show("You're at " + what + ".", 3.0f);
+	}
+
+	// Graves: one for each of the cast who has died, in a row by the chapel (from the Settlement on).
+	std::vector<int> dead;
+	if (era >= 2)
+		for (int i = 0; i < static_cast<int>(npc::Cast().size()); ++i)
+		{
+			const npc::LifeState life = npc::LifeAt(i, days, &peopleLog);
+			if (life.born && !life.alive && !npc::Cast()[i].ageless) dead.push_back(i);
+		}
+	bool same = dead.size() == graves.size();
+	for (size_t k = 0; same && k < dead.size(); ++k) same = graves[k].npc == dead[k];
+	if (!same)
+	{
+		for (Grave& g : graves) if (scene.IsAlive(g.entity)) scene.DestroyEntity(g.entity);
+		graves.clear();
+		std::vector<std::pair<double, int>> order;
+		for (int i : dead) order.push_back({ npc::LifeAt(i, days, &peopleLog).diesDay, i });
+		std::sort(order.begin(), order.end());
+		for (size_t k = 0; k < order.size(); ++k)
+		{
+			Grave g;
+			g.npc = order[k].second;
+			const float x = cfg::kGraveRow[0], z = cfg::kGraveRow[1] + cfg::kGraveRow[2] * static_cast<float>(k);
+			g.at = { x, people.Town().GroundY(x, z), z };
+			g.entity = scene.CreateEntity();
+			Transform t;
+			t.position = g.at;
+			t.SetRotationEuler(0.0f, XM_PIDIV2, 0.0f);   // like the chapel's graves
+			scene.Add(g.entity, t);
+			scene.Add(g.entity, MeshRenderer{ engine.GetAssets().GetMesh("Models/Placeholders/Grave.vox"), engine.GetAssets().GetMaterial("Materials/Town.mat") });
+			graves.push_back(g);
+		}
+		// Keep the list in npc order for the comparison above.
+		std::sort(graves.begin(), graves.end(), [](const Grave& a, const Grave& b) { return a.npc < b.npc; });
+	}
+	graveTarget = -1;
+	for (size_t k = 0; k < graves.size(); ++k)
+		if (AimedAt({ graves[k].at.x, graves[k].at.y + 0.4f, graves[k].at.z }, 3.0f)) graveTarget = static_cast<int>(k);
+}
+
+void UndertimeModule::DrawBoard(Engine& engine)
+{
+	const ViewRect view = engine.GameViewRect();
+	const float scale = ImGui::GetFontSize() / 13.0f;
+	ImGui::SetNextWindowPos(ImVec2(view.x + view.width * 0.5f, view.y + view.height * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(std::min(view.width * 0.6f, 620.0f * scale), 0.0f), ImGuiCond_Always);
+	ImGui::SetNextWindowBgAlpha(0.92f);
+	ImGui::Begin("##board", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+	ImGui::TextColored(ImVec4(1.0f, 0.77f, 0.47f, 1.0f), "Notice board");
+	ImGui::SameLine();
+	ImGui::TextDisabled("new notices every outside week");
+	ImGui::Separator();
+	const double days = clock.Days();
+	const std::vector<std::string> jobs = missions.BoardJobs(static_cast<long long>(std::floor(days / 7.0)), era);
+	if (jobs.empty()) ImGui::TextDisabled("Nothing posted.");
+	for (const std::string& id : jobs)
+	{
+		const npc::MissionDef* m = missions.Find(id);
+		if (!m) continue;
+		ImGui::PushID(id.c_str());
+		const npc::MissionStatus status = missions.Status(peopleLog, id, days);
+		ImGui::PushTextWrapPos(0.0f);
+		ImGui::TextUnformatted(m->offer.c_str());
+		std::string what = m->type == npc::ObjectiveType::Deliver ? std::to_string(m->count) + " " + m->item + " for " + npc::Cast()[npc::CastIndex(m->giver)].name
+			: m->thing + " for " + npc::Cast()[npc::CastIndex(m->to)].name;
+		ImGui::TextDisabled("%s  -  %s; reward: friendship%s", m->title.c_str(), what.c_str(), m->rewardItems.empty() ? "" : " and goods");
+		ImGui::PopTextWrapPos();
+		if (status.state == npc::MissionState::Open)
+		{
+			if (ImGui::Button("Take it on"))
+			{
+				missions.Accept(peopleLog, id, days);
+				messages.Show("Journal (Tab): " + m->title, 2.5f);
+			}
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s", m->deadline > 0.0 ? ("within " + OutsideClock::SpanText(m->deadline)).c_str() : "no hurry");
+		}
+		else ImGui::TextDisabled(status.state == npc::MissionState::Active ? "Taken on." : status.state == npc::MissionState::Done ? "Done." : "Missed.");
+		ImGui::Separator();
+		ImGui::PopID();
+	}
+	if (ImGui::Button("Leave  (Esc)"))
+	{
+		state = State::Playing;
+		engine.GetInput().SetMouseCaptured(true);
+		waitForRelease = true;
+	}
+	ImGui::End();
+}
+
+void UndertimeModule::DrawJournal(Engine& engine)
+{
+	const ViewRect view = engine.GameViewRect();
+	const float scale = ImGui::GetFontSize() / 13.0f;
+	ImGui::SetNextWindowPos(ImVec2(view.x + 20.0f * scale, view.y + view.height * 0.24f), ImGuiCond_Always);
+	ImGui::SetNextWindowSize(ImVec2(std::min(view.width * 0.42f, 480.0f * scale), 0.0f), ImGuiCond_Always);
+	ImGui::SetNextWindowBgAlpha(0.82f);
+	ImGui::Begin("##journal", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs);
+	ImGui::TextColored(ImVec4(1.0f, 0.77f, 0.47f, 1.0f), "Journal");
+	ImGui::SameLine();
+	ImGui::TextDisabled("(Tab)");
+	ImGui::Separator();
+	const double days = clock.Days();
+	const auto taken = missions.Taken(peopleLog, days);
+	int shown = 0;
+	int running = 0;
+	for (const auto& entry : taken) running += entry.second.state == npc::MissionState::Active ? 1 : 0;
+	ImGui::PushTextWrapPos(0.0f);
+	for (const auto& [m, s] : taken)
+	{
+		if (s.state != npc::MissionState::Active) continue;
+		++shown;
+		ImGui::Text("%s", m->title.c_str());
+		ImGui::SameLine();
+		ImGui::TextDisabled("for %s", npc::Cast()[npc::CastIndex(m->giver)].name);
+		if (!m->brief.empty() && running <= 2) ImGui::TextWrapped("%s", m->brief.c_str());   // with more, only the essentials fit
+		std::string progress;
+		switch (m->type)
+		{
+		case npc::ObjectiveType::Deliver: progress = "You have " + std::to_string(std::min(BackpackItem(m->item), m->count)) + " of " + std::to_string(m->count) + " " + m->item + "."; break;
+		case npc::ObjectiveType::Retrieve: progress = s.found ? "You have it: take it back." : "Somewhere in a cavern of zone " + std::to_string(m->zone) + "."; break;
+		case npc::ObjectiveType::Courier: progress = "Take " + m->thing + " to " + npc::Cast()[npc::CastIndex(m->to)].name + "."; break;
+		case npc::ObjectiveType::Meet:
+		{
+			OutsideClock at;
+			at.SetDays(s.windowFrom);
+			progress = "Be there from " + at.DateText() + " (" + std::to_string(static_cast<int>(m->hourFrom)) + ":00 to " + std::to_string(static_cast<int>(m->hourTo)) + ":00).";
+			if (days < s.windowFrom) progress += " In " + OutsideClock::SpanText(s.windowFrom - days) + ".";
+			break;
+		}
+		case npc::ObjectiveType::Wait:
+			progress = days >= s.accepted + m->waitDays ? "Time enough has passed: go back." : "Ready in " + OutsideClock::SpanText(s.accepted + m->waitDays - days) + " of outside time.";
+			break;
+		}
+		ImGui::TextWrapped("%s", progress.c_str());
+		if (s.due < 1e29 && m->type != npc::ObjectiveType::Meet) ImGui::TextColored(ImVec4(0.45f, 0.95f, 1.0f, 1.0f), "%s", npc::DeadlineText(s.due - days).c_str());
+		ImGui::Spacing();
+	}
+	if (shown == 0) ImGui::TextDisabled("Nothing on. Talk to people, or read the notice board.");
+	const size_t letters = npc::UnreadLetters(dialogs, peopleLog, days).size();
+	if (letters > 0)
+	{
+		const int keeper = npc::PostKeeper(era, days, &peopleLog);
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(1.0f, 0.77f, 0.47f, 1.0f), "%zu letter%s waiting at the post%s", letters, letters == 1 ? "" : "s",
+			keeper >= 0 ? (" (ask " + std::string(npc::Cast()[keeper].name) + ")").c_str() : "");
+	}
+	int ended = 0;
+	for (auto it = taken.rbegin(); it != taken.rend() && ended < 4; ++it)
+	{
+		if (it->second.state == npc::MissionState::Active) continue;
+		if (ended++ == 0) ImGui::Separator();
+		ImGui::TextDisabled("%s  %s", it->second.state == npc::MissionState::Done ? "Done:  " : "Missed:", it->first->title.c_str());
+	}
+	ImGui::PopTextWrapPos();
+	ImGui::End();
+}
+
+std::string UndertimeModule::SavePath(Engine& engine) const
+{
+	const std::filesystem::path saved = engine.Project().saved;
+	return saved.empty() ? std::string() : (saved / "SaveGame.json").string();
+}
+
+void UndertimeModule::SaveGameNow(Engine& engine)
+{
+	if (!savingAllowed || state == State::Title) return;
+	const std::string path = SavePath(engine);
+	if (path.empty()) return;
+	SaveGame save;
+	save.seed = seed;
+	save.days = clock.Days();
+	save.personal = clock.PersonalSeconds();
+	save.era = era;
+	save.feet = player.position;
+	save.yaw = player.yaw;
+	save.pitch = player.pitch;
+	for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+		if (backpack[b] > 0) save.backpack[cfg::Info(static_cast<Block>(b)).name] += backpack[b];
+	save.pickLevel = pickLevel;
+	save.lanternLevel = lanternLevel;
+	save.log = peopleLog;
+	save.date = clock.DateText();
+	std::string error;
+	if (save.Write(path, error))
+	{
+		saveExists = true;
+		saveDate = save.date;
+	}
+	else CHERRY_LOG("UNDERTIME: couldn't save: %s", error.c_str());
+}
+
+bool UndertimeModule::LoadSavedGame(Engine& engine)
+{
+	SaveGame save;
+	std::string error;
+	if (!save.Read(SavePath(engine), error))
+	{
+		messages.Show("Couldn't load the save: " + error, 4.0f);
+		return false;
+	}
+	if (save.seed != 0 && save.seed != seed) NewWorld(engine, save.seed);
+	clock.SetDays(save.days);
+	clock.SetPersonalSeconds(save.personal);
+	SetEra(engine, save.era);
+	player.Teleport(save.feet, save.yaw);
+	player.pitch = save.pitch;
+	backpack = {};
+	for (const auto& [name, count] : save.backpack)
+		for (int b = 0; b < static_cast<int>(Block::Count); ++b)
+			if (name == cfg::Info(static_cast<Block>(b)).name) { backpack[b] = count; break; }
+	pickLevel = save.pickLevel;
+	lanternLevel = save.lanternLevel;
+	peopleLog = save.log;
+	wasInside = IsInside();
+	daysAtEntry = clock.Days();
+	eraAtEntry = era;
+	messages.Show("Welcome back. " + save.date + ".", 3.0f);
+	CHERRY_LOG("UNDERTIME: loaded the save (%s, %zu log entries)", save.date.c_str(), peopleLog.Events().size());
+	return true;
 }
 
 void UndertimeModule::UpdateState(Engine& engine)
@@ -666,6 +1474,13 @@ void UndertimeModule::UpdateState(Engine& engine)
 		{
 			NewWorld(engine, RandomSeed());
 		}
+		if (input.WasKeyPressed('C') && saveExists && LoadSavedGame(engine))
+		{
+			state = State::Playing;
+			input.SetMouseCaptured(true);
+			waitForRelease = true;
+			break;
+		}
 		[[fallthrough]];
 	case State::Paused:
 		if (input.WasMousePressed(MouseButton::Left))
@@ -675,6 +1490,9 @@ void UndertimeModule::UpdateState(Engine& engine)
 			waitForRelease = true;
 		}
 		break;
+	case State::Talking:
+	case State::Board:
+		break;   // UpdateTalk, the board's window
 	case State::Playing:
 		if (input.WasKeyPressed(VK_ESCAPE))
 		{
@@ -1817,8 +2635,13 @@ void UndertimeModule::UpdateClock(Engine& engine, float dt)
 		{
 			std::string text = "While you were inside, " + OutsideClock::SpanText(away) + " passed.";
 			if (era != eraAtEntry) text += std::string("\nStillwell: ") + era::Name(era) + ".";
+			// What happened in the valley meanwhile, and letters waiting.
+			for (const std::string& line : npc::News(daysAtEntry, clock.Days(), &peopleLog, 4)) text += "\n" + line;
+			const size_t letters = npc::UnreadLetters(dialogs, peopleLog, clock.Days()).size();
+			if (letters > 0) text += "\n" + std::to_string(letters) + (letters == 1 ? " letter waits" : " letters wait") + " for you at the post.";
 			messages.Show(text, cfg::kMessageSeconds + 1.5f);
 		}
+		saveRequested = true;
 	}
 	wasInside = inside;
 }
@@ -1879,9 +2702,12 @@ void UndertimeModule::OnImGui(Engine& engine)
 				"",
 				seedLine,
 				"",
+				saveExists ? "C  continue the saved game  (" + saveDate + ")" : std::string("No saved game yet"),
+				saveExists ? std::string("A new game replaces the save the next time it saves.") : std::string(),
+				"",
 				buildStamp,
 			},
-			"Click to begin");
+			saveExists ? "Click for a new game" : "Click to begin");
 		hud::End(frame);
 
 		// Type a seed to replay a mountain.
@@ -1903,7 +2729,11 @@ void UndertimeModule::OnImGui(Engine& engine)
 		return;
 	}
 
-	if (tool == Tool::Pick)
+	if (state == State::Talking || state == State::Board)
+	{
+		// Only the conversation or the board.
+	}
+	else if (tool == Tool::Pick)
 	{
 		const char* label = !target.valid ? "" : (target.fragment != kInvalidBody ? "Boulder" : cfg::Info(target.block).name);
 		const ImU32 labelColor = (target.valid && target.block != Block::Stone && !cfg::Unbreakable(target.block))
@@ -1929,7 +2759,7 @@ void UndertimeModule::OnImGui(Engine& engine)
 	const char* toolLine = tool == Tool::Pick ? "[1 Pick]   2 Shovel" : " 1 Pick   [2 Shovel]";
 	const std::string eraLine = std::string("Era  ") + era::Name(era) + "  (N)";
 	hud::Panel(frame, 0, { "UNDERTIME  " + buildStamp, depthLine, renderLine, toolLine, eraLine });
-	DrawWatch(frame);
+	if (state != State::Talking) DrawWatch(frame);   // the conversation box sits there
 
 	// Backpack, with what you just scooped up on top.
 	std::vector<std::string> bag;
@@ -1960,6 +2790,21 @@ void UndertimeModule::OnImGui(Engine& engine)
 	hud::Panel(frame, 1, bag);
 
 	messages.Draw(frame);
+	if (state == State::Playing && talkTarget >= 0)
+	{
+		std::string who = Speaker(talkTarget);
+		const bool asleep = people.PoseOf(talkTarget).activity == npc::Activity::Sleep;
+		if (asleep) who[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(who[0])));
+		hud::Prompt(frame, asleep ? who + " is asleep" : "E  Talk to " + who);
+	}
+	else if (state == State::Playing && boardTarget) hud::Prompt(frame, "E  Read the notice board");
+	else if (state == State::Playing && graveTarget >= 0) hud::Prompt(frame, std::string("E  Read the grave of ") + npc::Cast()[graves[graveTarget].npc].name);
+	else if (state == State::Playing && lostTarget >= 0)
+	{
+		const npc::MissionDef* m = missions.Find(lostThings[lostTarget].mission);
+		hud::Prompt(frame, "E  Pick up " + (m ? m->thing : std::string("it")));
+	}
+	if (state != State::Talking) hud::Subtitle(frame, barkSpeaker, barkText, std::min(1.0f, barkLeft / 0.6f));
 	if (mapOpen)
 	{
 		map.Draw(frame, layout, player.position, player.yaw);
@@ -1969,12 +2814,15 @@ void UndertimeModule::OnImGui(Engine& engine)
 	{
 		hud::Overlay(frame, "Paused", { "Esc released the mouse." }, "Click to continue");
 	}
-	else if (!engine.GetInput().IsMouseCaptured() && !engine.IsEditorMode())
+	else if (!engine.GetInput().IsMouseCaptured() && !engine.IsEditorMode() && state != State::Talking && state != State::Board)
 	{
 		hud::Message(frame, "Click to capture the mouse", 0.8f);
 	}
 
 	hud::End(frame);
+	if (state == State::Talking) DrawConversation(engine);
+	if (state == State::Board) DrawBoard(engine);
+	if (journalOpen && (state == State::Playing || state == State::Talking)) DrawJournal(engine);
 
 	// Editor-only diagnostics in the Game panel.
 	if (engine.IsEditorMode())
@@ -2004,6 +2852,28 @@ void UndertimeModule::OnImGui(Engine& engine)
 			if (ImGui::Button("Drop 10000")) DropTestBlocks(engine, 10000);
 			ImGui::TreePop();
 		}
+		XMFLOAT3 goTo{};
+		float goYaw = 0.0f;
+		if (people.DebugGui(engine, PeopleView(), peopleLog, goTo, goYaw))
+		{
+			player.Teleport(goTo, goYaw);
+			state = State::Playing;
+		}
+		// Test of turning time back (the clockmaker's service isn't built): the clock goes back a
+		// year, people you met since forget you (déjà vu), the clockmaker remembers.
+		if (ImGui::SmallButton("Turn time back a year (test)") && clock.Days() > 365.0)
+		{
+			const double back = clock.Days() - 365.0;
+			peopleLog.TurnBackTo(back);
+			clock.SetDays(back);
+			peopleLog.Add({ back, -1, npc::EventKind::Flag, 0.0f, "turned-time-back" });
+			SetEra(engine, clock.Era());
+			messages.Show("Time turned back a year: " + clock.DateText(), 2.5f);
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Forget everyone (clear the log)")) peopleLog.Clear();
+		ImGui::SameLine();
+		ImGui::TextDisabled("%zu log entries, %s", peopleLog.Events().size(), savingAllowed ? "saving" : "not saving (development view)");
 		ImGui::Text("Physics       %u bodies, %u active, %.2f ms", engine.GetPhysics().Stats().bodies, engine.GetPhysics().Stats().activeBodies, engine.GetPhysics().Stats().stepMs);
 		ImGui::Text("Collision     %.2f ms for %d chunk(s)   support check %d voxels", collision.LastFlushMs(), collision.LastFlushChunks(), lastSupportVisited);
 		ImGui::Text("Seed %u   generated in %.0f ms   collision built in %.0f ms", seed, generationMs, collision.BuildMs());

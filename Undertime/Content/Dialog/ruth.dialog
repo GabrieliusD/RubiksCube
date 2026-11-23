@@ -1,0 +1,27 @@
+{
+	"npc": "ruth",
+	"greetings": [
+		{ "when": { "met": false }, "say": "Dr Ruth Calloway. If you're bleeding, sit. If you're not, I'm busy, but say hello.", "priority": 5 },
+		{ "when": { "away": ">=60" }, "say": "{away}, and you haven't aged a day. I'd like to examine you. I'm only half joking.", "priority": 4 },
+		{ "say": ["Courier. Keeping well?", "Hello again."], "priority": 0 }
+	],
+	"barks": [
+		{ "when": { "met": true }, "say": ["Mind the cold down there.", "Wash your hands, courier."] }
+	],
+	"topics": [
+		{
+			"id": "work", "title": "How's the town's health?",
+			"steps": [ { "say": "Better than most mining towns. The forge is killing Bram slowly, though. His lungs." } ]
+		},
+		{
+			"id": "you", "title": "Why don't I age?", "once": true, "when": { "tier": ">=Friendly" },
+			"steps": [
+				{ "say": "You do. Just not on our clock. Your heart beats a few thousand times while ours beat millions. I've counted." },
+				{ "choice": [
+					{ "text": "That frightens me.", "do": [ { "regard": 4 } ], "then": [ { "say": "Good. It should. Don't lose us all." } ] },
+					{ "text": "It's useful.", "do": [ { "regard": -2 } ], "then": [ { "say": "So's a knife." } ] }
+				] }
+			]
+		}
+	]
+}

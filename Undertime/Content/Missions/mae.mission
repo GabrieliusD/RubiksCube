@@ -1,0 +1,29 @@
+{
+	"missions": [
+		{
+			"id": "mae_supper", "giver": "mae", "title": "Supper at the fire",
+			"brief": "Mae invited you to supper at the campfire, the evening after next, between six and nine.",
+			"when": { "tier": ">=Acquaintance" },
+			"offer": "Come and eat with us properly. The evening after next, at the fire, six till nine. Don't you dare be under that mountain.",
+			"accept": "The evening after next. I'll make the good stew.",
+			"status": "Supper, the evening after next. At the fire.",
+			"done": "You came! Sit, sit. Tom, budge up.",
+			"late": "The stew went cold waiting for you.",
+			"objective": { "type": "meet", "place": "fire.e", "inDays": 2, "hours": [18, 21] },
+			"reward": { "regard": 12 },
+			"penalty": 10
+		},
+		{
+			"id": "mae_list", "giver": "mae", "title": "Mae's list for the post",
+			"brief": "Take Mae's shopping list to Agnes at the trading post.",
+			"when": { "tier": ">=Friendly" },
+			"offer": "Would you take my list to Agnes? My feet are done in. No hurry; within the week.",
+			"status": "Did Agnes get my list?",
+			"done": "Mae's list? Salt, needles, and... 'something nice for Tom'. Hm. Tell her I'll see what I have.",
+			"objective": { "type": "courier", "thing": "Mae's list", "to": "agnes" },
+			"deadline": 7,
+			"reward": { "regard": 5 },
+			"penalty": 3
+		}
+	]
+}

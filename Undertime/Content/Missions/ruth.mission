@@ -1,0 +1,18 @@
+{
+	"missions": [
+		{
+			"id": "doc_bram", "giver": "ruth", "title": "A remedy for Bram",
+			"brief": "Bram's lungs are failing. Dr Calloway can make a remedy with silver, if it comes in time.",
+			"when": { "tier": ">=Acquaintance", "years": [7.0, 8.4], "dead": "!bram" },
+			"offer": "Bram's lungs are going. I can make something that might give him years, but I need silver for it. Five pieces, within twenty days. After that it won't matter.",
+			"accept": "Twenty days. Hurry.",
+			"status": "Five silver, courier. Bram's coughing blood now.",
+			"done": "That's it. That's enough. He'll see a few more winters, thanks to you.",
+			"late": "It's too late for the remedy now.",
+			"objective": { "type": "deliver", "item": "Silver", "count": 5 },
+			"deadline": 20,
+			"reward": { "regard": 12, "flag": "bram.saved" },
+			"penalty": 4
+		}
+	]
+}

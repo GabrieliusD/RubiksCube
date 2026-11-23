@@ -4,6 +4,7 @@
 //
 //   UndertimePlaceholders.exe [content folder]
 #include <Voxel/VoxelModel.h>
+#include "../Npcs.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -828,6 +829,146 @@ namespace
 		return m;
 	}
 
+	// The camp's notice board (missions, Missions.h): two posts and a plank board with notes
+	// pinned on it, its front towards -z like the buildings.
+	VoxelModel NoticeBoard()
+	{
+		VoxelModel m = NewBuilding(9, 9, 2);
+		for (int x : { 0, 8 }) Fill(m, x, 0, 1, x, 8, 1, BLogDark);
+		Fill(m, 1, 3, 1, 7, 7, 1, BPlank);
+		Fill(m, 0, 8, 0, 8, 8, 1, BRoofDark);                    // a little roof
+		const int notes[][2] = { { 2, 6 }, { 4, 5 }, { 6, 6 }, { 2, 4 }, { 5, 3 } };
+		for (const auto& n : notes) m.Set(n[0], n[1], 0, BCanvas);
+		return m;
+	}
+
+	// Something lost in the cave (a mission's thing): a small bundle with a brass glint that
+	// glows a little, so the lantern catches it.
+	VoxelModel LostThing()
+	{
+		VoxelModel m = NewBuilding(3, 2, 2);
+		Fill(m, 0, 0, 0, 2, 0, 1, BCanvasDark);
+		Fill(m, 0, 1, 0, 1, 1, 1, BCanvas);
+		m.Set(2, 1, 0, BCopper);
+		m.Set(2, 1, 1, BWindowLit);
+		return m;
+	}
+
+	// ---- People (placeholders; Docs/NPCs.md §8) -----------------------------------------------
+	// One model per body part, in cfg::kNpcVoxelSize blocks (1/16 m: 28 blocks for 1.75 m),
+	// facing +z: Head (5 x 5 x 5, more with a hat), Torso (8 x 10 x 4), Arm (2 x 10 x 2) and
+	// Leg (3 x 13 x 3). NpcWorld joins them at the hips, neck and shoulders from their sizes,
+	// so hand-made models of other sizes fit the same way.
+	enum : uint8_t { PSkin = 1, PSkinDark, PHair, PShirt, PShirtDark, PTrousers, PBoots, PHat, PHatBand, PApron, PEye, PBelt };
+
+	VoxelModel NewPerson(const npc::Look& look, uint32_t x, uint32_t y, uint32_t z)
+	{
+		VoxelModel m;
+		m.Resize({ x, y, z });
+		auto darker = [](uint32_t hex, float f)
+		{
+			const uint32_t r = static_cast<uint32_t>(((hex >> 16) & 0xFF) * f), g = static_cast<uint32_t>(((hex >> 8) & 0xFF) * f), b = static_cast<uint32_t>((hex & 0xFF) * f);
+			return (r << 16) | (g << 8) | b;
+		};
+		m.palette[PSkin] = Srgb(look.skin);
+		m.palette[PSkinDark] = Srgb(darker(look.skin, 0.78f));
+		m.palette[PHair] = Srgb(look.hair);
+		m.palette[PShirt] = Srgb(look.shirt);
+		m.palette[PShirtDark] = Srgb(darker(look.shirt, 0.72f));
+		m.palette[PTrousers] = Srgb(look.trousers);
+		m.palette[PBoots] = Srgb(look.boots);
+		m.palette[PHat] = Srgb(look.hat ? look.hat : look.hair);
+		m.palette[PHatBand] = Srgb(darker(look.hat ? look.hat : look.hair, 0.6f));
+		m.palette[PApron] = Srgb(look.apron ? look.apron : look.shirt);
+		m.palette[PEye] = Srgb(0x1a1614);
+		m.palette[PBelt] = Srgb(0x2a1e16);
+		return m;
+	}
+
+	VoxelModel PersonHead(const npc::NpcDef& npc)
+	{
+		const npc::Look& look = npc.look;
+		const bool hat = look.hat != 0;
+		const int tall = npc.ageless ? 4 : 2;   // the clockmaker's top hat
+		const int w = hat ? 7 : 5, o = hat ? 1 : 0;
+		VoxelModel m = NewPerson(look, w, hat ? 6 + tall : 5, w);
+		Fill(m, o, 0, o, o + 4, 4, o + 4, PSkin);
+		// Face (+z): eyes and a mouth.
+		m.Set(o + 1, 2, o + 4, PEye);
+		m.Set(o + 3, 2, o + 4, PEye);
+		m.Set(o + 2, 1, o + 4, PSkinDark);
+		// Hair: the top, the back and above the ears; long hair down the back and sides.
+		Fill(m, o, 4, o, o + 4, 4, o + 4, PHair);
+		Fill(m, o, 1, o, o + 4, 3, o, PHair);
+		for (int x : { o, o + 4 }) Fill(m, x, look.longHair ? 0 : 3, o, x, 3, o + (look.longHair ? 2 : 3), PHair);
+		if (look.longHair) Fill(m, o, 0, o, o + 4, 0, o, PHair);
+		if (look.beard)
+		{
+			Fill(m, o, 0, o + 4, o + 4, 1, o + 4, PHair);
+			for (int x : { o, o + 4 }) Fill(m, x, 0, o + 2, x, 2, o + 3, PHair);
+			m.Set(o + 2, 1, o + 4, PSkinDark);   // the mouth shows through
+		}
+		if (hat)
+		{
+			Fill(m, 0, 5, 0, w - 1, 5, w - 1, PHat);                 // brim
+			Fill(m, o, 6, o, o + 4, 5 + tall, o + 4, PHat);          // crown
+			Fill(m, o, 6, o, o + 4, 6, o + 4, PHatBand);
+		}
+		return m;
+	}
+
+	VoxelModel PersonTorso(const npc::Look& look)
+	{
+		VoxelModel m = NewPerson(look, 8, 10, 4);
+		Fill(m, 0, 1, 0, 7, 9, 3, PShirt);
+		Fill(m, 0, 0, 0, 7, 0, 3, PBelt);
+		for (int y = 3; y <= 8; y += 2) m.Set(3, y, 3, PShirtDark);   // buttons
+		Fill(m, 3, 9, 1, 4, 9, 2, PSkin);                             // the neck
+		for (int x : { 0, 7 }) Fill(m, x, 9, 0, x, 9, 3, 0);          // round shoulders
+		Fill(m, 1, 9, 0, 2, 9, 0, PShirtDark);                        // collar at the back
+		if (look.apron)
+		{
+			Fill(m, 1, 0, 3, 6, 6, 3, PApron);
+			Fill(m, 2, 7, 3, 5, 8, 3, PApron);
+		}
+		return m;
+	}
+
+	VoxelModel PersonArm(const npc::Look& look)
+	{
+		VoxelModel m = NewPerson(look, 2, 10, 2);
+		Fill(m, 0, 2, 0, 1, 9, 1, PShirt);
+		Fill(m, 0, 2, 0, 1, 2, 1, PShirtDark);   // the cuff
+		Fill(m, 0, 0, 0, 1, 1, 1, PSkin);
+		return m;
+	}
+
+	VoxelModel PersonLeg(const npc::Look& look)
+	{
+		VoxelModel m = NewPerson(look, 3, 13, 3);
+		Fill(m, 0, 2, 0, 2, 12, 2, PTrousers);
+		Fill(m, 0, 0, 0, 2, 1, 2, PBoots);
+		return m;
+	}
+
+	bool Write(const fs::path& folder, const char* name, const VoxelModel& model);
+
+	bool WritePeople(const fs::path& content)
+	{
+		bool ok = true;
+		for (const npc::NpcDef& npc : npc::Cast())
+		{
+			const fs::path folder = content / "Models" / "Npcs" / npc.id;
+			std::error_code error;
+			fs::create_directories(folder, error);
+			ok &= Write(folder, "Head.vox", PersonHead(npc));
+			ok &= Write(folder, "Torso.vox", PersonTorso(npc.look));
+			ok &= Write(folder, "Arm.vox", PersonArm(npc.look));
+			ok &= Write(folder, "Leg.vox", PersonLeg(npc.look));
+		}
+		return ok;
+	}
+
 	bool Write(const fs::path& folder, const char* name, const VoxelModel& model)
 	{
 		std::string error;
@@ -894,5 +1035,8 @@ int main(int argc, char** argv)
 	ok &= Write(folder, "FlowersPurple.vox", Flowers(0x9a6ad0, 5));
 	ok &= Write(folder, "Bush.vox", Bush(6));
 	ok &= Write(folder, "Pebbles.vox", Pebbles(7));
+	ok &= Write(folder, "NoticeBoard.vox", NoticeBoard());
+	ok &= Write(folder, "LostThing.vox", LostThing());
+	ok &= WritePeople(content);
 	return ok ? 0 : 1;
 }

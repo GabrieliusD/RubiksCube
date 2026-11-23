@@ -96,6 +96,9 @@ struct MeshRenderer
 	// every pixel exactly once (crossfading between levels of detail). Shadows aren't dithered.
 	float dither = 1.0f;
 	bool ditherInvert = false;
+	// Runtime only: false keeps the mesh out of the sun's shadow maps (faint, dithered figures
+	// that shouldn't throw solid shadows).
+	bool castShadows = true;
 };
 
 // Perspective camera. The view matrix comes from the entity's Transform

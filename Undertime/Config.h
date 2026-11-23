@@ -238,6 +238,8 @@ namespace cfg
 		{ -5.0f, -145.0f, 30.0f, -160.0f }, { 30.0f, -160.0f, 62.0f, -167.0f },
 		{ 96.8f, -121.0f, 112.3f, -108.6f }, { 121.7f, -114.4f, 150.0f, -104.0f },
 	};
+	// Footbridges NPCs walk over (start x, z, end x, z: the trail ends either side of the water).
+	constexpr float kBridges[][4] = { { 112.3f, -108.6f, 121.7f, -114.4f } };
 	constexpr float kPathHalfWidth = 0.9f;
 	constexpr float kPadBlend = 4.0f;             // metres over which a building's flat pad blends into the land
 	constexpr float kPadMargin = 0.5f;            // pads reach this far past a building's footprint
@@ -613,6 +615,77 @@ namespace cfg
 	constexpr int kLanternMoteRate = 18;          // dust motes per second drifting around you in the cave
 	constexpr int kLanternMoteMax = 140;
 	constexpr int kShaftDustMax = 350;
+
+	// ---- People (Npcs.h, NpcTown.h, NpcWorld.h; Docs/NPCs.md) ---------------------------------
+	constexpr float kNpcVoxelSize = 1.0f / 16.0f; // the placeholder people's blocks (1.75 m = 28 blocks); hand-made models will choose theirs
+	constexpr float kNpcWalkSpeed = 1.3f;         // m per real second at the surface rate (faster as outside time speeds up)
+	constexpr float kNpcStride = 1.3f;            // m per full walk cycle (two steps)
+	constexpr float kNpcJitterHours = 0.35f;      // each block starts up to this much earlier or later each day (not like clockwork)
+	constexpr float kNpcRainThreshold = 0.25f;    // rain from which people go to their rain places
+	constexpr float kNpcPathLink = 15.0f;         // m: trail ends this close to another trail are joined (on dry land)
+	constexpr float kNpcDirectDistance = 40.0f;   // m: places closer than this are walked to straight, off the trails
+	constexpr float kNpcDrawDistance = 220.0f;    // m from the camera beyond which people aren't drawn
+	constexpr float kNpcNearDistance = 40.0f;     // ... within which they look at you and block you
+	constexpr float kNpcLookDistance = 7.0f;      // m: people turn their heads to you this close
+	constexpr float kNpcBlockerDistance = 12.0f;  // m: people standing still this close block you (a box)
+	// Seen while outside time races (the entrance passage, the ] key): faint, fast figures like a
+	// long-exposure photograph. Rates are multiples of the surface rate.
+	constexpr float kNpcLapseStart = 1.5f;        // figures start to fade here...
+	constexpr float kNpcLapseFull = 4.5f;         // ... and are fully faint here (zone 1 is 5x)
+	constexpr float kNpcLapseFaint = 0.4f;        // the share of a faint figure's pixels drawn
+	constexpr float kNpcLapseVanish = 80.0f;      // gone from here (they'd cross the town in a blink)...
+	constexpr float kNpcLapseVanishFrom = 30.0f;  // ... fading out from here
+	constexpr int kNpcEchoes = 2;                 // fainter copies trailing each fast figure
+	constexpr float kNpcEchoSeconds = 0.18f;      // real seconds of outside time between copies
+	// Talking (E): within reach and roughly in front of you. Outside time stops while you talk.
+	constexpr float kTalkDistance = 3.0f;         // m from your eye to their head
+	constexpr float kTalkAimCos = 0.9f;           // cosine of the widest angle off your view (about 25 degrees)
+	constexpr float kTalkTurnSeconds = 0.35f;     // the view eases round to them
+	// Friendship (regard, -100..100; NpcLog.h). Gains are scaled by the person's warmth (0.5 + warmth).
+	constexpr float kRegardTalk = 3.0f;           // the first conversation of each outside day
+	constexpr float kRegardGiftLiked = 8.0f;      // the first gift of each outside day: something they like...
+	constexpr float kRegardGiftNeutral = 3.0f;    // ... anything else...
+	constexpr float kRegardGiftDisliked = -5.0f;  // ... something they dislike
+	// Friendships fade while you're away: after a grace period, half of it is gone every half-life,
+	// longer for patient people ((0.5 + patience) x) and for close friends (1 + regard / 50 x).
+	constexpr float kRegardGraceDays = 7.0f;      // outside days you can be away without it fading
+	constexpr float kRegardHalfLifeDays = 60.0f;
+	// Tiers (shown, never the number): below these it's Hostile, Wary; then Stranger if you've
+	// never talked; then Acquaintance, Friendly, Friend; Close from the last.
+	constexpr float kTierHostile = -50.0f, kTierWary = -15.0f, kTierFriendly = 20.0f, kTierFriend = 45.0f, kTierClose = 75.0f;
+	// Gossip: a share of a big change in regard reaches the people they're tied to a little later.
+	constexpr float kGossipMin = 5.0f;            // changes at least this big are talked about...
+	constexpr float kGossipShare = 0.3f;          // ... this share of them...
+	constexpr float kGossipDays = 2.0f;           // ... this many outside days later
+	// Barks: a line when you pass someone (not in a conversation).
+	constexpr float kBarkDistance = 5.0f;         // m
+	constexpr float kBarkCooldown = 45.0f;        // real seconds before the same person speaks again
+	constexpr float kBarkGlobalCooldown = 9.0f;   // ... before anyone does
+	constexpr float kBarkSeconds = 4.0f;          // how long the line shows
+	constexpr float kAutosaveSeconds = 120.0f;    // real seconds between saves while playing (also after each conversation and on coming out of the cave)
+	// Missions (Missions.h): the notice board, and friendship for the one a delivery is for.
+	constexpr int kBoardJobsPerWeek = 3;          // jobs posted each outside week
+	constexpr float kCourierRegard = 3.0f;        // the person you deliver to likes it too
+	constexpr float kRetrieveReach = 2.5f;        // m: close enough to pick up a lost thing in the cave (E)
+	// Lives across the eras (Life.h): gatherings, ageing, letters.
+	constexpr float kWeddingHours[2] = { 16.0f, 20.0f };   // outside hours of the day
+	constexpr float kFuneralHours[2] = { 10.0f, 13.0f };
+	constexpr double kFuneralDelayDays = 3.0;     // after the death
+	constexpr float kFestivalHours[2] = { 17.0f, 22.0f };
+	constexpr int kFestivalDayOfYear = 200;       // Founders' Day (day 0 = 1 January)
+	constexpr int kFestivalEras[2] = { 2, 4 };    // Settlement to Industry
+	constexpr int kGatherSlots = 12;              // spots in the ring round a gathering
+	constexpr float kGatherRadius[2] = { 3.0f, 4.8f };   // m: round the fire or the graves; round the clock tower
+	constexpr float kGatherReach = 12.0f;         // m from its middle: you're at the gathering
+	constexpr float kGatheringRegard = 6.0f;      // being there, with each of its hosts (the couple, the family)
+	constexpr float kGatheringMissed = 6.0f;      // missing it, with the close friends (Friend and up) among them
+	constexpr float kFestivalRegard = 2.0f;       // being at Founders' Day, with everyone there
+	constexpr float kInheritShare = 0.5f;         // a child's start: this share of their parents' best friendship at the birth
+	constexpr float kChildScale = 0.55f;          // a newborn's size against a grown-up's...
+	constexpr float kGrownAge = 16.0f;            // ... grown by this age
+	constexpr float kOldAge = 62.0f;              // from here they stoop
+	constexpr double kLetterDelayDays = 2.0;      // letters about something are dated this long after it
+	constexpr float kGraveRow[3] = { 168.0f, -106.0f, -3.0f };   // the cast's graves: x, z of the first, z step (beside the chapel's two)
 
 	// ---- UI -------------------------------------------------------------------
 	constexpr float kMessageSeconds = 4.5f;
