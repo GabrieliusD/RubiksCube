@@ -198,8 +198,8 @@ namespace cfg
 	constexpr float kStrataFrom = 0.15f;          // by how high the ground is above the floor (0..1 over 12 m)
 	constexpr float kStrataFull = 0.6f;
 	// Rock outcrops on steep ground (Valley::Outcrops, placeholder .vox crags).
-	constexpr float kOutcropSpacing = 11.0f;      // near ones (0.25 m blocks, with collision)
-	constexpr float kOutcropSpacingFar = 38.0f;   // far ones (baked with 1 m blocks: four times the size)
+	constexpr float kOutcropSpacing = 11.0f;      // small ones on the valley floor
+	constexpr float kOutcropSpacingFar = 38.0f;   // crags on the mountains (four times the size, Crag*.vox)
 	constexpr float kOutcropSlope = 2.0f;         // m of rise over 4 m that counts as steep
 	constexpr float kOutcropChance = 0.65f;
 	constexpr float kRockSlope = 0.6f;            // metres of drop between neighbouring 0.25 m columns that make rock
@@ -243,13 +243,27 @@ namespace cfg
 	constexpr float kPadMargin = 0.5f;            // pads reach this far past a building's footprint
 	constexpr float kForestSpacing = 5.5f;        // metres between tree spots on the valley floor
 	constexpr float kForestSpacingFar = 11.0f;    // ... on the mountains
-	// Terrain chunks: 0.25 m blocks on the valley floor and around the cave mouth, 1 m blocks
-	// on the mountains beyond (chosen per chunk; trees follow the same rule).
+	// Terrain chunks. Everything is 0.25 m blocks; far away it's drawn coarser (LOD, by region:
+	// kTerrainRegion x kTerrainRegion chunks), rebuilt around the camera on worker threads.
+	// Chunks the river runs through stay 0.25 m at any distance (the water steps must meet).
 	constexpr float kValleyWorld[4] = { -400.0f, -544.0f, 448.0f, 320.0f };  // min x, min z, max x, max z (multiples of kTerrainChunk)
 	constexpr float kTerrainChunk = 16.0f;        // metres per chunk side
 	constexpr int kTerrainRegion = 4;             // chunks per side merged into one mesh and one collision body
-	constexpr float kDetailValleyDistance = 1.0f; // detailed where the chunk centre's ValleyDistance is below this...
+	constexpr float kDetailValleyDistance = 1.0f; // the valley floor (denser trees, small outcrops) where the chunk centre's ValleyDistance is below this...
 	constexpr float kDetailMouthReach = 56.0f;    // ... or it's this close to the cave mouth
+	// m from the camera: 0.25 m blocks with ground cover up to [0], 0.25 m without up to [1],
+	// 0.5 m blocks up to [2], 1 m beyond (UNDERTIME_DEV_LOD="a b c" overrides them).
+	constexpr float kLodDistance[3] = { 110.0f, 110.0f, 260.0f };
+	constexpr bool kLodFade = true;               // crossfade (screen-door dither) between levels instead of swapping
+	constexpr float kLodFadeSeconds = 0.6f;
+	constexpr bool kLodCompact = true;            // terrain meshes in 28-byte vertices instead of 48 (MeshFormat::Compact)
+	constexpr float kLodHysteresis = 12.0f;       // m past a distance before a region turns coarser again (no flapping)
+	constexpr int kLodBuildsInFlight = 6;         // region rebuilds queued at once (nearest first)
+	constexpr float kModelLodDistance = 150.0f;   // trees and crags further than this use their 0.5 m versions
+	constexpr float kCollisionRadius = 40.0f;     // m: terrain collision (0.25 m) exists around the player out to here...
+	constexpr float kCollisionKeep = 56.0f;       // ... and is dropped past this
+	constexpr float kCollisionNow = 12.0f;        // collision this close that's missing is built at once (teleports, start)
+	constexpr float kCollisionBudgetMs = 2.0f;    // ms a frame for making collision bodies
 
 	// Ground colours (sRGB).
 	constexpr uint32_t kTerrainGrass = 0x5f7d3a;

@@ -665,8 +665,9 @@ namespace
 	}
 
 	// A rock outcrop: layers of rock (two shades, a darker seam between some) shrinking and
-	// shifting as they rise, grass on the tops that face up. w x h x d voxels.
-	VoxelModel Outcrop(int w, int h, int d, uint32_t salt)
+	// shifting as they rise, grass on the tops that face up. w x h x d voxels; `layerScale`
+	// makes the layers that many times thicker (a crag four times the size keeps 2.5 m strata).
+	VoxelModel Outcrop(int w, int h, int d, uint32_t salt, int layerScale = 1)
 	{
 		VoxelModel m;
 		m.Resize({ static_cast<uint32_t>(w), static_cast<uint32_t>(h), static_cast<uint32_t>(d) });
@@ -679,7 +680,7 @@ namespace
 		int y = 0, layer = 0;
 		while (y < h)
 		{
-			const int thick = 2 + static_cast<int>(Hash01(layer, 1, 0, salt) * 3.0f);
+			const int thick = (2 + static_cast<int>(Hash01(layer, 1, 0, salt) * 3.0f)) * layerScale;
 			const float shrink = 1.0f - 0.75f * y / h;
 			const float ox = (Hash01(layer, 2, 0, salt) - 0.5f) * w * 0.2f, oz = (Hash01(layer, 3, 0, salt) - 0.5f) * d * 0.2f;
 			const uint8_t colour = layer % 3 == 2 ? RockDark : (layer % 2 ? Rock2 : Rock);
@@ -688,8 +689,22 @@ namespace
 					for (int x = 0; x < w; ++x)
 					{
 						const float dx = (x - cx - ox) / (cx * shrink + 0.5f), dz = (z - cz - oz) / (cz * shrink + 0.5f);
-						const float edge = 1.0f + 0.25f * (Hash01(x, z, layer, salt + 5) - 0.5f);
-						if (dx * dx + dz * dz <= edge) m.Set(x, yy, z, colour);
+						if (layerScale == 1)
+						{
+							const float edge = 1.0f + 0.25f * (Hash01(x, z, layer, salt + 5) - 0.5f);
+							if (dx * dx + dz * dz <= edge) m.Set(x, yy, z, colour);
+							continue;
+						}
+						// A crag: boxier than round, its outline in uneven lobes (7 round the
+						// layer, each its own reach, blended), with a ragged block edge.
+						const float angle = std::atan2(dz, dx) / 6.2831853f * 7.0f + 7.0f + Hash01(layer, 4, 0, salt) * 7.0f;
+						const int sector = static_cast<int>(std::floor(angle));
+						const float t = angle - sector, s = t * t * (3.0f - 2.0f * t);
+						const float lobe = (1.0f - s) * Hash01(sector % 7, layer, 6, salt) + s * Hash01((sector + 1) % 7, layer, 6, salt);
+						const float reach = 0.6f + 0.55f * lobe + 0.08f * (Hash01(x / 2, z / 2, layer, salt + 5) - 0.5f);
+						const float ax = std::fabs(dx), az = std::fabs(dz);
+						const float shape = std::pow(ax * ax * ax + az * az * az, 1.0f / 3.0f);
+						if (shape <= reach) m.Set(x, yy, z, colour);
 					}
 			y += thick;
 			++layer;
@@ -861,6 +876,10 @@ int main(int argc, char** argv)
 	ok &= Write(folder, "OutcropSmall.vox", Outcrop(10, 9, 9, 1));
 	ok &= Write(folder, "OutcropMedium.vox", Outcrop(16, 14, 14, 2));
 	ok &= Write(folder, "OutcropLarge.vox", Outcrop(24, 20, 21, 3));
+	// Crags on the mountains: the same three, four times the size in 0.25 m blocks.
+	ok &= Write(folder, "CragSmall.vox", Outcrop(40, 36, 36, 1, 4));
+	ok &= Write(folder, "CragMedium.vox", Outcrop(64, 56, 56, 2, 4));
+	ok &= Write(folder, "CragLarge.vox", Outcrop(96, 80, 84, 3, 4));
 	ok &= Write(folder, "Chapel.vox", Chapel());
 	ok &= Write(folder, "Grave.vox", Grave());
 	ok &= Write(folder, "SawPit.vox", SawPit());

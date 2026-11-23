@@ -204,6 +204,14 @@ namespace rhi
 				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 				{ "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 			};
+			// MeshFormat::Compact: the input assembler widens these to the same shader inputs.
+			static const D3D12_INPUT_ELEMENT_DESC kMeshCompactLayout[] =
+			{
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+				{ "NORMAL",   0, DXGI_FORMAT_R8G8B8A8_SNORM,     0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+				{ "TEXCOORD", 0, DXGI_FORMAT_R16G16_FLOAT,       0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+				{ "COLOR",    0, DXGI_FORMAT_R16G16B16A16_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			};
 
 			D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
 			psoDesc.pRootSignature = mRootSignature;
@@ -212,6 +220,10 @@ namespace rhi
 			if (desc.vertexLayout == VertexLayout::Mesh)
 			{
 				psoDesc.InputLayout = { kMeshLayout, _countof(kMeshLayout) };
+			}
+			else if (desc.vertexLayout == VertexLayout::MeshCompact)
+			{
+				psoDesc.InputLayout = { kMeshCompactLayout, _countof(kMeshCompactLayout) };
 			}
 
 			psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);

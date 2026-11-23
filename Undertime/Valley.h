@@ -38,7 +38,7 @@ struct TreeSpot
 	float x = 0, z = 0;
 	int kind = 0;           // index into the tree models (0..2 conifers small to large, 3 broadleaf)
 	float yaw = 0;          // radians
-	bool distant = false;   // outside the detailed valley: drawn with the coarse model
+	bool distant = false;   // on the mountains (outside Detailed): sparser, conifers only
 };
 
 // A rock outcrop on steep ground (placeholder crags in three sizes).
@@ -47,7 +47,7 @@ struct OutcropSpot
 	float x = 0, z = 0;
 	int kind = 0;           // 0..2, small to large
 	float yaw = 0;          // radians
-	bool distant = false;   // outside the detailed valley: baked with 1 m blocks
+	bool distant = false;   // on the mountains (outside Detailed): a crag, four times the size
 };
 
 class Valley
@@ -62,9 +62,12 @@ public:
 	// Both at once (cheaper than calling the two).
 	void Sample(float x, float z, float& height, float& water) const;
 	static constexpr float kNoWater = -1e9f;
-	// Built from 0.25 m blocks here (the valley floor and the cave mouth), or 1 m blocks.
-	// Decided per terrain chunk (cfg::kTerrainChunk), so trees and ground always agree.
+	// The valley floor and the cave mouth (dense trees, small outcrops), against the mountains
+	// (sparser trees, big crags). Decided per terrain chunk (cfg::kTerrainChunk).
 	bool Detailed(float x, float z) const;
+	// The river runs through this terrain chunk: it's always built from 0.25 m blocks (water
+	// levels in coarser blocks wouldn't meet, and the rock would show through between them).
+	bool RiverChunk(float x, float z) const;
 
 	// Flat pads under the town's buildings (applied by Height/Sample; empty by default).
 	void SetPads(std::vector<GroundPad> pads) { mPads = std::move(pads); }
@@ -74,7 +77,7 @@ public:
 	// Crags on steep ground, away from water, trails, clearings and the cave's face.
 	std::vector<OutcropSpot> Outcrops() const;
 	// What the top of a column is made of. `drop`: the biggest height difference to its
-	// neighbours (steep means rock); `block`: the column size (0.25 or 1 m).
+	// neighbours (steep means rock); `block`: the column size (0.25, 0.5 or 1 m).
 	Ground GroundAt(float x, float z, float height, float drop, float block) const;
 	// Every tree, in a fixed order. Heights aren't included: put them on the terrain.
 	std::vector<TreeSpot> Trees() const;

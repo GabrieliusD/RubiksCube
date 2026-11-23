@@ -27,7 +27,19 @@ struct VertexOut
 	float2 uv        : TEXCOORD;
 	float4 color     : COLOR;
 	nointerpolation uint materialIndex : MATERIAL;
+	nointerpolation float2 dither : DITHER;   // InstanceData::ditherCut, ditherInvert
 };
+
+// Screen-door fading (MeshRenderer::dither): a 4 x 4 ordered pattern over the pixels.
+bool DitheredOut(float2 pixel, float2 dither)
+{
+	if (dither.x <= 0.0 && dither.y < 0.5) return false;
+	static const float kBayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+	const uint2 p = uint2(pixel) & 3;
+	const float n = (kBayer[p.y * 4 + p.x] + 0.5) / 16.0;
+	// Drawn: n below the share drawn (1 - cut); inverted, the rest (n at or above the cut).
+	return dither.y > 0.5 ? n < dither.x : n >= 1.0 - dither.x;
+}
 
 // Instanced: a draw covers `instanceCount` consecutive entries starting at gDraw.instanceIndex.
 VertexOut VSMain(VertexIn vin, uint instanceId : SV_InstanceID)
@@ -61,11 +73,13 @@ VertexOut VSMain(VertexIn vin, uint instanceId : SV_InstanceID)
 	vout.uv = vin.uv;
 	vout.color = vin.color;
 	vout.materialIndex = instance.materialIndex;
+	vout.dither = float2(instance.ditherCut, (float)instance.ditherInvert);
 	return vout;
 }
 
 float4 PSMain(VertexOut pin) : SV_Target
 {
+	if (DitheredOut(pin.positionH.xy, pin.dither)) discard;
 	StructuredBuffer<MaterialData> materials = ResourceDescriptorHeap[gFrame.materialBufferIndex];
 
 	SurfaceInput input;

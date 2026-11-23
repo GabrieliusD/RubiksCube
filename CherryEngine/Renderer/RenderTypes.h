@@ -43,6 +43,12 @@ struct Vertex
 	DirectX::XMFLOAT4 color{ 1, 1, 1, 1 };
 };
 
+// How a mesh's vertices are stored on the GPU. Compact: 28 bytes a vertex instead of 48
+// (normal in 8 bits a component, uv and colour as half floats), for big meshes whose
+// normals are axis-aligned or close to it and whose colours don't need full precision
+// (voxel terrain). Drawn by the same surface shaders (a pipeline variant per input layout).
+enum class MeshFormat { Full, Compact };
+
 struct MeshData
 {
 	std::vector<Vertex> vertices;

@@ -90,6 +90,12 @@ struct MeshRenderer
 	MeshHandle glassMesh;
 	MaterialHandle glassMaterial;
 	std::string glassCheckedFor;   // the meshAsset the engine last looked for a glass part of (runtime only)
+	// Screen-door fading (no blending, no sorting; runtime only): the share of the mesh's
+	// pixels drawn, in a fixed 4 x 4 pattern; 1 = all. `ditherInvert` draws the other pixels
+	// instead: two meshes, one at `dither` = t and the other at 1 - t inverted, together cover
+	// every pixel exactly once (crossfading between levels of detail). Shadows aren't dithered.
+	float dither = 1.0f;
+	bool ditherInvert = false;
 };
 
 // Perspective camera. The view matrix comes from the entity's Transform

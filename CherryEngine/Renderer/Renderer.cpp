@@ -19,6 +19,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <DirectXPackedVector.h>
 
 using namespace DirectX;
 
@@ -71,7 +72,20 @@ namespace
 		std::unique_ptr<rhi::Buffer> indexBuffer;
 		uint32_t indexCount = 0;
 		BoundingBox bounds;
+		bool compact = false;   // MeshFormat::Compact
+		size_t bytes = 0;
+		uint32_t Stride() const { return compact ? 28u : static_cast<uint32_t>(sizeof(Vertex)); }
 	};
+
+	// MeshFormat::Compact's vertex (VertexLayout::MeshCompact in RHI/Pipeline.cpp).
+	struct CompactVertex
+	{
+		XMFLOAT3 position;
+		int8_t normal[4];
+		uint16_t uv[2];
+		uint16_t color[4];
+	};
+	static_assert(sizeof(CompactVertex) == 28, "matches the compact input layout");
 
 	struct TextureResource
 	{
@@ -135,6 +149,7 @@ namespace
 		uint32_t layer;          // RenderLayer
 		uint32_t translucent;    // 1: drawn after opaque surfaces, back to front
 		uint32_t pipeline;       // 0 = built-in surface, otherwise surface shader slot + 1
+		uint32_t compact;        // 1: the mesh is MeshFormat::Compact (the pipeline's compact variant)
 		uint32_t meshSlot;
 		uint32_t instanceIndex;
 		float distanceSq;        // from the camera (translucent sorting)
@@ -148,6 +163,8 @@ namespace
 		SurfaceShaderOptions options;
 		std::string source;      // the latest source (for the voxel pipeline)
 		std::string voxelPipeline;   // PipelineLibrary name of the voxel variant ("" until a volume uses it)
+		std::string compactPipeline; // ... of the compact-mesh variant ("" until a compact mesh uses it)
+		SurfaceShaderOptions sourceOptions;   // the options the latest source was built with
 	};
 
 	// Wraps a surface shader's EvaluateSurface into a whole mesh-pass shader. #line keeps
@@ -344,7 +361,8 @@ struct Renderer::Impl
 
 	void CreatePipelines();
 	// The PSO for DrawItem::pipeline (the error stand-in for surface shaders that never compiled).
-	ID3D12PipelineState* SurfacePipeline(uint32_t pipeline);
+	ID3D12PipelineState* SurfacePipeline(uint32_t pipeline, bool compact = false);
+	void BuildCompactVariant(SurfaceShaderResource& shader);
 	// The same for the voxel pass (0 = built-in); asks for the voxel variant the first time.
 	ID3D12PipelineState* VoxelPipeline(uint32_t pipeline);
 	void BuildVoxelVariant(SurfaceShaderResource& shader);
@@ -440,6 +458,11 @@ void Renderer::Impl::CreatePipelines()
 	rhi::GraphicsPipelineDesc meshError = mesh;
 	meshError.defines = { "CHERRY_ERROR_SURFACE" };
 	pipelines.AddGraphics("mesh_error", meshError);
+	mesh.vertexLayout = rhi::VertexLayout::MeshCompact;
+	meshError.vertexLayout = rhi::VertexLayout::MeshCompact;
+	pipelines.AddGraphics("mesh_compact", mesh);
+	pipelines.AddGraphics("mesh_error_compact", meshError);
+	mesh.vertexLayout = rhi::VertexLayout::Mesh;
 
 	rhi::GraphicsPipelineDesc voxel;
 	voxel.shaderFile = "VoxelRaymarch.hlsl";
@@ -493,6 +516,8 @@ void Renderer::Impl::CreatePipelines()
 	shadow.slopeScaledDepthBias = 2.5f;
 	shadow.depthBiasClamp = 0.01f;
 	pipelines.AddGraphics("shadow", shadow);
+	shadow.vertexLayout = rhi::VertexLayout::MeshCompact;
+	pipelines.AddGraphics("shadow_compact", shadow);
 
 	rhi::GraphicsPipelineDesc voxelShadow;
 	voxelShadow.shaderFile = "VoxelShadow.hlsl";
@@ -564,17 +589,36 @@ void Renderer::Impl::CreatePipelines()
 	pipelines.AddGraphics("blit", blit);
 }
 
-ID3D12PipelineState* Renderer::Impl::SurfacePipeline(uint32_t pipeline)
+ID3D12PipelineState* Renderer::Impl::SurfacePipeline(uint32_t pipeline, bool compact)
 {
+	const char* builtIn = compact ? "mesh_compact" : "mesh";
+	const char* failed = compact ? "mesh_error_compact" : "mesh_error";
 	if (pipeline > 0)
 	{
-		const SurfaceShaderResource* shader = surfaceShaders.AtSlot(pipeline - 1);
-		ID3D12PipelineState* pso = shader ? pipelines.Get(shader->pipeline) : nullptr;
+		SurfaceShaderResource* shader = surfaceShaders.AtSlot(pipeline - 1);
+		if (shader && compact && shader->compactPipeline.empty()) BuildCompactVariant(*shader);
+		const std::string* name = shader ? (compact ? &shader->compactPipeline : &shader->pipeline) : nullptr;
+		ID3D12PipelineState* pso = name ? pipelines.Get(*name) : nullptr;
 		if (pso) return pso;
 		// Never built: the built-in surface while the first build runs, the checker if it failed.
-		return shader && pipelines.IsPending(shader->pipeline) ? pipelines.Get("mesh") : pipelines.Get("mesh_error");
+		return name && pipelines.IsPending(*name) ? pipelines.Get(builtIn) : pipelines.Get(failed);
 	}
-	return pipelines.Get("mesh");
+	return pipelines.Get(builtIn);
+}
+
+void Renderer::Impl::BuildCompactVariant(SurfaceShaderResource& shader)
+{
+	if (shader.compactPipeline.empty()) shader.compactPipeline = shader.pipeline + ":compact";
+	rhi::GraphicsPipelineDesc desc = meshPipelineDesc;
+	desc.shaderFile = shader.name;
+	desc.source = WrapSurfaceSource(shader.name, shader.source);
+	if (shader.sourceOptions.translucent)
+	{
+		desc.alphaBlend = true;
+		desc.depthWrite = shader.sourceOptions.depthWrite;
+	}
+	desc.vertexLayout = rhi::VertexLayout::MeshCompact;
+	pipelines.SetGraphicsAsync(shader.compactPipeline, desc, {});
 }
 
 ID3D12PipelineState* Renderer::Impl::VoxelPipeline(uint32_t pipeline)
@@ -943,7 +987,7 @@ void Renderer::Shutdown()
 // Resources
 // =============================================================================
 
-MeshHandle Renderer::CreateMesh(const MeshData& data)
+MeshHandle Renderer::CreateMesh(const MeshData& data, MeshFormat format)
 {
 	Impl& r = *mImpl;
 	if (data.vertices.empty() || data.indices.empty())
@@ -953,11 +997,38 @@ MeshHandle Renderer::CreateMesh(const MeshData& data)
 	}
 
 	MeshResource mesh;
+	mesh.compact = format == MeshFormat::Compact;
 	rhi::BufferDesc vbDesc;
-	vbDesc.size = data.vertices.size() * sizeof(Vertex);
+	vbDesc.size = data.vertices.size() * mesh.Stride();
 	vbDesc.name = "MeshVertices";
 	mesh.vertexBuffer = rhi::Buffer::Create(r.device, vbDesc);
-	mesh.vertexBuffer->Upload(data.vertices.data(), vbDesc.size);
+	if (mesh.compact)
+	{
+		using DirectX::PackedVector::XMConvertFloatToHalf;
+		auto snorm = [](float v) { return static_cast<int8_t>(std::lround(std::clamp(v, -1.0f, 1.0f) * 127.0f)); };
+		std::vector<CompactVertex> packed(data.vertices.size());
+		for (size_t i = 0; i < packed.size(); ++i)
+		{
+			const Vertex& v = data.vertices[i];
+			CompactVertex& c = packed[i];
+			c.position = v.position;
+			c.normal[0] = snorm(v.normal.x);
+			c.normal[1] = snorm(v.normal.y);
+			c.normal[2] = snorm(v.normal.z);
+			c.normal[3] = 0;
+			c.uv[0] = XMConvertFloatToHalf(v.uv.x);
+			c.uv[1] = XMConvertFloatToHalf(v.uv.y);
+			c.color[0] = XMConvertFloatToHalf(v.color.x);
+			c.color[1] = XMConvertFloatToHalf(v.color.y);
+			c.color[2] = XMConvertFloatToHalf(v.color.z);
+			c.color[3] = XMConvertFloatToHalf(v.color.w);
+		}
+		mesh.vertexBuffer->Upload(packed.data(), vbDesc.size);
+	}
+	else
+	{
+		mesh.vertexBuffer->Upload(data.vertices.data(), vbDesc.size);
+	}
 
 	rhi::BufferDesc ibDesc;
 	ibDesc.size = data.indices.size() * sizeof(uint32_t);
@@ -966,8 +1037,15 @@ MeshHandle Renderer::CreateMesh(const MeshData& data)
 	mesh.indexBuffer->Upload(data.indices.data(), ibDesc.size);
 
 	mesh.indexCount = static_cast<uint32_t>(data.indices.size());
+	mesh.bytes = vbDesc.size + ibDesc.size;
 	BoundingBox::CreateFromPoints(mesh.bounds, data.vertices.size(), &data.vertices[0].position, sizeof(Vertex));
 	return r.meshes.Add(std::move(mesh));
+}
+
+size_t Renderer::GetMeshBytes(MeshHandle mesh) const
+{
+	const MeshResource* resource = mImpl->meshes.Get(mesh);
+	return resource ? resource->bytes : 0;
 }
 
 void Renderer::DestroyMesh(MeshHandle mesh)
@@ -1115,7 +1193,9 @@ void Renderer::SetSurfaceShaderSource(SurfaceShaderHandle shader, const std::str
 	SurfaceShaderResource* resource = r.surfaceShaders.Get(shader);
 	if (!resource) return;
 	resource->source = source;
+	resource->sourceOptions = options;
 	if (!resource->voxelPipeline.empty()) r.BuildVoxelVariant(*resource);   // a volume uses it
+	if (!resource->compactPipeline.empty()) r.BuildCompactVariant(*resource);   // a compact mesh uses it
 	rhi::GraphicsPipelineDesc desc = r.meshPipelineDesc;
 	desc.shaderFile = resource->name;
 	desc.source = WrapSurfaceSource(resource->name, source);
@@ -1443,9 +1523,9 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 
 	const MaterialDesc* desc = r.materials.Get(material);
 	const uint32_t pipeline = desc && r.surfaceShaders.IsValid(desc->shader) ? desc->shader.index + 1 : 0;
-	cmd->SetPipelineState(r.SurfacePipeline(pipeline));
+	cmd->SetPipelineState(r.SurfacePipeline(pipeline, mesh->compact));
 	cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	const D3D12_VERTEX_BUFFER_VIEW vbv = mesh->vertexBuffer->VertexView(sizeof(Vertex));
+	const D3D12_VERTEX_BUFFER_VIEW vbv = mesh->vertexBuffer->VertexView(mesh->Stride());
 	const D3D12_INDEX_BUFFER_VIEW ibv = mesh->indexBuffer->IndexView(DXGI_FORMAT_R32_UINT);
 	cmd->IASetVertexBuffers(0, 1, &vbv);
 	cmd->IASetIndexBuffer(&ibv);
@@ -1770,11 +1850,14 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		XMStoreFloat4x4(&instance.world, world);
 		XMStoreFloat4x4(&instance.normalMatrix, XMMatrixTranspose(XMMatrixInverse(nullptr, world)));
 		instance.materialIndex = materialHandle.index;
+		instance.ditherCut = 1.0f - std::clamp(renderer.dither, 0.0f, 1.0f);
+		instance.ditherInvert = renderer.ditherInvert ? 1u : 0u;
+		if (!renderer.ditherInvert && renderer.dither <= 0.0f) return;   // faded out entirely
 		const uint32_t pipeline = surface ? material->shader.index + 1 : 0;
 		const uint32_t translucent = surface && surface->options.translucent ? 1u : 0u;
 		const XMVECTOR toCamera = XMVectorSubtract(XMLoadFloat3(&worldBounds.Center), XMLoadFloat3(&renderView.position));
 
-		r.drawScratch.push_back({ static_cast<uint32_t>(renderer.layer), translucent, pipeline, meshHandle.index,
+		r.drawScratch.push_back({ static_cast<uint32_t>(renderer.layer), translucent, pipeline, mesh->compact ? 1u : 0u, meshHandle.index,
 			static_cast<uint32_t>(r.instanceScratch.size()), XMVectorGetX(XMVector3LengthSq(toCamera)) });
 		r.instanceScratch.push_back(instance);
 	};
@@ -1795,6 +1878,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		if (a.translucent != b.translucent) return a.translucent < b.translucent;
 		if (a.translucent) return a.distanceSq > b.distanceSq;
 		if (a.pipeline != b.pipeline) return a.pipeline < b.pipeline;
+		if (a.compact != b.compact) return a.compact < b.compact;
 		return a.meshSlot < b.meshSlot;
 	});
 	// Instances in draw order, so a run of draws with the same pipeline and mesh becomes one
@@ -1940,12 +2024,19 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 			cmd->OMSetRenderTargets(0, nullptr, FALSE, &mapDsv);
 			r.SetViewport(cmd, Impl::kShadowMapSize, Impl::kShadowMapSize);
 			const auto& items = r.shadowScratch[c];
+			cmd->SetPipelineState(r.pipelines.Get("shadow"));
+			int boundCompact = 0;
 			for (size_t i = 0; i < items.size(); )
 			{
 				size_t end = i + 1;
 				while (end < items.size() && items[end].meshSlot == items[i].meshSlot) ++end;
 				const MeshResource* mesh = r.meshes.AtSlot(items[i].meshSlot);
-				const D3D12_VERTEX_BUFFER_VIEW vbv = mesh->vertexBuffer->VertexView(sizeof(Vertex));
+				if ((mesh->compact ? 1 : 0) != boundCompact)
+				{
+					boundCompact = mesh->compact ? 1 : 0;
+					cmd->SetPipelineState(r.pipelines.Get(mesh->compact ? "shadow_compact" : "shadow"));
+				}
+				const D3D12_VERTEX_BUFFER_VIEW vbv = mesh->vertexBuffer->VertexView(mesh->Stride());
 				const D3D12_INDEX_BUFFER_VIEW ibv = mesh->indexBuffer->IndexView(DXGI_FORMAT_R32_UINT);
 				cmd->IASetVertexBuffers(0, 1, &vbv);
 				cmd->IASetIndexBuffer(&ibv);
@@ -2027,15 +2118,16 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		const MeshResource* currentMesh = nullptr;
 		for (auto it = begin; it != end; )
 		{
-			if (it->pipeline != boundPipeline)
+			const uint32_t pipelineKey = it->pipeline * 2 + it->compact;
+			if (pipelineKey != boundPipeline)
 			{
-				cmd->SetPipelineState(r.SurfacePipeline(it->pipeline));
-				boundPipeline = it->pipeline;
+				cmd->SetPipelineState(r.SurfacePipeline(it->pipeline, it->compact != 0));
+				boundPipeline = pipelineKey;
 			}
 			if (it->meshSlot != boundMesh)
 			{
 				currentMesh = r.meshes.AtSlot(it->meshSlot);
-				const D3D12_VERTEX_BUFFER_VIEW vbv = currentMesh->vertexBuffer->VertexView(sizeof(Vertex));
+				const D3D12_VERTEX_BUFFER_VIEW vbv = currentMesh->vertexBuffer->VertexView(currentMesh->Stride());
 				const D3D12_INDEX_BUFFER_VIEW ibv = currentMesh->indexBuffer->IndexView(DXGI_FORMAT_R32_UINT);
 				cmd->IASetVertexBuffers(0, 1, &vbv);
 				cmd->IASetIndexBuffer(&ibv);

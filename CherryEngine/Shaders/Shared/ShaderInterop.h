@@ -178,8 +178,8 @@ struct InstanceData
 	CHERRY_MATRIX normalMatrix;    // inverse-transpose of world (upper 3x3 used)
 	uint materialIndex;
 	uint flags;
-	uint pad0;
-	uint pad1;
+	float ditherCut;     // screen-door fading: 1 - the share of pixels drawn (0 = all drawn)
+	uint ditherInvert;   // 1: draw the other pixels (see MeshRenderer::dither)
 };
 
 // One material. Surface shaders read the fixed fields directly and their own parameters

@@ -445,7 +445,10 @@ void UndertimeModule::CreateScenery(Engine& engine)
 	PhysicsWorld& physics = engine.GetPhysics();
 	if (!valley) valley = std::make_unique<Valley>();
 	valley->SetPads(props.Pads(engine, scene, *valley));
-	scenery.Build(engine, scene, *valley, &physics);
+	// The level of detail and collision start around where the player will start (they follow
+	// the camera from the first frame, so a development view elsewhere catches up there).
+	const XMFLOAT3 focus = hasSceneSpawn ? sceneSpawn : XMFLOAT3{ cfg::kSpawnX, cfg::kGroundY + 1.6f, cfg::kSpawnZ };
+	scenery.Build(engine, scene, *valley, &physics, focus);
 	era = era::kFirst;
 	if (scene.IsRegistered<ValleyWorld>())
 	{
@@ -831,8 +834,9 @@ void UndertimeModule::LogPerf(Engine& engine, float dt, float updateMs)
 	perfTimer += dt;
 	if (perfTimer < 2.0f) return;
 	const RenderStats& r = engine.GetRenderer().Stats();
-	CHERRY_LOG("dev perf: %d blocks (%d live, %d in %d piles, %d rescued) | frame %.2f ms | physics %.2f ms (%u bodies, %u active) | game update %.2f ms | GPU %.2f ms | %u draws | %d waiting, last pile rebuild %.2f ms (mesh %.2f, collision %.2f) for %d blocks",
-		blocks.Count(), blocks.LiveCount(), blocks.SettledCount(), blocks.PileCount(), blocks.Rescued(), perfFrameMs / perfFrames, perfPhysicsMs / perfFrames, engine.GetPhysics().Stats().bodies, engine.GetPhysics().Stats().activeBodies,
+	const ValleyScenery::Stats valleyStats = scenery.GetStats();
+	CHERRY_LOG("dev perf: valley %.2fM + %.2fM cover triangles, %.0f MB, %d rebuilding | %d blocks (%d live, %d in %d piles, %d rescued) | frame %.2f ms | physics %.2f ms (%u bodies, %u active) | game update %.2f ms | GPU %.2f ms | %u draws | %d waiting, last pile rebuild %.2f ms (mesh %.2f, collision %.2f) for %d blocks",
+		valleyStats.triangles / 1e6, valleyStats.coverTriangles / 1e6, valleyStats.meshBytes / (1024.0 * 1024.0), valleyStats.rebuilding, blocks.Count(), blocks.LiveCount(), blocks.SettledCount(), blocks.PileCount(), blocks.Rescued(), perfFrameMs / perfFrames, perfPhysicsMs / perfFrames, engine.GetPhysics().Stats().bodies, engine.GetPhysics().Stats().activeBodies,
 		perfUpdateMs / perfFrames, r.gpuFrameMs, r.drawCalls, blocks.PendingCount(), blocks.LastPileBuildMs(), blocks.LastPileMeshMs(), blocks.LastPileCollisionMs(), blocks.LastPileBlocks());
 	perfTimer = perfFrameMs = perfUpdateMs = perfPhysicsMs = 0.0f;
 	perfFrames = 0;
@@ -1588,6 +1592,8 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 
 	// Deep in the mountain the valley can't be seen: skip drawing it.
 	scenery.SetVisible(engine.GetScene(), !(IsInside() && player.position.z > cfg::kHideValleyDepth));
+	// The valley's level of detail and its collision follow you.
+	scenery.Update(engine, engine.GetScene(), player.EyePosition());
 }
 
 // =============================================================================
@@ -2001,6 +2007,47 @@ void UndertimeModule::OnImGui(Engine& engine)
 		ImGui::Text("Physics       %u bodies, %u active, %.2f ms", engine.GetPhysics().Stats().bodies, engine.GetPhysics().Stats().activeBodies, engine.GetPhysics().Stats().stepMs);
 		ImGui::Text("Collision     %.2f ms for %d chunk(s)   support check %d voxels", collision.LastFlushMs(), collision.LastFlushChunks(), lastSupportVisited);
 		ImGui::Text("Seed %u   generated in %.0f ms   collision built in %.0f ms", seed, generationMs, collision.BuildMs());
+		if (ImGui::TreeNode("Valley detail"))
+		{
+			// Ways of drawing the valley, to compare: presets for the level-of-detail distances,
+			// crossfading between levels, compact vertices (half the memory).
+			ValleyScenery::Settings valleySettings = scenery.GetSettings();
+			bool changed = false;
+			struct Preset { const char* name; float d[3]; };
+			static const Preset kPresets[] = {
+				{ "LOD (0.25 m to 110 m, 0.5 m to 260 m, then 1 m)", { cfg::kLodDistance[0], cfg::kLodDistance[1], cfg::kLodDistance[2] } },
+				{ "0.25 m to 250 m, then 0.5 m", { 110.0f, 250.0f, 99999.0f } },
+				{ "0.25 m everywhere", { 110.0f, 99999.0f, 99999.0f } },
+				{ "0.25 m everywhere, ground cover everywhere", { 99999.0f, 99999.0f, 99999.0f } },
+			};
+			int current = -1;
+			for (int i = 0; i < IM_ARRAYSIZE(kPresets); ++i)
+				if (std::equal(std::begin(kPresets[i].d), std::end(kPresets[i].d), std::begin(valleySettings.lodDistance))) current = i;
+			if (ImGui::BeginCombo("Distances", current >= 0 ? kPresets[current].name : "Custom"))
+			{
+				for (int i = 0; i < IM_ARRAYSIZE(kPresets); ++i)
+					if (ImGui::Selectable(kPresets[i].name, i == current))
+					{
+						std::copy(std::begin(kPresets[i].d), std::end(kPresets[i].d), std::begin(valleySettings.lodDistance));
+						changed = true;
+					}
+				ImGui::EndCombo();
+			}
+			changed |= ImGui::DragFloat3("Cover / 0.25 m / 0.5 m to (m)", valleySettings.lodDistance, 5.0f, 0.0f, 99999.0f, "%.0f");
+			changed |= ImGui::Checkbox("Crossfade between levels", &valleySettings.fade);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(120.0f);
+			changed |= ImGui::SliderFloat("seconds", &valleySettings.fadeSeconds, 0.1f, 3.0f, "%.1f");
+			changed |= ImGui::Checkbox("Compact vertices (28 bytes instead of 48; rebuilds the valley)", &valleySettings.compact);
+			if (changed) scenery.SetSettings(valleySettings);
+			const ValleyScenery::Stats lod = scenery.GetStats();
+			ImGui::Text("Regions       %d with cover, %d at 0.25 m, %d at 0.5 m, %d at 1 m; %d rebuilding (last %.0f ms), %d fading",
+				lod.regions[0], lod.regions[1], lod.regions[2], lod.regions[3], lod.rebuilding, lod.regionMs, lod.fading);
+			ImGui::Text("Meshes        %.2fM terrain and water triangles, %.2fM ground cover, %.0f MB",
+				lod.triangles / 1e6, lod.coverTriangles / 1e6, lod.meshBytes / (1024.0 * 1024.0));
+			ImGui::Text("Collision     %d chunks (last %.1f ms to build, %.2f ms for its body)", lod.collisionChunks, lod.collisionMs, lod.bodyMs);
+			ImGui::TreePop();
+		}
 		for (size_t i = 0; i < layout.zones.size(); ++i)
 		{
 			const CaveZone& zone = layout.zones[i];

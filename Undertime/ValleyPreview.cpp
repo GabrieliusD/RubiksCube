@@ -38,7 +38,8 @@ void ValleyPreviewSystem::OnEditUpdate(Engine& engine, float)
 	if (!s.scenery.Built())
 	{
 		s.valley.SetPads(s.props.Pads(engine, scene, s.valley));
-		s.scenery.Build(engine, scene, s.valley, nullptr);
+		// The editor's camera isn't known here: full detail around the town.
+		s.scenery.Build(engine, scene, s.valley, nullptr, { cfg::kSpawnX, cfg::kGroundY + 10.0f, -120.0f });
 		spawned = true;
 	}
 	else

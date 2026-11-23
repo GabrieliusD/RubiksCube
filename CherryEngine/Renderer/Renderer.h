@@ -41,7 +41,9 @@ public:
 	Renderer& operator=(const Renderer&) = delete;
 
 	// ---- Resources (game-facing) ---------------------------------------------
-	MeshHandle CreateMesh(const MeshData& data);
+	MeshHandle CreateMesh(const MeshData& data, MeshFormat format = MeshFormat::Full);
+	// GPU memory a mesh's vertex and index buffers take (bytes), 0 for an invalid handle.
+	size_t GetMeshBytes(MeshHandle mesh) const;
 	void DestroyMesh(MeshHandle mesh);
 	// Local-space bounds, or nullptr for an invalid handle.
 	const DirectX::BoundingBox* GetMeshBounds(MeshHandle mesh) const;

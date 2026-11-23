@@ -32,7 +32,8 @@ namespace rhi
 
 	ComPtr<ID3D12RootSignature> CreateBindlessRootSignature(ID3D12Device* device);
 
-	enum class VertexLayout { None, Mesh };
+	// Mesh: the engine's Vertex (48 bytes); MeshCompact: MeshFormat::Compact (28 bytes).
+	enum class VertexLayout { None, Mesh, MeshCompact };
 
 	struct GraphicsPipelineDesc
 	{

@@ -236,15 +236,22 @@ bool Valley::Detailed(float x, float z) const
 	const float cz = cfg::kValleyWorld[1] + (std::floor((z - cfg::kValleyWorld[1]) / c) + 0.5f) * c;
 	const float mx = cx - kMouthX;
 	if (ValleyDistance(cx, cz) < cfg::kDetailValleyDistance || std::sqrt(mx * mx + cz * cz) < cfg::kDetailMouthReach) return true;
-	// Wherever the river runs (its falls up the mountain too): water levels in 1 m blocks
-	// don't meet the fine ones, and the rock shows through between them.
+	return RiverChunk(x, z);
+}
+
+bool Valley::RiverChunk(float x, float z) const
+{
+	const float c = cfg::kTerrainChunk;
+	const float cx = cfg::kValleyWorld[0] + (std::floor((x - cfg::kValleyWorld[0]) / c) + 0.5f) * c;
+	const float cz = cfg::kValleyWorld[1] + (std::floor((z - cfg::kValleyWorld[1]) / c) + 0.5f) * c;
 	return RiverDistance(cx, cz) < c * 0.75f + cfg::kRiverHalfWidth + cfg::kRiverBank;
 }
 
 Ground Valley::GroundAt(float x, float z, float height, float drop, float block) const
 {
 	if (WaterLevel(x, z) > height) return Ground::Gravel;
-	const float steep = block < 0.5f ? cfg::kRockSlope : 1.6f;
+	// Steep enough for rock: the same slope whatever the block size (1.6 m over 1 m blocks).
+	const float steep = block < 0.3f ? cfg::kRockSlope : (block < 0.75f ? 0.9f : 1.6f);
 	const float n = Noise2(x / 14.0f, z / 14.0f, 2);
 	if (drop >= steep) return n > 0.0f ? Ground::Rock : Ground::Rock2;
 	if (height > cfg::kSnowLine + 10.0f * n) return Ground::Snow;
