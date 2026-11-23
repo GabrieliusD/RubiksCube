@@ -102,11 +102,12 @@ namespace rhi
 		std::memcpy(mapped, data, static_cast<size_t>(size));
 		staging->Unmap(0, nullptr);
 
-		mDevice.ExecuteImmediate([&](ID3D12GraphicsCommandList4* cmd)
+		// Not waited for: the queue copies before any later frame reads the buffer.
+		mDevice.ExecuteAsync([&](ID3D12GraphicsCommandList4* cmd)
 		{
 			// COMMON -> COPY_DEST is an implicit promotion for buffers.
 			cmd->CopyBufferRegion(mResource.Get(), dstOffset, staging.Get(), 0, size);
-		});
+		}, staging);
 	}
 
 	D3D12_VERTEX_BUFFER_VIEW Buffer::VertexView(uint32_t stride) const
@@ -270,12 +271,14 @@ namespace rhi
 		DX_CHECK(mDevice.D3D()->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc,
 			D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&staging)));
 
-		mDevice.ExecuteImmediate([&](ID3D12GraphicsCommandList4* cmd)
+		// UpdateSubresources copies `data` into the staging buffer while recording, so the
+		// submission isn't waited for.
+		mDevice.ExecuteAsync([&](ID3D12GraphicsCommandList4* cmd)
 		{
 			Transition(cmd, D3D12_RESOURCE_STATE_COPY_DEST);
 			UpdateSubresources(cmd, mResource.Get(), staging.Get(), 0, 0, count, const_cast<D3D12_SUBRESOURCE_DATA*>(data));
 			Transition(cmd, finalState);
-		});
+		}, staging);
 	}
 
 	void Texture::UploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height, uint32_t depth,
@@ -312,14 +315,14 @@ namespace rhi
 		footprint.Footprint.RowPitch = rowPitch;
 
 		const D3D12_RESOURCE_STATES restore = mState;
-		mDevice.ExecuteImmediate([&](ID3D12GraphicsCommandList4* cmd)
+		mDevice.ExecuteAsync([&](ID3D12GraphicsCommandList4* cmd)
 		{
 			Transition(cmd, D3D12_RESOURCE_STATE_COPY_DEST);
 			CD3DX12_TEXTURE_COPY_LOCATION dst(mResource.Get(), 0);
 			CD3DX12_TEXTURE_COPY_LOCATION srcLocation(staging.Get(), footprint);
 			cmd->CopyTextureRegion(&dst, x, y, z, &srcLocation, nullptr);
 			Transition(cmd, restore);
-		});
+		}, staging);
 	}
 
 	void Texture::Transition(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES newState)

@@ -48,8 +48,9 @@ public:
 
 	// ---- Bodies -----------------------------------------------------------------
 	// Static triangle mesh; `vertices` holds 3 per triangle, wound so that
-	// (b - a) x (c - a) points out of the solid.
-	BodyId CreateStaticMesh(const std::vector<DirectX::XMFLOAT3>& vertices);
+	// (b - a) x (c - a) points out of the solid. `ignoreCharacters`: PhysicsCharacters pass
+	// through it (moving bodies and debris still collide with it).
+	BodyId CreateStaticMesh(const std::vector<DirectX::XMFLOAT3>& vertices, bool ignoreCharacters = false);
 	BodyId CreateStaticBox(const DirectX::XMFLOAT3& center, const DirectX::XMFLOAT3& halfExtents);
 	// Dynamic body made of boxes in local space; `position`/`rotation` place the local origin.
 	// `ignoreCharacters`: debris that collides with the world and other bodies but passes
@@ -69,6 +70,9 @@ public:
 	void AddImpulse(BodyId body, const DirectX::XMFLOAT3& impulse, const DirectX::XMFLOAT3& worldPoint);
 	// Puts a dynamic body to sleep now (it wakes when something active touches it).
 	void Deactivate(BodyId body);
+	// Switches a body between colliding with PhysicsCharacters and passing through them
+	// (the `ignoreCharacters` it was created with).
+	void SetIgnoreCharacters(BodyId body, bool ignoreCharacters);
 
 	// `dynamicOnly`: skip the static world (still hits characters' inner bodies and debris).
 	std::optional<PhysicsRayHit> Raycast(const DirectX::XMFLOAT3& origin, const DirectX::XMFLOAT3& direction, float maxDistance, bool dynamicOnly = false) const;

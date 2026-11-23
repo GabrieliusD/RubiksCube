@@ -15,6 +15,9 @@ struct CaveWorld
 	// Optional material for the rock (world volume and boulders), e.g. one using a shader graph
 	// with Block Index / Local Position nodes. Empty: the built-in look.
 	std::string rockMaterial;
+	// A fixed mountain with the showcase hall inside the entrance (BuildShowcase): every ore,
+	// cracks, crystal light, a lamp, the shaft's light, in known places (Scenes/TestCave.scene).
+	bool showcase = false;
 };
 
 // Where the player starts (feet position and facing from the Transform). Without one,

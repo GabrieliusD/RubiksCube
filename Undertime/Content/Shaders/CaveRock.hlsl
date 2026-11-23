@@ -26,17 +26,18 @@ float2 Hash22(float2 p)
 	return frac((a.xx + a.yz) * a.zy);
 }
 
-// Distance to the nearest edge between Voronoi cells on a face (0..1 coordinates): the cracks.
-float CrackLines(float2 uv, float3 cellSeed, float cells)
+// Distance (metres) to the nearest edge between Voronoi cells in the face's plane: the cracks.
+// In world metres, so a crack runs on across neighbouring blocks.
+float CrackLines(float2 metres, float cells)
 {
-	const float2 p = uv * cells;
+	const float2 p = metres * cells;
 	const float2 base = floor(p);
 	float first = 9.0, second = 9.0;
 	for (int y = -1; y <= 1; ++y)
 		for (int x = -1; x <= 1; ++x)
 		{
 			const float2 c = base + float2(x, y);
-			const float2 site = c + Hash22(c + cellSeed.xy * 7.13 + cellSeed.z * 3.71);
+			const float2 site = c + Hash22(c);
 			const float d = distance(p, site);
 			if (d < first) { second = first; first = d; }
 			else if (d < second) second = d;
@@ -113,11 +114,17 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 		}
 	}
 
-	// Cracks across a damaged block's faces.
+	// Cracks across a damaged block's faces: a few long ones (cells about 0.6 m across, in the
+	// face's plane), wider when badly cracked; a second, finer set joins in then.
 	if (crack > 0)
 	{
-		const float width = crack == 1 ? 0.025 : 0.05;
-		const float lines = CrackLines(input.uv, cell, crack == 1 ? 2.0 : 3.0);
+		const float3 n = abs(input.normalW);
+		const float3 q = input.positionL;
+		const float2 plane = n.x > 0.5 ? q.yz : (n.y > 0.5 ? q.xz : q.xy);
+		const float width = crack == 1 ? 0.012 : 0.022;
+		float lines = CrackLines(plane, 1.6);
+		if (crack == 2)
+			lines = min(lines, CrackLines(plane + 17.3, 3.2) + 0.008);
 		const float onCrack = 1.0 - smoothstep(width * 0.5, width, lines);
 		s.baseColor *= 1.0 - 0.75 * onCrack;
 		s.emissive *= 1.0 - onCrack;

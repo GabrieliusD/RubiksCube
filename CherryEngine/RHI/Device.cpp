@@ -198,6 +198,8 @@ namespace rhi
 		mRtvHeap.Shutdown();
 		mDsvHeap.Shutdown();
 		mCmdList.Reset();
+		ProcessAsync(UINT64_MAX);
+		mAsync.clear();
 		mImmediateList.Reset();
 		mImmediateAllocator.Reset();
 		for (auto& frame : mFrames) frame.allocator.Reset();
@@ -236,6 +238,7 @@ namespace rhi
 		FrameContext& frame = mFrames[mFrameIndex];
 		WaitForFence(mFence.Get(), frame.fenceValue);
 		ProcessDeferred(mFence->GetCompletedValue());
+		ProcessAsync(mImmediateFence->GetCompletedValue());
 
 		DX_CHECK(frame.allocator->Reset());
 		DX_CHECK(mCmdList->Reset(frame.allocator.Get(), nullptr));
@@ -276,6 +279,55 @@ namespace rhi
 		mQueue->ExecuteCommandLists(1, lists);
 		DX_CHECK(mQueue->Signal(mImmediateFence.Get(), ++mImmediateFenceValue));
 		WaitForFence(mImmediateFence.Get(), mImmediateFenceValue);
+	}
+
+	void Device::ExecuteAsync(const std::function<void(ID3D12GraphicsCommandList4*)>& record, ComPtr<IUnknown> keepAlive)
+	{
+		// A command list the GPU has finished with, or a new one. Many uploads in flight at
+		// once (a burst of mesh rebuilds) wait for the oldest rather than growing forever.
+		constexpr size_t kMaxContexts = 64;
+		uint64_t completed = mImmediateFence->GetCompletedValue();
+		AsyncContext* context = nullptr;
+		for (AsyncContext& c : mAsync)
+			if (c.fenceValue <= completed) { context = &c; break; }
+		if (!context && mAsync.size() >= kMaxContexts)
+		{
+			AsyncContext* oldest = &mAsync.front();
+			for (AsyncContext& c : mAsync)
+				if (c.fenceValue < oldest->fenceValue) oldest = &c;
+			WaitForFence(mImmediateFence.Get(), oldest->fenceValue);
+			context = oldest;
+		}
+		if (!context)
+		{
+			AsyncContext c;
+			DX_CHECK(mDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&c.allocator)));
+			DX_CHECK(mDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, c.allocator.Get(), nullptr, IID_PPV_ARGS(&c.list)));
+			DX_CHECK(c.list->Close());
+			SetDebugName(c.list.Get(), "AsyncUploadCommandList");
+			mAsync.push_back(std::move(c));
+			context = &mAsync.back();
+		}
+
+		DX_CHECK(context->allocator->Reset());
+		DX_CHECK(context->list->Reset(context->allocator.Get(), nullptr));
+		record(context->list.Get());
+		DX_CHECK(context->list->Close());
+		ID3D12CommandList* lists[] = { context->list.Get() };
+		mQueue->ExecuteCommandLists(1, lists);
+		context->fenceValue = ++mImmediateFenceValue;
+		DX_CHECK(mQueue->Signal(mImmediateFence.Get(), context->fenceValue));
+		if (keepAlive) mAsyncReleases.push_back({ std::move(keepAlive), context->fenceValue });
+	}
+
+	void Device::ProcessAsync(uint64_t completedValue)
+	{
+		auto it = mAsyncReleases.begin();
+		while (it != mAsyncReleases.end())
+		{
+			if (it->fenceValue <= completedValue) it = mAsyncReleases.erase(it);
+			else ++it;
+		}
 	}
 
 	void Device::DeferRelease(ComPtr<IUnknown> object)

@@ -59,6 +59,10 @@ namespace rhi
 		// Records `record` into a one-off command list, submits it and waits for it.
 		// Used for resource uploads outside the frame command list.
 		void ExecuteImmediate(const std::function<void(ID3D12GraphicsCommandList4*)>& record);
+		// Like ExecuteImmediate, but doesn't wait: the queue runs it before any frame submitted
+		// later, so uploads made during a frame are ready for its draws without stalling the
+		// CPU. `keepAlive` (the staging buffer) is released once the GPU has run it.
+		void ExecuteAsync(const std::function<void(ID3D12GraphicsCommandList4*)>& record, ComPtr<IUnknown> keepAlive);
 
 		// Releases `object` once the GPU has finished every frame that may use it.
 		void DeferRelease(ComPtr<IUnknown> object);
@@ -89,6 +93,7 @@ namespace rhi
 		void SetupDebugMessages();
 		void WaitForFence(ID3D12Fence* fence, uint64_t value);
 		void ProcessDeferred(uint64_t completedValue);
+		void ProcessAsync(uint64_t completedValue);
 		static void CALLBACK OnDebugMessage(D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID, LPCSTR description, void* context);
 
 		ComPtr<IDXGIFactory6> mFactory;
@@ -108,6 +113,17 @@ namespace rhi
 		ComPtr<ID3D12GraphicsCommandList4> mImmediateList;
 		ComPtr<ID3D12Fence> mImmediateFence;
 		uint64_t mImmediateFenceValue = 0;
+
+		// Asynchronous uploads (ExecuteAsync): command lists reused once mImmediateFence has
+		// passed their value, and staging buffers kept alive until then.
+		struct AsyncContext
+		{
+			ComPtr<ID3D12CommandAllocator> allocator;
+			ComPtr<ID3D12GraphicsCommandList4> list;
+			uint64_t fenceValue = 0;
+		};
+		std::vector<AsyncContext> mAsync;
+		std::vector<PendingRelease> mAsyncReleases;
 
 		DescriptorHeap mSrvHeap;
 		DescriptorHeap mRtvHeap;

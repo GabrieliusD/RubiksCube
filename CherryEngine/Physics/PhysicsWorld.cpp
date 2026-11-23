@@ -178,7 +178,9 @@ void PhysicsWorld::Initialize()
 	p.jobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, workers);
 
 	p.system = std::make_unique<JPH::PhysicsSystem>();
-	p.system->Init(16384, 0, 16384, 16384, p.broadPhaseLayers, p.objectVsBroadPhase, p.objectPairs);
+	// Bodies, then body pairs and contact constraints: a pile of small blocks touches several
+	// neighbours each, and past these limits Jolt drops contacts (blocks fall through floors).
+	p.system->Init(16384, 0, 65536, 65536, p.broadPhaseLayers, p.objectVsBroadPhase, p.objectPairs);
 	p.system->SetGravity(JPH::Vec3(0.0f, -p.gravity, 0.0f));
 	// Piles of small bodies jitter a little forever at Jolt's default threshold (0.03 m/s) and
 	// never sleep; a slightly higher one lets them rest.
@@ -241,7 +243,7 @@ void PhysicsWorld::Update(float dt)
 	p.stats.activeBodies = p.system->GetNumActiveBodies(JPH::EBodyType::RigidBody);
 }
 
-BodyId PhysicsWorld::CreateStaticMesh(const std::vector<XMFLOAT3>& vertices)
+BodyId PhysicsWorld::CreateStaticMesh(const std::vector<XMFLOAT3>& vertices, bool ignoreCharacters)
 {
 	Impl& p = *mImpl;
 	if (vertices.size() < 3) return kInvalidBody;
@@ -264,7 +266,10 @@ BodyId PhysicsWorld::CreateStaticMesh(const std::vector<XMFLOAT3>& vertices)
 		CHERRY_ERROR("Physics: mesh shape failed: %s", result.GetError().c_str());
 		return kInvalidBody;
 	}
-	JPH::BodyCreationSettings settings(result.Get(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::kStatic);
+	// Passing through characters: the debris layer, which sits in the moving broad phase
+	// (static bodies there still never collide with the static world).
+	JPH::BodyCreationSettings settings(result.Get(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), JPH::EMotionType::Static,
+		ignoreCharacters ? Layers::kDebris : Layers::kStatic);
 	return p.AddBody(settings, JPH::EActivation::DontActivate);
 }
 
@@ -375,6 +380,16 @@ void PhysicsWorld::Deactivate(BodyId body)
 {
 	if (!IsValid(body)) return;
 	mImpl->Bodies().DeactivateBody(Impl::Id(body));
+}
+
+void PhysicsWorld::SetIgnoreCharacters(BodyId body, bool ignoreCharacters)
+{
+	if (!IsValid(body)) return;
+	JPH::BodyInterface& bodies = mImpl->Bodies();
+	const JPH::BodyID id = Impl::Id(body);
+	const bool isStatic = bodies.GetMotionType(id) == JPH::EMotionType::Static;
+	const JPH::ObjectLayer layer = ignoreCharacters ? Layers::kDebris : (isStatic ? Layers::kStatic : Layers::kMoving);
+	if (bodies.GetObjectLayer(id) != layer) bodies.SetObjectLayer(id, layer);
 }
 
 void PhysicsWorld::AddImpulse(BodyId body, const XMFLOAT3& impulse, const XMFLOAT3& worldPoint)

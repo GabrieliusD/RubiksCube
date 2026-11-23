@@ -77,7 +77,8 @@ void UndertimeModule::RegisterTypes(GameTypes& types)
 {
 	types.Component<CaveWorld>("CaveWorld")
 		.Field("seed", &CaveWorld::seed)
-		.Asset("rockMaterial", &CaveWorld::rockMaterial, "material");
+		.Asset("rockMaterial", &CaveWorld::rockMaterial, "material")
+		.Field("showcase", &CaveWorld::showcase);
 	types.Component<PlayerStart>("PlayerStart");
 	types.System<CavePreviewSystem>();
 	types.Component<ValleyWorld>("ValleyWorld")
@@ -95,9 +96,10 @@ void UndertimeModule::RegisterTypes(GameTypes& types)
 
 std::string UndertimeModule::SaveState(Engine&)
 {
-	char text[160];
-	std::snprintf(text, sizeof(text), "%u %.4f %.4f %.4f %.4f %.9f %.3f %d", seed, player.position.x, player.position.y, player.position.z, player.yaw,
-		clock.Days(), clock.PersonalSeconds(), era);
+	char text[200];
+	const LooseBlocks::Options& o = blocks.GetOptions();
+	std::snprintf(text, sizeof(text), "%u %.4f %.4f %.4f %.4f %.9f %.3f %d %d %d %d %d", seed, player.position.x, player.position.y, player.position.z, player.yaw,
+		clock.Days(), clock.PersonalSeconds(), era, o.cap ? 1 : 0, o.piles ? 1 : 0, o.solidBlocks ? 1 : 0, o.solidPiles ? 1 : 0);
 	return text;
 }
 
@@ -118,6 +120,11 @@ void UndertimeModule::LoadState(Engine& engine, const std::string& text)
 		SetEra(engine, savedEra);
 		wasInside = IsInside();
 	}
+	int cap = 0, piles = 0, solidBlocks = 0, solidPiles = 0;
+	if (stream >> cap >> piles >> solidBlocks >> solidPiles)
+	{
+		blocks.SetOptions(engine, LooseBlocks::Options{ cap != 0, piles != 0, solidBlocks != 0, solidPiles != 0 });
+	}
 	UpdateCamera(engine);
 	CHERRY_LOG("UNDERTIME: kept seed %u and the player's position across the reload", savedSeed);
 }
@@ -136,12 +143,14 @@ void UndertimeModule::OnStartup(Engine& engine)
 	// What the scene asks for.
 	Scene& startScene = engine.GetScene();
 	sceneSeed = 0;
+	showcase = false;
 	hasSceneSpawn = false;
 	sceneRockMaterial.clear();
 	startScene.Each<CaveWorld>([&](Entity, CaveWorld& caveWorld)
 	{
 		sceneSeed = caveWorld.seed;
 		sceneRockMaterial = caveWorld.rockMaterial;
+		showcase = caveWorld.showcase;
 	});
 	startScene.Each<PlayerStart>([&](Entity entity, PlayerStart&)
 	{
@@ -180,7 +189,15 @@ void UndertimeModule::OnStartup(Engine& engine)
 
 	// The scene's mountain, or a fresh one every game (after a hot reload: the same one
 	// as before, so LoadState doesn't have to generate it a second time).
-	uint32_t startSeed = sceneSeed != 0 ? sceneSeed : RandomSeed();
+	// Development: UNDERTIME_DEV_SHOWCASE=1 builds the showcase cave (as CaveWorld::showcase).
+	char* devShowcase = nullptr;
+	size_t devShowcaseLength = 0;
+	if (_dupenv_s(&devShowcase, &devShowcaseLength, "UNDERTIME_DEV_SHOWCASE") == 0 && devShowcase)
+	{
+		showcase = showcase || std::string(devShowcase) == "1";
+		free(devShowcase);
+	}
+	uint32_t startSeed = sceneSeed != 0 ? sceneSeed : (showcase ? cfg::kShowcaseSeed : RandomSeed());
 	unsigned reloadSeed = 0;
 	if (std::istringstream(engine.HotReloadState()) >> reloadSeed && reloadSeed != 0) startSeed = reloadSeed;
 	// Development: UNDERTIME_DEV_SEED=N always builds that mountain (screenshots of the cave).
@@ -208,12 +225,7 @@ void UndertimeModule::OnStartup(Engine& engine)
 		const int count = std::atoi(devBlocks);
 		std::free(devBlocks);
 		devPerf = true;
-		for (int i = 0; i < count; ++i)
-		{
-			const int gx = i % 20, gz = (i / 20) % 20, gy = i / 400;
-			const XMFLOAT3 at{ cfg::kCenterX - 2.0f + gx * 0.3f, cfg::kGroundY + 1.0f + gy * 0.3f, -12.0f + gz * 0.3f };
-			blocks.Spawn(engine, Block::Stone, cfg::kVoxX / 2 + gx, cfg::kVoxY / 2 + gy % 20, 40 + gz + 4 * (i % 50), at, { 0, 0, 0, 1 }, { 0, 0, 0 }, { 0, 0, 0 });
-		}
+		DropTestBlocks(engine, count);
 	}
 
 	// Development: UNDERTIME_DEV_VIEW="x y z yaw pitch" (metres, degrees) skips the title and
@@ -320,7 +332,13 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	seed = newSeed;
 	std::snprintf(seedInput, sizeof(seedInput), "%u", seed);
 	const auto start = std::chrono::steady_clock::now();
+	world.ClearDamage();   // (before the showcase cracks its blocks)
 	layout = GenerateCaves(world, seed);
+	if (showcase)
+	{
+		for (const ShowcaseView& view : BuildShowcase(world, layout))
+			CHERRY_LOG("UNDERTIME showcase: %-8s UNDERTIME_DEV_VIEW=\"%.1f %.1f %.1f %.0f %.0f\"", view.name, view.x, view.y, view.z, view.yaw, view.pitch);
+	}
 	skylight.Build(world);
 	CreateShaftDust(engine);
 	CreateCaveLife(engine);
@@ -331,7 +349,6 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	// Loose rock belongs to the old world.
 	fragments.Clear(engine);
 	blocks.Clear(engine);
-	world.ClearDamage();
 	backpack.fill(0);
 	recentPickup.fill(0);
 	pickupToast = 0.0f;
@@ -602,7 +619,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 		SpawnBlocksFromBoulder(engine, over, { 0, 0, 0 });
 	}
 	const XMFLOAT3 chest{ player.position.x, player.position.y + cfg::kBodyHeight * 0.55f, player.position.z };
-	blocks.Update(engine, dt, chest);
+	blocks.Update(engine, dt, chest, player.position);
 	pickupToast = std::max(pickupToast - dt, 0.0f);
 	fullWarning = std::max(fullWarning - dt, 0.0f);
 	// All of this frame's edits: rebuild each touched collision chunk once.
@@ -797,9 +814,9 @@ void UndertimeModule::LogPerf(Engine& engine, float dt, float updateMs)
 	perfTimer += dt;
 	if (perfTimer < 2.0f) return;
 	const RenderStats& r = engine.GetRenderer().Stats();
-	CHERRY_LOG("dev perf: %d blocks | frame %.2f ms | physics %.2f ms (%u bodies, %u active) | game update %.2f ms | GPU %.2f ms | %u draws",
-		blocks.Count(), perfFrameMs / perfFrames, perfPhysicsMs / perfFrames, engine.GetPhysics().Stats().bodies, engine.GetPhysics().Stats().activeBodies,
-		perfUpdateMs / perfFrames, r.gpuFrameMs, r.drawCalls);
+	CHERRY_LOG("dev perf: %d blocks (%d live, %d in %d piles, %d rescued) | frame %.2f ms | physics %.2f ms (%u bodies, %u active) | game update %.2f ms | GPU %.2f ms | %u draws | %d waiting, last pile rebuild %.2f ms (mesh %.2f, collision %.2f) for %d blocks",
+		blocks.Count(), blocks.LiveCount(), blocks.SettledCount(), blocks.PileCount(), blocks.Rescued(), perfFrameMs / perfFrames, perfPhysicsMs / perfFrames, engine.GetPhysics().Stats().bodies, engine.GetPhysics().Stats().activeBodies,
+		perfUpdateMs / perfFrames, r.gpuFrameMs, r.drawCalls, blocks.PendingCount(), blocks.LastPileBuildMs(), blocks.LastPileMeshMs(), blocks.LastPileCollisionMs(), blocks.LastPileBlocks());
 	perfTimer = perfFrameMs = perfUpdateMs = perfPhysicsMs = 0.0f;
 	perfFrames = 0;
 }
@@ -833,7 +850,16 @@ void UndertimeModule::SpawnBlocksFromFace(Engine& engine, const std::vector<Voxe
 	// Mirrored out of the hole into free air in front of the face (not into rock, and not
 	// onto blocks already lying there).
 	const auto occupied = blocks.OccupiedCells(engine);
-	const auto isFree = [&](int x, int y, int z) { return !world.IsSolid(x, y, z) && !occupied(x, y, z); };
+	// Solid blocks also stay clear of the player (they'd be shoved out of the capsule).
+	const bool avoidPlayer = blocks.GetOptions().solidBlocks;
+	const float s0 = cfg::kVoxelSize;
+	const float clear = cfg::kBodyWidth * 0.5f + s0 * 0.75f;
+	const auto inPlayer = [&](int x, int y, int z)
+	{
+		const float dx = (x + 0.5f) * s0 - player.position.x, dz = (z + 0.5f) * s0 - player.position.z, cy = (y + 0.5f) * s0;
+		return dx * dx + dz * dz < clear * clear && cy > player.position.y - s0 && cy < player.position.y + cfg::kBodyHeight + s0;
+	};
+	const auto isFree = [&](int x, int y, int z) { return !world.IsSolid(x, y, z) && !occupied(x, y, z) && !(avoidPlayer && inPlayer(x, y, z)); };
 	const std::vector<XMINT3> cells = MirrorOutOfFace(voxels, axis, sign, faceVoxel, isFree);
 	int inFront = 0;
 	for (size_t i = 0; i < voxels.size(); ++i) inFront += (cells[i].x != voxels[i].x || cells[i].y != voxels[i].y || cells[i].z != voxels[i].z) ? 1 : 0;
@@ -888,6 +914,53 @@ void UndertimeModule::SpawnBlocksFromBoulder(Engine& engine, const ChipResult& c
 	}
 }
 
+void UndertimeModule::DropTestBlocks(Engine& engine, int count)
+{
+	// Fills free cells layer by layer in a square 2.5 m ahead of the player: each column
+	// from its floor (a physics ray down from head height, so the terrain counts too) up to
+	// the first rock, skipping blocks already there and the player. Each gets a random push
+	// and spin, so the heap tumbles and has to come to rest like rubble from a cave-in.
+	const float s = cfg::kVoxelSize;
+	const XMFLOAT3 look = player.LookDirection();
+	const float flat = std::max(std::sqrt(look.x * look.x + look.z * look.z), 1e-3f);
+	const float ax = player.position.x + look.x / flat * 2.5f, az = player.position.z + look.z / flat * 2.5f;
+	const int cx = static_cast<int>(std::floor(ax / s)), cz = static_cast<int>(std::floor(az / s));
+	const float head = player.position.y + 1.6f;
+	struct Column { int x, z, y; bool open; };
+	std::vector<Column> columns;
+	for (int dx = -10; dx <= 10; ++dx)
+		for (int dz = -10; dz <= 10; ++dz)
+		{
+			const int x = cx + dx, z = cz + dz;
+			const float px = (x + 0.5f) * s, pz = (z + 0.5f) * s;
+			if (world.IsSolid(x, static_cast<int>(std::floor(head / s)), z)) continue;
+			const float ox = px - player.position.x, oz = pz - player.position.z;
+			if (ox * ox + oz * oz < 0.7f * 0.7f) continue;
+			const auto floor = engine.GetPhysics().Raycast({ px, head, pz }, { 0, -1, 0 }, 8.0f);
+			if (!floor) continue;
+			columns.push_back({ x, z, static_cast<int>(std::floor((floor->point.y + 0.02f) / s)), true });
+		}
+	const auto occupied = blocks.OccupiedCells(engine);
+	int placed = 0;
+	for (int layer = 0; layer < 48 && placed < count; ++layer)
+		for (Column& c : columns)
+		{
+			if (placed >= count) break;
+			if (!c.open) continue;
+			const int y = c.y + layer;
+			if (world.IsSolid(c.x, y, c.z)) { c.open = false; continue; }   // reached the ceiling
+			if (occupied(c.x, y, c.z)) continue;
+			uint32_t h = static_cast<uint32_t>(placed) * 2654435761u + 0x9E3779B9u;
+			auto random = [&h]() { h ^= h << 13; h ^= h >> 17; h ^= h << 5; return (h & 0xFFFF) / 32767.5f - 1.0f; };   // -1..1
+			const XMFLOAT3 push{ random() * 1.5f, random() * 1.0f + 0.5f, random() * 1.5f };
+			const XMFLOAT3 spin{ random() * 6.0f, random() * 6.0f, random() * 6.0f };
+			blocks.Spawn(engine, Block::Stone, std::clamp(c.x, 0, cfg::kVoxX - 1), std::clamp(y, 0, cfg::kVoxY - 1), std::clamp(c.z, 0, cfg::kVoxZ - 1),
+				{ (c.x + 0.5f) * s, (y + 0.5f) * s, (c.z + 0.5f) * s }, { 0, 0, 0, 1 }, push, spin);
+			++placed;
+		}
+	CHERRY_LOG("Dropped %d of %d test blocks around %.1f %.1f %.1f (%d lying around)", placed, count, ax, player.position.y, az, blocks.Count());
+}
+
 int UndertimeModule::BackpackCount() const
 {
 	int total = 0;
@@ -923,9 +996,15 @@ void UndertimeModule::UpdateShovel(Engine& engine, float dt)
 		}
 		along += loose->distance + 0.05f;
 	}
+	// Settled piles, whichever physics layer they're on (solid piles are on the static one).
+	if (const auto pile = blocks.RaycastPiles(eye, dir, aimDistance))
+	{
+		aimed = true;
+		aimDistance = *pile;
+	}
 	const XMFLOAT3 point{ eye.x + dir.x * aimDistance, eye.y + dir.y * aimDistance, eye.z + dir.z * aimDistance };
 	const int room = cfg::kBackpackCapacity - BackpackCount();
-	scoopPreview = aimed ? blocks.InReach(engine, point, cfg::kShovelRadius, std::max(std::min(cfg::kShovelScoop, room), 1)) : std::vector<BodyId>{};
+	scoopPreview = aimed ? blocks.InReach(engine, point, cfg::kShovelRadius, std::max(std::min(cfg::kShovelScoop, room), 1)) : std::vector<LooseBlocks::Ref>{};
 	blocks.Outline(engine, scoopPreview, room > 0 ? DebugDraw::Color(1.0f, 0.95f, 0.8f) : DebugDraw::Color(0.9f, 0.3f, 0.25f));
 
 	const bool digging = !waitForRelease && input.IsMouseDown(MouseButton::Left);
@@ -989,6 +1068,9 @@ void UndertimeModule::ApplyWorldChange(Engine& engine, const VoxelWorld::Box& bo
 
 	// Static collision: rebuilt once per frame for every chunk touched (see OnUpdate).
 	collision.MarkDirty(box);
+
+	// Piles resting on or against the changed rock turn back into live blocks.
+	blocks.Wake(engine, box);
 
 	// Meshes: rebuild every chunk the change (and its neighbours' faces) touches.
 	if (worldRenderer == WorldRenderer::Meshes)
@@ -1437,7 +1519,8 @@ void UndertimeModule::UpdateLighting(Engine& engine)
 		for (const auto& [key, count] : crystalCells)
 		{
 			if (count < cfg::kCrystalClusterMin) continue;
-			const XMFLOAT3 at{ (static_cast<float>(key & 0x3FF) + 0.5f) * 2.0f, (static_cast<float>((key >> 10) & 0x3FF) + 0.5f) * 2.0f, (static_cast<float>(key >> 20) + 0.5f) * 2.0f };
+			// A metre above the cell's middle: light from the floor's own height wouldn't reach it.
+			const XMFLOAT3 at{ (static_cast<float>(key & 0x3FF) + 0.5f) * 2.0f, (static_cast<float>((key >> 10) & 0x3FF) + 0.5f) * 2.0f + 1.0f, (static_cast<float>(key >> 20) + 0.5f) * 2.0f };
 			const float dx = at.x - eye.x, dy = at.y - eye.y, dz = at.z - eye.z;
 			if (dx * dx + dy * dy + dz * dz > cfg::kCrystalLightReach * cfg::kCrystalLightReach) continue;
 			PointLight light;
@@ -1878,7 +1961,26 @@ void UndertimeModule::OnImGui(Engine& engine)
 		ImGui::Text("Target  %s (voxel %d, %d, %d)", target.valid ? cfg::Info(target.block).name : "-", target.x, target.y, target.z);
 		ImGui::Text("Voxels mined  %d", voxelsMined);
 		ImGui::Separator();
-		ImGui::Text("Loose blocks  %d  (crumbled over the cap %d)   boulders %d  (broke off %d)", blocks.Count(), blocks.Crumbled(), fragments.Count(), detachedCount);
+		ImGui::Text("Loose blocks  %d  (live %d, %d waiting to settle)", blocks.Count(), blocks.LiveCount(), blocks.PendingCount());
+		ImGui::Text("              settled %d in %d piles", blocks.SettledCount(), blocks.PileCount());
+		ImGui::Text("              crumbled %d, put back at the mine mouth %d", blocks.Crumbled(), blocks.Rescued());
+		ImGui::Text("Boulders      %d  (broke off %d)", fragments.Count(), detachedCount);
+		ImGui::Text("Pile rebuild  %.2f ms (mesh %.2f, collision %.2f)", blocks.LastPileBuildMs(), blocks.LastPileMeshMs(), blocks.LastPileCollisionMs());
+		ImGui::Text("              %d pile(s), %d blocks", blocks.LastPileBuilds(), blocks.LastPileBlocks());
+		if (ImGui::TreeNodeEx("Loose block tests", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			LooseBlocks::Options options = blocks.GetOptions();
+			bool changed = false;
+			changed |= ImGui::Checkbox("Cap (old): past 3000 the oldest crumble away", &options.cap);
+			changed |= ImGui::Checkbox("Piles: blocks at rest settle into piles", &options.piles);
+			changed |= ImGui::Checkbox("Solid blocks: falling blocks block the player", &options.solidBlocks);
+			changed |= ImGui::Checkbox("Solid piles: piles block the player", &options.solidPiles);
+			if (changed) blocks.SetOptions(engine, options);
+			if (ImGui::Button("Drop 2000 test blocks")) DropTestBlocks(engine, 2000);
+			ImGui::SameLine();
+			if (ImGui::Button("Drop 10000")) DropTestBlocks(engine, 10000);
+			ImGui::TreePop();
+		}
 		ImGui::Text("Physics       %u bodies, %u active, %.2f ms", engine.GetPhysics().Stats().bodies, engine.GetPhysics().Stats().activeBodies, engine.GetPhysics().Stats().stepMs);
 		ImGui::Text("Collision     %.2f ms for %d chunk(s)   support check %d voxels", collision.LastFlushMs(), collision.LastFlushChunks(), lastSupportVisited);
 		ImGui::Text("Seed %u   generated in %.0f ms   collision built in %.0f ms", seed, generationMs, collision.BuildMs());

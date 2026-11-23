@@ -93,17 +93,33 @@ namespace cfg
 	constexpr float kCharacterMaxSlope = 50.0f;   // degrees
 	constexpr float kRockDensity = 2600.0f;       // kg/m^3
 	// Loose blocks: every voxel the pick knocks out becomes one block with its own body. Blocks
-	// tumble out of the face, pile up against the rock, boulders and each other, pass through
-	// the player, and never go back into the world: the shovel scoops them into the backpack.
+	// tumble out of the face, pile up against the rock, boulders and each other (passing through
+	// the player unless the solid flags below are on), settle into piles (LooseBlocks.h) and never
+	// go back into the world: the shovel scoops them into the backpack.
 	constexpr float kBlockGap = 0.04f;            // blocks are this fraction smaller than a voxel, so piles read as blocks
 	constexpr float kBlockSpeed = 0.8f;           // m/s out of the rock face (then they drop and tumble)
 	constexpr float kBlockScatter = 0.5f;         // m/s of random sideways spread
 	constexpr float kBlockSpin = 4.0f;            // rad/s of random tumble
-	constexpr int kMaxLooseBlocks = 3000;         // more than this lying around: the oldest crumble away
-	constexpr float kBlockSettleTime = 2.0f;      // s after spawning before a nearly still block is put to sleep...
-	constexpr float kBlockSettleSpeed = 0.3f;     // ... when it moves slower than this (m/s)
+	constexpr int kMaxLooseBlocks = 3000;         // with kLooseCapDefault: more than this lying around and the oldest crumble away
+	// Test flags (Design.md §3, "Mined stone"): the defaults here, switched while playing in
+	// the editor's Game panel ("Loose block tests").
+	constexpr bool kLooseCapDefault = false;      // the old cap: past kMaxLooseBlocks the oldest crumble away (resources lost)
+	constexpr bool kLoosePilesDefault = true;     // blocks at rest settle into piles: one mesh and one static body per cell
+	constexpr bool kSolidBlocksDefault = false;   // falling and tumbling blocks are solid to the player (else pass through)
+	constexpr bool kSolidPilesDefault = false;    // settled piles are solid to the player (you collect them to get past)
+	// Piles: a block that has stayed put this long joins the pile of its cell. Each cell is one
+	// mesh and one static collision mesh, rebuilt when blocks join or leave it.
+	constexpr float kPileCell = 1.0f;             // m per side of a pile cell (at most ~64 blocks: a rebuild stays around a millisecond)
+	constexpr float kPileSettleTime = 0.5f;       // s a block must stay put before it joins its pile
+	constexpr float kBlockStillDrift = 0.03f;     // m: a block that drifts less than this (jitter in a heap) counts as staying put...
+	constexpr float kBlockStillTurn = 4.0f;       // ... and turns less than this (degrees)
+	constexpr float kBlockSleepAfter = 0.2f;      // s staying put before its body is put to sleep (heaps jitter otherwise)
+	constexpr float kPileBatchTime = 0.3f;        // s a pile collects settling blocks before it is rebuilt with all of them
+	constexpr float kPileBuildBudgetMs = 2.0f;    // ms per frame for rebuilding piles that blocks joined (at least one per frame)
+	constexpr int kMaxLiveBlocks = 2500;          // more blocks with bodies than this: the stillest join their piles early (none are lost)
+	constexpr float kPileWakeMargin = 0.3f;       // m around a rock edit where settled blocks turn live again (plus what rests on them)
 	constexpr float kBlockCrumbleTime = 0.5f;     // s to shrink away (only over the cap)
-	constexpr float kBlockLostY = -20.0f;         // blocks and boulders falling below this are gone
+	constexpr float kBlockLostY = -20.0f;         // boulders falling below this are gone; loose blocks are put back at the mine mouth
 	// Loose boulders (rock that broke off in a cave-in): stay loose until the pick breaks them up.
 	constexpr int kMaxBoulders = 60;              // more than this: the oldest comes apart into blocks
 	constexpr int kMinBoulderVoxels = 6;          // pieces smaller than this after a hit come apart into blocks
@@ -480,6 +496,9 @@ namespace cfg
 	// set of shadow maps). 0 = off: each step jumps. J toggles it while playing (debug).
 	constexpr float kShadowFadeSeconds = 0.5f;
 	constexpr float kSkipHours = 2.0f;            // debug: T skips ahead this far
+	// The showcase cave (CaveWorld::showcase, Scenes/TestCave.scene, UNDERTIME_DEV_SHOWCASE=1):
+	// a fixed mountain with a hall just inside the entrance holding everything to check by eye.
+	constexpr uint32_t kShowcaseSeed = 12345;
 
 	// ---- Weather (WeatherAt in DayNight.h) --------------------------------------
 	constexpr double kWeatherDays = 1.3;          // days between independent weather values (it changes over about this long)

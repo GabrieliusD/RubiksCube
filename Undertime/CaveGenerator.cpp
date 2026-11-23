@@ -152,6 +152,70 @@ XMFLOAT3 RoomStandPoint(const CaveRoom& room)
 	return { room.center.x, room.center.y + 0.02f, room.center.z };
 }
 
+std::vector<ShowcaseView> BuildShowcase(VoxelWorld& world, CaveLayout& layout)
+{
+	constexpr int V = cfg::kVoxelsPerMeter;
+	auto vox = [](float m) { return static_cast<int>(std::lround(m * cfg::kVoxelsPerMeter)); };
+	const float x0 = 12.0f, x1 = 36.0f, floorY = 1.0f, y1 = 8.0f, z0 = cfg::kEntranceDepth, z1 = 28.0f;
+
+	// The hall: air above a flat floor (the bedrock shell's top), stone walls around it.
+	for (int z = vox(z0); z < vox(z1); ++z)
+		for (int y = vox(floorY); y < vox(y1); ++y)
+			for (int x = vox(x0); x < vox(x1); ++x)
+				world.Set(x, y, z, Block::Air);
+	for (int z = vox(z0); z < vox(z1); ++z)
+		for (int x = vox(x0); x < vox(x1); ++x)
+			for (int y = 0; y < vox(floorY); ++y)
+				if (world.Get(x, y, z) == Block::Air) world.Set(x, y, z, Block::Bedrock);
+
+	// Panels set into the east wall (x = x1), 1 m wide and tall, half a metre deep.
+	auto panel = [&](float wallX, float dir, float z, Block block, float damage)
+	{
+		const int xa = dir > 0 ? vox(wallX) : vox(wallX) - 2, xb = xa + 2;
+		for (int zz = vox(z); zz < vox(z + 1.0f); ++zz)
+			for (int y = vox(floorY + 0.5f); y < vox(floorY + 1.5f); ++y)
+				for (int x = xa; x < xb; ++x)
+				{
+					world.Set(x, y, zz, block);
+					if (damage > 0.0f) world.SetDamage(x, y, zz, damage);
+				}
+	};
+	const Block ores[] = { Block::Copper, Block::Silver, Block::Gold, Block::TimeCrystal, Block::StrangeWatch };
+	for (int i = 0; i < 5; ++i) panel(x1, 1.0f, 9.0f + 2.5f * i, ores[i], 0.0f);
+	// Cracked stone and ore on the west wall (x = x0): light, then badly cracked.
+	panel(x0, -1.0f, 9.0f, Block::Stone, 0.35f);
+	panel(x0, -1.0f, 11.5f, Block::Stone, 0.95f);
+	panel(x0, -1.0f, 14.0f, Block::Gold, 0.35f);
+	panel(x0, -1.0f, 16.5f, Block::Gold, 0.95f);
+	// A cluster of Time crystal on the floor.
+	const float cx = 30.0f, cz = 23.0f;
+	for (int z = vox(cz - 0.75f); z < vox(cz + 0.75f); ++z)
+		for (int x = vox(cx - 0.75f); x < vox(cx + 0.75f); ++x)
+		{
+			const float dx = (x + 0.5f) / V - cx, dz = (z + 0.5f) / V - cz;
+			const float height = 1.4f - 1.6f * std::sqrt(dx * dx + dz * dz) + 0.25f * ((x * 7 + z * 13) % 3);
+			for (int y = vox(floorY); y < vox(floorY + std::max(height, 0.25f)); ++y) world.Set(x, y, z, Block::TimeCrystal);
+		}
+
+	// It's a room of zone 1 (a lamp hangs in it).
+	if (!layout.zones.empty())
+	{
+		CaveRoom hall;
+		hall.center = { (x0 + x1) * 0.5f, floorY, (z0 + z1) * 0.5f };
+		hall.radius = 10.0f;
+		hall.height = y1 - floorY;
+		layout.zones[0].rooms.push_back(hall);
+	}
+	return {
+		{ "hall", 24.5f, floorY, 7.5f, 0.0f, 5.0f },
+		{ "ores", 30.0f, floorY, 14.0f, 90.0f, 8.0f },
+		{ "cracks", 18.0f, floorY, 13.0f, -90.0f, 8.0f },
+		{ "crystal", 26.5f, floorY, 19.0f, 40.0f, 14.0f },
+		{ "shaft", 23.0f, floorY, 22.0f, -80.0f, -30.0f },
+		{ "lamp", 24.5f, floorY, 11.0f, 0.0f, -30.0f },
+	};
+}
+
 CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed)
 {
 	world.GenerateBasic();   // bedrock shell, solid stone, entrance passage (re-carved below)

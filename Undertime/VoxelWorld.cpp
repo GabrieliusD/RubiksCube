@@ -80,6 +80,14 @@ float VoxelWorld::Damage(int x, int y, int z) const
 	return it == mDamage.end() ? 0.0f : it->second;
 }
 
+void VoxelWorld::SetDamage(int x, int y, int z, float damage)
+{
+	if (!InGrid(x, y, z)) return;
+	const uint32_t key = static_cast<uint32_t>(Index(x, y, z));
+	if (damage > 0.0f) mDamage[key] = damage;
+	else mDamage.erase(key);
+}
+
 int VoxelWorld::CrackLevel(int x, int y, int z) const
 {
 	// Cracks spread as a speckle: more voxels darken (and some darken further) as damage grows.
@@ -411,7 +419,7 @@ std::vector<uint8_t> VoxelWorld::PaletteVoxels() const
 	for (int z = 0; z < cfg::kVoxZ; ++z)
 		for (int y = 0; y < cfg::kVoxY; ++y)
 			for (int x = 0; x < cfg::kVoxX; ++x)
-				out[Index(x, y, z)] = PaletteIndex(mVoxels[Index(x, y, z)], z);
+				out[Index(x, y, z)] = PaletteIndex(mVoxels[Index(x, y, z)], z, mDamage.empty() ? 0 : CrackLevel(x, y, z));   // (damage: the showcase's cracked blocks)
 	return out;
 }
 

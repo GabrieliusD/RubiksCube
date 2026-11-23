@@ -29,6 +29,13 @@ struct CaveZone
 
 // A natural shaft (cfg::kShafts): where it opens at the grid's top and where it reaches its
 // cavern.
+// One of the showcase's camera spots (UNDERTIME_DEV_VIEW style: feet, yaw, pitch in degrees).
+struct ShowcaseView
+{
+	const char* name;
+	float x, y, z, yaw, pitch;
+};
+
 struct CaveShaft
 {
 	DirectX::XMFLOAT3 top{ 0, 0, 0 };
@@ -59,6 +66,13 @@ struct CaveLayout
 
 // Fills `world` with a new mountain for `seed`. Same seed, same mountain.
 CaveLayout GenerateCaves(VoxelWorld& world, uint64_t seed);
+
+// The showcase hall (a fixed place to look at the cave's features): carved into a generated
+// mountain just inside the entrance, 24 x 7 x 22 m with a flat floor. Along its walls: a panel
+// of each ore, the Time crystal and the strange watch; stone cracked lightly and badly; a
+// crystal cluster on the floor; the zone-1 natural shaft's light falls into it; it's added to
+// zone 1's rooms, so it gets a lamp. Returns the camera spots.
+std::vector<ShowcaseView> BuildShowcase(VoxelWorld& world, CaveLayout& layout);
 
 // Feet position for standing in a room (teleports, tests).
 DirectX::XMFLOAT3 RoomStandPoint(const CaveRoom& room);

@@ -416,6 +416,20 @@ int main()
 		Check(same, "loose blocks: with no room in front, a block falls out of its own (now empty) cell");
 	}
 	{
+		// Pile cells: kPileCell metres per side, negative coordinates included (blocks in
+		// front of the face have z < 0), and distinct cells never share a key.
+		const float c = cfg::kPileCell;
+		const bool sameCell = PileCellKey({ 0.1f, 0.1f, 0.1f }) == PileCellKey({ c - 0.01f, c - 0.01f, c - 0.01f });
+		const bool edges = PileCellKey({ c - 0.01f, 0.5f, 0.5f }) != PileCellKey({ c + 0.01f, 0.5f, 0.5f });
+		const bool negative = PileCellKey({ 0.5f, 0.5f, -0.01f }) != PileCellKey({ 0.5f, 0.5f, 0.01f })
+			&& PileCellKey({ 0.5f, 0.5f, -0.01f }) == PileCellKey({ 0.5f, 0.5f, -c + 0.01f });
+		std::unordered_set<int64_t> keys;
+		for (int x = -3; x <= 3; ++x)
+			for (int y = -3; y <= 3; ++y)
+				for (int z = -3; z <= 3; ++z) keys.insert(PileCellKey({ (x + 0.5f) * c, (y + 0.5f) * c, (z + 0.5f) * c }));
+		Check(sameCell && edges && negative && keys.size() == 343, "loose blocks: pile cells split space into kPileCell cubes with distinct keys");
+	}
+	{
 		VoxelWorld world;
 		world.GenerateBasic();
 		int blockVoxels = 0;

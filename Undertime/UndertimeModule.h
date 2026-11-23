@@ -79,6 +79,9 @@ private:
 	void SpawnBlocksFromFace(Engine& engine, const std::vector<VoxelWorld::RemovedVoxel>& voxels, const Target& hit);
 	// Voxels knocked off (or left of) a boulder: one loose block each, where they were.
 	void SpawnBlocksFromBoulder(Engine& engine, const ChipResult& chip, const DirectX::XMFLOAT3& out);
+	// Development: `count` stone blocks in the free air ahead of the player (UNDERTIME_DEV_BLOCKS,
+	// and the Game panel's loose block tests).
+	void DropTestBlocks(Engine& engine, int count);
 	void UpdateShovel(Engine& engine, float deltaTime);
 	int BackpackCount() const;
 	// Pushes a world edit to the GPU volume, the collision slabs and (in mesh mode) the chunk
@@ -122,6 +125,7 @@ private:
 	// From the scene: the CaveWorld's seed (0 = random) and rock material, and the PlayerStart, if any.
 	uint32_t sceneSeed = 0;
 	std::string sceneRockMaterial;
+	bool showcase = false;              // CaveWorld::showcase or UNDERTIME_DEV_SHOWCASE=1
 	bool hasSceneSpawn = false;
 	DirectX::XMFLOAT3 sceneSpawn{ 0, 0, 0 };
 	float sceneSpawnYaw = 0.0f;
@@ -199,7 +203,7 @@ private:
 	int voxelsMined = 0;
 
 	// Shovel
-	std::vector<BodyId> scoopPreview;   // the loose blocks the next scoop takes
+	std::vector<LooseBlocks::Ref> scoopPreview;   // the loose blocks the next scoop takes
 	float shovelTimer = 0.0f;           // 0..1 through the current scoop; it takes the blocks at 1
 	float shovelDip = 0.0f;             // s left of the scoop animation
 	bool wasShovelling = false;

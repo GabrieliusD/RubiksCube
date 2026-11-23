@@ -87,6 +87,8 @@ public:
 	static DirectX::XMFLOAT4 PaletteLayout();
 	int CrackLevel(int x, int y, int z) const;
 	float Damage(int x, int y, int z) const;
+	// Sets a voxel's pick damage (0 intact .. about 1 nearly broken): the showcase's cracked blocks.
+	void SetDamage(int x, int y, int z, float damage);
 	void ClearDamage() { mDamage.clear(); }
 	std::vector<uint8_t> PaletteVoxels() const;                  // whole grid
 	std::vector<uint8_t> PaletteVoxels(const Box& box) const;    // a box, x fastest

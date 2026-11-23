@@ -16,14 +16,14 @@ What has been decided for UNDERTIME, as of 2026-11-22. Sections marked **Open** 
 - **Not tested by the user yet:** milestones 8–12 (the list is in section 8, under each milestone).
 - **Not built yet:**
   - the shops and the economy;
-  - the run reset;
+  - turning time back at the clockmaker (section 3);
   - the story (letters, watches, NPCs);
   - the heart and the ending;
   - the Boomtown, Industry, Abandoned and Gone eras;
   - seasons;
   - the valley coming alive (people and animals);
   - activities.
-- **Next:** the visual polish proposed in section 8 ("Visual polish, proposed"), then the game systems (shops, the run reset, story), in an order to be decided.
+- **Next:** the visual polish proposed in section 8 ("Visual polish, proposed"), then the game systems (shops, story; runs were dropped), in an order to be decided.
 
 The images in `Images/` are sketches made with standalone renderers (not CherryEngine). They show layout, mood and colour, not final quality. The four era images (`era_*.png`) were drawn before the switch to the all-voxel style, so use them for layout and mood only.
 
@@ -31,7 +31,7 @@ The images in `Images/` are sketches made with standalone renderers (not CherryE
 
 ## 1. The pitch
 
-You are a courier who has come to a valley that's on no map. You find a hidden cave and a mining town called **Stillwell** (placeholder name). You mine the mountain and sell what you find in town. The deeper you dig, the faster time runs outside: the town grows, booms, decays and finally disappears. When it's gone, the loop resets and you wake at the cave mouth on the day you arrived. You keep some upgrades and you know more each time. The goal is to reach the heart of the mountain before the town is gone.
+You are a courier who has come to a valley that's on no map. You find a hidden cave and a mining town called **Stillwell** (placeholder name). You mine the mountain and sell what you find in town. The deeper you dig, the faster time runs outside: the town grows, booms, decays and finally disappears. Time crystal from the deep rock lets you wind the valley's clock back, so nothing you've built or earned is ever lost (section 3). The goal is to reach the heart of the mountain.
 
 The title is literal: you work **under** while time runs **over**.
 
@@ -81,22 +81,71 @@ Planned for milestone 8 (the outside clock).
 
 ---
 
-## 3. The run (loop) structure
+## 3. One continuous game, and turning time back
 
-1. Wake at the cave mouth (Camp era, arrival day).
-2. Mine, sell and upgrade. Each dive pushes the town through its eras.
-3. Walking out into the **Gone** era ends the run: the courier's watch runs backwards, and you wake at the cave mouth again.
-4. Finish by reaching the heart at the far wall before the town is gone.
+**Decided (2026-11-22, the user's decision):** there are no runs and no reset. The player must never feel they lost progress. Instead, **the outside clock can be turned back with Time crystal** (Claude's proposal, chosen by the user).
 
-| Resets each run | Kept across runs |
-|---|---|
-| Money, ore, the town's era | Upgrades bought with **Time crystal**, or found in the cave |
-| Upgrades bought with **money** | Unsold Time crystal (ore turns back into stone when the loop resets) |
-| **The cave:** a new seed every run ("the mountain rearranges itself") | Strange watches you've found. Later runs place only the missing ones. |
-| | What you know: the valley never changes between runs |
+### Turning time back (decided)
+- **At the clockmaker:** spend Time crystal to wind the valley back by years.
+- **What goes back:** only the outside clock, and so the town's era, the date and season.
+- **What stays:** your money, ore, tools and upgrades, the Strange watches you've found, and your claim.
+- **Why it fits the story:** the courier's watch already runs backwards near the mountain. That becomes the player's tool instead of a cutscene.
+- **What it's for:** going back to an era whose shop stock you need, catching an event you missed, or bringing the town back from Gone.
+- **Gone is not a game over:** it's a quiet forest era you can visit. The clockmaker is still there, so you can wind back from it whenever you like.
+- **Time crystal is a choice:** sell it for money, or keep it to buy time back.
+- Rock still gets harder with depth, and the sealed bands between zones still need better picks.
 
-- Every crystal is a choice: sell it now for money, or keep it for permanent upgrades.
-- Rock gets harder with depth, and the sealed bands between zones need better picks, so you get deeper each run.
+### Also decided (2026-11-22)
+- **Friendships go back with time:** wind back past the day you met someone and they don't know you any more. Rewinding has a real cost in people, not only crystal.
+- **The claim is shielded from rewinds:** your own plot has a machine (to be designed) that keeps winding time back from touching it. Time still moves forward there while you're in the cave, so what you leave there grows and ages.
+- **The mountain is finite:** one cave for the whole game, and nothing grows back. Mined rock stays mined.
+- **The game is more or less done when you've found all 16 Strange watches.** There's no deadline.
+
+### Proposed, not decided yet
+- **The heart:** the 16 watches still open it, and the ending choice stays.
+- **The floor:** you can't wind back past the day you arrived.
+
+### Open
+- **The cost:** how much Time crystal a year costs, and whether it gets dearer the further back you go.
+- **Things you leave outside:** savings in the bank (what if you wind back past the bank's opening?), rent already paid.
+- **Story:** the courier's twist ("started the loop themselves") and the fog at the pass both came from the loop; they need new versions.
+- **The shops' memory:** do prices and stock go back exactly, or can rewinding be farmed for money?
+
+### Mined stone (decided 2026-11-22)
+- **Nothing the player mines is ever lost.** No cap on loose blocks and no crumbling away; every block stays until the player moves, uses or sells it.
+- **Stone sells from the start.** The Camp-era trading post already buys it.
+- **Carts move it.** Moving stone out of the mountain is a main activity, so it needs plenty of purpose.
+- **Better vehicles come with the eras.**
+
+**Built (2026-11-22, not yet tested by the user): no block is ever lost.**
+- **Settling:** a block that stays put for half a second (jitter in a heap counts as staying put) settles into the pile of its 1 m cell: one mesh and one static body per cell. A pile collects settling blocks for 0.3 s and is then rebuilt with all of them, within 2 ms a frame.
+- **Waking:** mining under or beside a pile wakes those blocks, and whatever rests on them, so they fall again.
+- **Limits:** only blocks in motion have their own body (at most 2,500 at once; past that the stillest settle early). A block that falls out of the world is put back at the mine mouth.
+- **Numbers:** in Release, 8,000 blocks thrown out with a random push and spin all settled into 180 piles within about 4 s, with physics at 0.03 ms a frame afterwards. Rebuilding a pile of 64 blocks takes about 1.3 ms.
+- **Fixed after the user's first test (2026-11-22):** blocks only settled once the physics put them to sleep, and a heap you're mining on rarely sleeps (3,500 blocks stayed live, physics 20 ms). Each pile rebuild also cost about 7 ms, because the engine waited for the GPU on every upload. Now blocks settle by staying put, and engine uploads no longer wait.
+- **Test flags,** in the editor's Game panel, "Loose block tests":
+  - the old cap: past 3,000 the oldest crumble away;
+  - piles on or off;
+  - **solid blocks:** falling blocks block the player;
+  - **solid piles:** you have to shovel your way through.
+
+  There are also buttons that drop 2,000 or 10,000 test blocks.
+
+**Proposed, not decided:**
+- **Vehicles by era:**
+  - Camp: a wheelbarrow you push.
+  - Settlement: a hand cart on wooden rails you lay yourself, which rolls down to the mouth.
+  - Boomtown: coupled ore carts pulled by a mule, and the winding tower.
+  - Industry: an electric tram and the lift.
+  - Abandoned: the rusted gear still works if you repair it.
+- **What stone is for:**
+  - **Selling:** its price drifts by era. It's high while the town builds its foundations (Camp, Settlement) and falls once the town builds in brick.
+  - **Town projects:** they need it by the thousand.
+  - **Building:** for the claim's buildings, and for packing mined-out rooms so the roof holds.
+  - **The spoil heap:** stone tipped at the mine mouth makes a heap that grows all game, a progress meter you can see from town.
+
+### The old run structure (dropped, for reference)
+Wake at the cave mouth on the arrival day; mine, sell and upgrade; walking into Gone reset everything except upgrades bought with Time crystal, unsold crystal and found watches; the cave got a new seed every run.
 
 ---
 
@@ -111,7 +160,7 @@ Six stages: five to play, plus the end. The town booms on your ore, then decays 
 | 3 | **Boomtown** | 10–30 | painted false fronts, bank, busy streets | rails, ore carts, a winding tower | lots of warm windows | better picks, dynamite; the bank opens |
 | 4 | **Industry** | 30–60 | brick, chimneys, the clock tower finished | an engine house, an electric light at the mouth | electric streetlights | electric lamp, a lift in the mine |
 | 5 | **Abandoned** | 60–100 | boarded windows, collapsed roofs, weeds | rusted and fenced off | one lit window: the last shopkeeper | leftover stock, high prices, a few rare items |
-| — | **Gone** | 100+ | forest over grassy mounds, the clock face in the grass | the cave mouth, bare again | darkness | nothing; **the loop resets** |
+| — | **Gone** | 100+ | forest over grassy mounds, the clock face in the grass | the cave mouth, bare again | darkness | nothing; the clockmaker can wind time back |
 
 - Era changes happen **only while you're underground**, so nothing pops in while you're looking.
 - **Seasons** follow the outside clock. Coming out to snow after a summer descent is the cheapest way to feel lost time.
@@ -125,11 +174,11 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 ## 5. Story
 
 **Decided (Claude's recommendation, chosen by the user):**
-- **The courier** is delivering a letter to a town that's on no map. Near the mountain, their pocket watch runs backwards. Twist: they started the loop themselves on an earlier visit.
+- **The courier** is delivering a letter to a town that's on no map. Near the mountain, their pocket watch runs backwards. Twist: they started the loop themselves on an earlier visit. (**Open:** this needs a new version now that there's no loop.)
 - **The town was founded on borrowed time:** the founders made a deal with the mountain, long rich lives in exchange for leaving the Time crystal in the rock. Mining breaks the deal, and that's why time speeds up.
 - **16 Strange watches** belong to miners who went too deep. They're keys to the **heart**, a huge Time crystal at the far wall. Each watch has an engraving that tells part of the story.
 - **The ending choice:** take the heart (free yourself) or leave it (save the town).
-- **The valley is cut off.** The pass at the south end is blocked; you're stuck by the loop. Walking up the pass could end in fog that brings you back to the cave.
+- **The valley is cut off.** The pass at the south end is blocked; you can't leave. Walking up the pass could end in fog that brings you back to the cave. (**Open:** what keeps you here now that there's no loop.)
 - **The clockmaker** sells the permanent upgrades and never ages, in any era. It's the biggest mystery in the valley.
 - **The graveyard** fills up across the eras with names of people you met.
 
@@ -148,7 +197,7 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 
 | # | Place | Purpose | Eras |
 |---|---|---|---|
-| 1 | The mine (hidden cave) | where you wake every loop | all |
+| 1 | The mine (hidden cave) | where you arrive | all |
 | 2 | Town square | the four shops and the clock tower | 1–5 |
 | 3 | Chapel and graveyard | graves pile up | 2–6 |
 | 4 | Clockmaker's cottage | Time crystal upgrades; never ages; **easy to find**, by a footbridge with a water wheel | all |
@@ -220,7 +269,7 @@ Images: `era_1_camp.png`, `era_2_boomtown.png`, `era_3_abandoned.png`, `era_4_go
 - **Depth cues (approved):** strong corner shading, horizontal rock strata bands ("layers of time"), lamp props with point lights along tunnels, timber frames, rubble, tinted ambient fill, dust in the air, and later voxel shadows and bloom.
 - Time crystal glows cyan (emissive) and is the only cold light.
 - **Daylight from the mouth** (planned, milestone 9): skylight spreads in from the entrance through the tunnels, block by block, fading around corners. The first caverns are dim, deeper ones dark, and from deep inside the mouth stays visible as a bright spot (no black fog). It follows the outside clock.
-- **Natural shafts** (planned, milestone 9): a few chimneys from the mountain top down into caverns of zones 1–3, maybe a rare one in zone 4. They let in daylight and a patch of sun that moves with the hour, with dust hanging in the beam: landmarks and resting spots. Their positions are fixed (they're part of the mountain, like the face), and every run's cave builds a cavern under each. From the mountain top they're holes in the ground. Open: can you climb or drop down one (a second way in, see "the old shaft")?
+- **Natural shafts** (planned, milestone 9): a few chimneys from the mountain top down into caverns of zones 1–3, maybe a rare one in zone 4. They let in daylight and a patch of sun that moves with the hour, with dust hanging in the beam: landmarks and resting spots. Their positions are fixed (they're part of the mountain, like the face), and the cave builds a cavern under each. From the mountain top they're holes in the ground. Open: can you climb or drop down one (a second way in, see "the old shaft")?
 
 ![Cave zone 1](Images/cave_zone1.png)
 ![Cave zone 5](Images/cave_zone5.png)
@@ -371,12 +420,12 @@ Each one must build and run. The time clock was moved later at the user's reques
     1. **Valley haze:** height fog in the engine (`RenderSettings::heightFog`): thickest on the valley floor, thinning upwards, so mist lies low and peaks stand clear; bluer like the sky (aerial perspective), warmer looking towards the sun; the sky's horizon fades into the same haze. A dawn mist (thicker, lower) around sunrise and a little at dusk. Numbers in `Config.h` ("Valley haze").
     2. **Mining feel:** hot streaking sparks when the pick strikes ore or rock too hard to break; crack lines across damaged blocks (in the cave rock shader); cave-ins shake the camera with a rumble that grows with the rock that fell and fades with distance.
     3. **The cave comes alive:** a new cave rock shader (`Content/Shaders/CaveRock.hlsl`, `Materials/CaveRock.mat` on the scene's CaveWorld; the old `Rock.shadergraph` is untouched): ore with glinting metal flecks, Time crystal glowing cyan (and lighting its surroundings: a point light per cluster near you), the strange watch pink, damp rock with a sheen deeper down, cracks. Lamps hang in the first zone's high caverns (`MineLamp.vox`, flickering warm light). Dust motes drift in the lantern's light. Not done: wet rock by water (the cave has no water yet), timber props.
-    4. **Weather:** `WeatherAt(days)` (DayNight.h, tested): overcast and rain from the outside clock, the same every run for the same day, changing over a day or two; the ground stays wet for a while after. Overcast: clouds cover the sky, the sky greys, the sun weakens, more haze and wind. Rain: streaks falling around you outside (engine: particles can stretch along their motion). Wet ground: the terrain darkens with a sheen, puddles on paths and dirt (`Materials/Ground.mat`, `Content/Shaders/Ground.hlsl`). Racing days blur it to its average. Not done: snow and seasons, rain on roofs and in the water.
+    4. **Weather:** `WeatherAt(days)` (DayNight.h, tested): overcast and rain from the outside clock, the same for the same day (so winding time back replays it), changing over a day or two; the ground stays wet for a while after. Overcast: clouds cover the sky, the sky greys, the sun weakens, more haze and wind. Rain: streaks falling around you outside (engine: particles can stretch along their motion). Wet ground: the terrain darkens with a sheen, puddles on paths and dirt (`Materials/Ground.mat`, `Content/Shaders/Ground.hlsl`). Racing days blur it to its average. Not done: snow and seasons, rain on roofs and in the water.
+    **Showcase cave** (after milestone 14, at the user's request): a fixed test hall inside the entrance with everything to check by eye in known places (`Scenes/TestCave.scene`, `UNDERTIME_DEV_SHOWCASE=1`). It found two bugs straight away: cracks never showed on a freshly built world's blocks, and crystal light sat at floor height where it lit nothing. Cracks were redrawn as a few long lines across blocks instead of a crazed mesh in each.
 15. Later:
     - the valley alive (walkers, animals, places of interest);
     - the shops and economy;
     - activities;
-    - the run reset;
     - story (letters, watches, NPCs);
     - the heart and the ending;
     - the remaining eras;
@@ -426,6 +475,7 @@ Ordered by how much each makes the game pop for the work. Items 1–5 and 7 beca
 
 - **Tree cutting (parked):** maybe later, if the player needs more to do. The idea was timber supports that prevent cave-ins, a forest that grows back with outside time, and the town buying your wood.
 - **Delivery jobs** for the courier (idea).
+- **The claim (idea, 2026-11-22):** the player's own plot by the mine, a tent that grows into a cabin and then a house. What you leave there grows with outside time: a garden (ready after a zone 2–3 dive, gone to seed after a much deeper one), orchard saplings (years), animals (pay off for short dives), casks of drink that age and gain value with every decade. Each dive then becomes "what's growing up there?", which sets the surface against greed for the deep ore. Other loop ideas from the same talk: town projects on the notice board (each era's builds, funded with your ore, unlocking places and services), festivals on dates you aim to surface for, your own-time budget (lantern oil and food), collections at the assay office.
 - **Making the valley alive (ideas, not picked yet):** townsfolk walking the trails on daily routines (more in Boomtown, a few stragglers when Abandoned); deer, birds, chickens, jumping fish, fireflies; chimney and campfire smoke; washing lines; building sites that progress between eras. A place of interest every 40–60 m: a fishing dock, a hunter's hut, a lookout tower, a quarry, a lumber camp, an orchard and fields that grow with the eras, ruins, a beaver dam, each maybe holding a journal page or a Strange watch clue.
 - **Things to do (ideas, not picked yet):** *time investments* (plant saplings, deposit at the assay office for interest, commission the smith, bury a time capsule, leave a letter for an NPC's grandchild, and collect after time has passed underground); courier jobs; gold panning in the river (Camp-era income); fishing and foraging (herbs for lantern oil).
 - **NPC stories** per resident and per era (to be written).
