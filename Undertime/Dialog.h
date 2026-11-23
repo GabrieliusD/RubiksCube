@@ -122,6 +122,9 @@ namespace npc
 	};
 
 	bool Matches(const Condition& when, const DialogContext& context);
+	// A condition in words, for the editor's dialog view: "tier >= Friendly, away >= 30 days".
+	// Empty when it always holds.
+	std::string Describe(const Condition& when);
 	// A "when" object as in dialog files (`npc`: whose topics "done" refers to). Problems are
 	// added to `errors`, prefixed with `where`.
 	Condition ParseCondition(const nlohmann::json& when, const std::string& npc, const std::string& where, std::vector<std::string>& errors);

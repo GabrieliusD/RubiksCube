@@ -127,6 +127,14 @@ int DialogTests()
 		Check(bad.Errors().size() >= 4 && bad.FileCount() == 0, "dialog: typos (unknown keys, people, tiers, broken JSON) are reported, and the file isn't used");
 	}
 
+	{
+		std::vector<std::string> errors;
+		const Condition c = ParseCondition(nlohmann::json::parse(R"({ "tier": ">=Friendly", "away": ">=30", "hour": [18, 23], "dead": "bram", "has": { "Copper": 15 } })"), "agnes", "test", errors);
+		std::printf("        %s\n", Describe(c).c_str());
+		Check(errors.empty() && Describe(c) == "tier >= Friendly, away >= 30 days, hours 18-23, has 15 Copper, bram dead" && Describe(Condition{}).empty(),
+			"dialog: conditions read back in words (the editor's dialog view)");
+	}
+
 	// ---- A conversation ------------------------------------------------------------------------------
 	{
 		PlayerLog log;

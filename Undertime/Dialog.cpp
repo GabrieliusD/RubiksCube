@@ -230,6 +230,43 @@ namespace npc
 		};
 	}
 
+	std::string Describe(const Condition& c)
+	{
+		std::vector<std::string> parts;
+		auto number = [](double v)
+		{
+			char text[32];
+			std::snprintf(text, sizeof(text), "%g", v);
+			return std::string(text);
+		};
+		if (c.tierMin > 0 || c.tierMax < 6)
+		{
+			if (c.tierMin == c.tierMax) parts.push_back(std::string("tier ") + kTierNames[c.tierMin]);
+			else if (c.tierMax >= 6) parts.push_back(std::string("tier >= ") + kTierNames[c.tierMin]);
+			else if (c.tierMin <= 0) parts.push_back(std::string("tier <= ") + kTierNames[c.tierMax]);
+			else parts.push_back(std::string("tier ") + kTierNames[c.tierMin] + ".." + kTierNames[c.tierMax]);
+		}
+		if (c.met >= 0) parts.push_back(c.met ? "met" : "never met");
+		if (c.awayMin >= 0.0) parts.push_back("away >= " + number(c.awayMin) + " days");
+		if (c.awayMax < 1e29) parts.push_back("away <= " + number(c.awayMax) + " days");
+		if (c.hourFrom >= 0.0f) parts.push_back("hours " + number(c.hourFrom) + "-" + number(c.hourTo));
+		if (c.eraMin > 1 || c.eraMax < 6) parts.push_back(c.eraMin == c.eraMax ? "era " + std::string(kEraNames[c.eraMin - 1]) : "eras " + std::string(kEraNames[c.eraMin - 1]) + ".." + kEraNames[c.eraMax - 1]);
+		if (c.rain >= 0) parts.push_back(c.rain ? "raining" : "dry");
+		if (c.night >= 0) parts.push_back(c.night ? "night" : "day");
+		if (c.dejaVu >= 0) parts.push_back(c.dejaVu ? "deja vu" : "no deja vu");
+		for (const std::string& f : c.flags) parts.push_back(f.rfind("done:", 0) == 0 ? "done " + f.substr(f.find('.') + 1) : "flag " + f);
+		for (const std::string& f : c.notFlags) parts.push_back(f.rfind("done:", 0) == 0 ? "not done " + f.substr(f.find('.') + 1) : "no flag " + f);
+		if (!c.voice.empty()) parts.push_back("voice " + c.voice);
+		if (!c.gift.empty()) parts.push_back("gift " + c.gift);
+		for (const auto& [item, n] : c.has) parts.push_back("has " + std::to_string(n) + " " + item);
+		for (const std::string& d : c.dead) parts.push_back(d + " dead");
+		for (const std::string& d : c.alive) parts.push_back(d + " alive");
+		if (c.yearsMin > -1e29 || c.yearsMax < 1e29) parts.push_back("years " + number(c.yearsMin) + "-" + number(c.yearsMax));
+		std::string out;
+		for (size_t i = 0; i < parts.size(); ++i) out += (i ? ", " : "") + parts[i];
+		return out;
+	}
+
 	Condition ParseCondition(const json& when, const std::string& npc, const std::string& where, std::vector<std::string>& errors)
 	{
 		Parser p{ "", errors };

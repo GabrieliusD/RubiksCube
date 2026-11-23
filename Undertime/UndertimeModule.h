@@ -22,6 +22,7 @@
 #include "Missions.h"
 #include "Life.h"
 #include "Letters.h"
+#include "NpcTools.h"
 #include "SaveGame.h"
 #include <array>
 #include <memory>
@@ -215,6 +216,7 @@ private:
 	struct Grave { int npc = -1; Entity entity = INVALID_ENTITY; DirectX::XMFLOAT3 at{}; };
 	std::vector<Grave> graves;
 	int graveTarget = -1;
+	NpcTools npcTools;                   // the people inspector and dialog view in the Game panel while playing
 
 	// The save game (SaveGame.h): <project>/Saved/SaveGame.json.
 	std::string SavePath(Engine& engine) const;

@@ -94,6 +94,7 @@ void UndertimeModule::RegisterTypes(GameTypes& types)
 		.Field("flattenGround", &ValleyProp::flattenGround);
 	types.Component<ValleyPreview>("ValleyPreview", Component_NotAddable);
 	types.System<ValleyPreviewSystem>();
+	types.System<NpcToolsSystem>();   // the editor's people inspector and dialog view
 }
 
 std::string UndertimeModule::SaveState(Engine&)
@@ -2858,6 +2859,44 @@ void UndertimeModule::OnImGui(Engine& engine)
 		{
 			player.Teleport(goTo, goYaw);
 			state = State::Playing;
+		}
+		// The tools (also in the editor as dockable windows when not playing).
+		{
+			NpcTools::Data data;
+			data.town = &people.Town();
+			data.dialogs = &dialogs;
+			data.missions = &missions;
+			data.log = &peopleLog;
+			data.now = clock.Days();
+			data.playing = true;
+			NpcTools::Request request;
+			if (ImGui::TreeNode("People inspector"))
+			{
+				npcTools.DrawInspector(data, &engine.GetRenderer().Debug(), request);
+				ImGui::TreePop();
+			}
+			if (ImGui::TreeNode("Dialog view"))
+			{
+				npcTools.DrawDialogView(data, request);
+				ImGui::TreePop();
+			}
+			if (request.setClock)
+			{
+				clock.SetDays(request.days);
+				SetEra(engine, clock.Era());
+				daysAtEntry = clock.Days();
+			}
+			if (request.goTo)
+			{
+				player.Teleport(request.feet, request.yaw);
+				state = State::Playing;
+			}
+			if (request.reload)
+			{
+				dialogs.LoadFolder((engine.Project().content / "Dialog").string());
+				missions.LoadFolder((engine.Project().content / "Missions").string());
+				messages.Show("Dialog and missions reloaded", 1.5f);
+			}
 		}
 		// Test of turning time back (the clockmaker's service isn't built): the clock goes back a
 		// year, people you met since forget you (déjà vu), the clockmaker remembers.

@@ -55,6 +55,8 @@ set(UndertimeSrc
     Life.cpp
     Letters.h
     Letters.cpp
+    NpcTools.h
+    NpcTools.cpp
     Player.h
     Player.cpp
     Meshes.h
