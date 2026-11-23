@@ -294,6 +294,13 @@ namespace cfg
 	// ---- Colours (sRGB 0xRRGGBB) --------------------------------------------
 	constexpr uint32_t kStoneNear = 0x7d6b58;     // warm brown at the entrance
 	constexpr uint32_t kStoneDeep = 0x3a3756;     // dark violet at the far wall
+	// Ore in the rock (Content/Shaders/CaveRock.hlsl): an ore block is rock with metal in it,
+	// the metal in pixel clusters that run on as seams across blocks.
+	constexpr float kOreRichness = 0.5f;          // share of an ore block's face that's metal (about)
+	constexpr float kGoldRichness = 0.4f;         // gold: sparse flecks...
+	constexpr uint32_t kGoldQuartz = 0xd6cdbb;    // ... in pale quartz
+	constexpr uint32_t kCopperVerdigris = 0x4f9a7c;   // green patches on copper
+	constexpr float kSilverTarnish = 0.5f;        // how dark tarnished silver gets
 	constexpr float kStoneJitter = 0.15f;         // +-15% brightness per cell
 	constexpr float kOreJitter = 0.06f;
 	constexpr float kBedrockDarken = 0.55f;

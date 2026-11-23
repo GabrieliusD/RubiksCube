@@ -1,12 +1,19 @@
 // CaveRock.hlsl
 // The cave's rock (Materials/CaveRock.mat, on the scene's CaveWorld): the palette colour with
 // a mottled variation, plus
-//   ore as nuggets: each ore block its own shade, glossy and tilted a little its own way (so
-//     whole faces catch the lantern), with a pixel-art bevel on an 8 x 8 grid per face
+//   ore in the rock: an ore block is the surrounding rock with metal in it, in pixel clusters
+//     (8 x 8 pixels per block face) from a noise in world space, so the metal runs on as seams
+//     across blocks and round corners. Only the metal is glossy and catches the lantern.
+//     Copper has green verdigris, silver dark tarnish and bright pixels, gold sparse flecks in
+//     pale quartz.
 //   Time crystal glowing cyan (bevelled the same way), the strange watch pink
 //   cracks: pixel-art cracks on the same 8 x 8 grid, one from an edge when lightly cracked,
 //     three meeting in the middle when badly cracked (like a block-breaking overlay)
 //   damp rock deeper down: a little darker, with a sheen in the lantern light
+// Material parameters (filled by UndertimeModule from Config.h, sRGB colours):
+//   0..2 stone at the entrance, 3..5 stone at the far wall, 6..8 copper, 9..11 silver,
+//   12..14 gold, 15..17 the quartz around gold, 18..20 verdigris,
+//   21 ore richness, 22 gold richness, 23 silver tarnish, 24 the grid's depth (m)
 // The palette layout comes from the game (VoxelWorld::PaletteLayout, ShaderGlobal(3)):
 //   x = stone bands, y = first ore entry (one per block type), z = first cracked entry,
 //   w = entries per cracked set (stone bands, then one per block type).
@@ -78,6 +85,20 @@ float Bevel(float2 pixel)
 	return 1.0;
 }
 
+// Value noise on a lattice (0..1), for the ore's pixel clusters.
+float LatticeNoise(float3 p)
+{
+	const float3 i = floor(p), f = p - i;
+	const float3 u = f * f * (3.0 - 2.0 * f);
+	return lerp(lerp(lerp(Hash13(i), Hash13(i + float3(1, 0, 0)), u.x), lerp(Hash13(i + float3(0, 1, 0)), Hash13(i + float3(1, 1, 0)), u.x), u.y),
+		lerp(lerp(Hash13(i + float3(0, 0, 1)), Hash13(i + float3(1, 0, 1)), u.x), lerp(Hash13(i + float3(0, 1, 1)), Hash13(i + float3(1, 1, 1)), u.x), u.y), u.z);
+}
+
+float3 ParamSrgb(SurfaceInput input, uint index)
+{
+	return SrgbToLinear(ParamFloat3(input, index));
+}
+
 SurfaceOutput EvaluateSurface(SurfaceInput input)
 {
 	const float4 layout = ShaderGlobal(3);
@@ -120,18 +141,54 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 
 	if (ore)
 	{
-		if (type == kCopper || type == kSilver || type == kGold)
+		if ((type == kCopper || type == kSilver || type == kGold) && input.material.paramCount >= 25)
 		{
-			// Nuggets: each block its own shade and a little tilt, glossy and half metal, so
-			// whole faces flash as the lantern moves (fully metallic would mirror the dark cave
-			// and read black). Richer blocks are brighter and shinier.
-			const float rich = smoothstep(0.35, 0.85, blockHash);
-			const float3 tilt = float3(Hash13(cell + 1.7), Hash13(cell + 3.1), Hash13(cell + 5.9)) - 0.5;
-			s.normalW = normalize(input.normalW + tilt * 0.35);
-			s.baseColor = colour * lerp(0.85, 1.3, rich) * Bevel(pixel);
-			s.metallic = lerp(0.2, 0.5, rich);
-			s.roughness = lerp(0.5, 0.22, rich);
-			s.specular = lerp(0.5, 0.9, rich);
+			// The block's own shade (palette jitter, crack darkening): its colour over the ore's.
+			const float3 oreBase = ParamSrgb(input, type == kCopper ? 6 : type == kSilver ? 9 : 12);
+			const float shade = dot(colour, 1.0) / max(dot(oreBase, 1.0), 1e-4);
+			// The rock around the metal: the stone of this depth (gold sits in quartz).
+			const float depth01 = saturate(input.positionL.z / max(ParamFloat(input, 24), 1.0));
+			float3 rock = SrgbToLinear(lerp(ParamFloat3(input, 0), ParamFloat3(input, 3), depth01));
+			// Metal: pixel clusters from a noise sampled at the middle of each face pixel in world
+			// space (32 pixels a metre), stretched along a gentle dip so they line up as seams.
+			const float3 pixelW = (floor(input.positionL * 32.0 - input.normalW * 0.5) + 0.5) / 32.0;
+			const float3 seamSpace = float3(pixelW.x * 2.2 + pixelW.y * 0.8, pixelW.y * 5.5, pixelW.z * 2.2 - pixelW.y * 0.6);
+			const float field = LatticeNoise(seamSpace) * 0.65 + LatticeNoise(pixelW * 9.0 + 7.3) * 0.35;
+			const float richness = (type == kGold ? ParamFloat(input, 22) : ParamFloat(input, 21)) * lerp(0.75, 1.2, blockHash);
+			const float metal = field > 1.0 - richness ? 1.0 : 0.0;
+			const float pixelHash = Hash13(pixelW * 32.0);
+			float3 metalColour = oreBase * lerp(0.8, 1.25, pixelHash);
+			float metallic = 0.55, roughness = 0.24;
+			if (type == kCopper)
+			{
+				// Verdigris: green patches where the copper has weathered (matte).
+				const float green = LatticeNoise(pixelW * 6.0 + 3.1) > 0.62 ? 1.0 : 0.0;
+				metalColour = lerp(metalColour, ParamSrgb(input, 18) * lerp(0.85, 1.1, pixelHash), green);
+				metallic = lerp(metallic, 0.0, green);
+				roughness = lerp(roughness, 0.8, green);
+			}
+			else if (type == kSilver)
+			{
+				// Tarnish: dark patches, and a few bright scratched pixels.
+				const float tarnish = LatticeNoise(pixelW * 5.0 + 9.7);
+				metalColour *= lerp(1.0, ParamFloat(input, 23), smoothstep(0.45, 0.65, tarnish));
+				metalColour *= pixelHash > 0.93 ? 1.6 : 1.0;
+			}
+			else
+			{
+				// Gold: in a matrix of pale quartz where the seams run, a little glint of its own.
+				const float quartz = field > 1.0 - richness * 1.6 ? 1.0 : 0.0;
+				rock = lerp(rock, ParamSrgb(input, 15) * lerp(0.85, 1.05, pixelHash), quartz);
+				metalColour *= 1.15;
+				s.emissive = metal * oreBase * 0.08 * step(0.85, pixelHash);
+			}
+			s.baseColor = lerp(rock * lerp(0.85, 1.1, LatticeNoise(pixelW * 4.0)), metalColour, metal) * shade;
+			s.metallic = metal * metallic;
+			s.roughness = lerp(0.8, roughness, metal);
+			s.specular = lerp(0.3, 0.85, metal);
+			// Each metal pixel tilted a little its own way, so they flash in turn as the lantern moves.
+			const float3 tilt = float3(Hash13(pixelW * 32.0 + 1.7), Hash13(pixelW * 32.0 + 3.1), Hash13(pixelW * 32.0 + 5.9)) - 0.5;
+			s.normalW = normalize(input.normalW + tilt * 0.5 * metal);
 		}
 		else if (type == kTimeCrystal)
 		{

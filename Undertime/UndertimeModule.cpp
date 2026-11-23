@@ -368,6 +368,22 @@ void UndertimeModule::NewWorld(Engine& engine, uint32_t newSeed)
 	const MaterialHandle rock = sceneRockMaterial.empty() ? MaterialHandle{} : engine.GetAssets().GetMaterial(sceneRockMaterial);
 	scene.Get<VoxelVolumeRenderer>(voxelEntity).volume = voxelVolume;
 	scene.Get<VoxelVolumeRenderer>(voxelEntity).material = rock;
+	// The cave rock shader (Content/Shaders/CaveRock.hlsl) takes its colours from here: a
+	// material without parameters of its own gets the rock and ore colours (sRGB) and amounts.
+	if (const MaterialDesc* desc = renderer.GetMaterial(rock); desc && desc->params.empty())
+	{
+		MaterialDesc filled = *desc;
+		auto add = [&](uint32_t hex) { const XMFLOAT3 c = color::Srgb(hex); filled.params.insert(filled.params.end(), { c.x, c.y, c.z }); };
+		add(cfg::kStoneNear);
+		add(cfg::kStoneDeep);
+		add(cfg::kBlocks[static_cast<int>(Block::Copper)].color);
+		add(cfg::kBlocks[static_cast<int>(Block::Silver)].color);
+		add(cfg::kBlocks[static_cast<int>(Block::Gold)].color);
+		add(cfg::kGoldQuartz);
+		add(cfg::kCopperVerdigris);
+		filled.params.insert(filled.params.end(), { cfg::kOreRichness, cfg::kGoldRichness, cfg::kSilverTarnish, static_cast<float>(cfg::kGridZ) });
+		renderer.SetMaterial(rock, filled);
+	}
 	fragments.Initialize(voxelVolume, rock);
 
 	// Physics and meshes.
