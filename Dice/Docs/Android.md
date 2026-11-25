@@ -1,6 +1,6 @@
 # Android support for CherryEngine, and the Dice game as an APK
 
-Status (2026-11-25): **A0–A3 done** on branch `features/android`; A4–A5 not started. A2 and A3 were re-scoped (see "Change of approach" below).
+Status (2026-11-25): **A0–A4 done** on branch `features/android` (on an emulator; no phone yet); A5 not started. A2 and A3 were re-scoped (see "Change of approach" below).
 
 | # | Milestone | State |
 |---|---|---|
@@ -8,7 +8,8 @@ Status (2026-11-25): **A0–A3 done** on branch `features/android`; A4–A5 not 
 | A1 | Platform layer, APK | Done, on an x86_64 emulator (Android 12, `Cherry_API_32_x64`); no phone yet. `Tools/Android/Package.ps1 -Project Dice/Dice.cherryproject -Abi arm64-v8a,x86_64 [-Install] [-Run]` makes `out/android/DiceGame-Debug.apk` (35.6 MB). On the emulator: the game files unpack on first start (not again after), the project and scene load, Dice deals its board and plays at a paced 60 fps (frames logged every 5 s); Home and back keeps the process; density and font-scale changes don't restart it; when the activity is destroyed the play session stops and the engine exits with 0. The screen is black: nothing is drawn until A3. |
 | A2 | Vulkan renderer: device, swapchain, ImGui | Done, on the emulator (Vulkan 1.3 through the host's RTX 4070). `Renderer/Vulkan/VulkanRenderer.cpp` draws the Dice HUD and debug panel over the sky colour at 60 fps; Home and back releases and recreates the surface in the same process. No 3D yet. |
 | A3 | Dice's 3D on Vulkan | Done, on the emulator. The board, dice (atlas texture, tint), felt grid, wooden base and shadows render; a swipe launches dice that tumble, glow when ready and throw sparks; 60 fps. Background colour identical to the Windows build (#14161a); the rest compared by eye only (tops, sides and felt read the same). arm64 Release builds; not yet seen on a phone. |
-| A4–A5 | | Not started. |
+| A4 | Dice playable by touch | Done on the emulator: Start by tap, swipes launch dice (13,045 points in one session), Home and back mid-session keeps it, the "Time's up" card with its stats, 60 fps; the UI is scaled to 440 dpi (x2.75) in Roboto; the debug panel starts folded; the AAudio stream opens ("Dice: audio started") but the sound hasn't been listened to. Windows: Segoe and XAudio2 as before, `DiceTests` pass. |
+| A5 | | Not started. |
 
 Goal: `Tools/ExportAndroid.ps1 -Project Dice/Dice.cherryproject` produces an installable,
 signed `Dice.apk` that plays the dice game on an arm64 phone. Windows (D3D12, editor, hot
@@ -73,6 +74,22 @@ D3D12, else to the view out to `farDistance`), scene into RGBA16F with a transie
 into RGBA8, then FXAA (or a copy) into the swapchain under ImGui. Not drawn yet on Vulkan: voxel
 volumes, surface shaders (materials draw with the built-in surface), point and fill lights, fog,
 sky, SSAO, bloom, light shafts, grading, eye adaptation, debug lines, view models, glass.
+
+**What A4 built (and differences from the plan):** no new libraries were downloaded.
+- **Audio:** AAudio (part of Android) instead of miniaudio: `DiceAudio` keeps the synthesis and
+  Play's throttling shared, with the device part per platform (XAudio2; AAudio with a 32-voice
+  mixer in the stream's callback, 48 kHz float, low latency).
+- **Fonts:** the system's Roboto instead of a bundled font. Android 12's Roboto is a variable font,
+  which ImGui reads at its regular weight, so the HUD's semibold/bold/black are regular on Android.
+- **Touch:** a finger is the pointer only while it touches; lifted, the pointer moves off the view
+  (in `Input` and ImGui), so nothing stays hovered. ImGui knows it's a touch screen.
+- **Scale:** `android_main` makes the ImGui context with the sizes and fonts scaled by the screen
+  density / 160 (as the Windows renderer scales by monitor DPI); the renderer uses it.
+- **Panel:** Dice's debug panel starts folded on Android (tap its title to open it).
+
+Left for later: Vulkan pre-rotation (the compositor rotates now), immersive mode (the navigation
+handle shows), drawing under the display cutout (a black band on the cutout side), the audio
+stream's disconnect callback (headphones), a mobile shadow-map size, and checks on a real phone.
 
 ## Decisions to make (recommendations first)
 

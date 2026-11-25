@@ -17,6 +17,9 @@
 #include <Game/GameModule.h>
 #include <imgui.h>
 #include <android/asset_manager.h>
+#include <android/configuration.h>
+#include <algorithm>
+#include <cfloat>
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android_native_app_glue.h>
@@ -147,7 +150,9 @@ namespace
 		const float x = AMotionEvent_getX(event, 0), y = AMotionEvent_getY(event, 0);
 		const bool down = action == AMOTION_EVENT_ACTION_DOWN;
 		const bool up = action == AMOTION_EVENT_ACTION_UP || action == AMOTION_EVENT_ACTION_CANCEL;
-		input->OnPointerMove(x, y);
+		// A finger is the pointer only while it touches: lifted, nothing is hovered any more
+		// (games built for a mouse would otherwise keep reacting where it was).
+		input->OnPointerMove(up ? -1e6f : x, up ? -1e6f : y);
 		if (down) input->OnPointerButton(MouseButton::Left, true);
 		if (up) input->OnPointerButton(MouseButton::Left, false);
 		// ImGui too (on Windows its Win32 backend reads the window messages itself).
@@ -157,7 +162,11 @@ namespace
 			io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
 			io.AddMousePosEvent(x, y);
 			if (down) io.AddMouseButtonEvent(0, true);
-			if (up) io.AddMouseButtonEvent(0, false);
+			if (up)
+			{
+				io.AddMouseButtonEvent(0, false);
+				io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);   // no hover after the finger lifts
+			}
 		}
 		return 1;
 	}
@@ -213,11 +222,21 @@ void android_main(android_app* app)
 	Window::SetInitialNative(app->window, static_cast<uint32_t>(ANativeWindow_getWidth(app->window)),
 		static_cast<uint32_t>(ANativeWindow_getHeight(app->window)));
 
+	// The UI scaled to the screen's density (160 dpi = 1), as the Windows renderer scales it to
+	// the monitor's DPI. The renderer uses this context instead of making its own.
+	const float dpiScale = std::max(1.0f, AConfiguration_getDensity(app->config) / 160.0f);
+	ImGui::CreateContext();
+	ImGui::GetStyle().ScaleAllSizes(dpiScale);
+	ImGui::GetStyle().FontScaleDpi = dpiScale;
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_IsTouchScreen;
+	CHERRY_LOG("Display density %d dpi (UI scale %.2f)", AConfiguration_getDensity(app->config), dpiScale);
+
 	std::unique_ptr<IGameModule> game(CreateGameModule());
 	Engine engine;
 	const int exitCode = engine.Run(*game);
 	CHERRY_LOG("Engine exited with %d", exitCode);
 	game.reset();
+	ImGui::DestroyContext();
 
 	// The engine keeps process-wide state (type registry, ImGui), so a second android_main in
 	// this process (the activity started again) would not start clean: end the process. The

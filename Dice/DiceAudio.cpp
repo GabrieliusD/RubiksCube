@@ -1,8 +1,12 @@
 #include "DiceAudio.h"
 #include "DiceSim.h"
+#include <Core/Log.h>
 #if defined(_WIN32)
 #include <windows.h>
 #include <xaudio2.h>
+#elif defined(__ANDROID__)
+#include <aaudio/AAudio.h>
+#include <mutex>
 #endif
 #include <algorithm>
 #include <array>
@@ -67,25 +71,52 @@ namespace dice
 		}
 	}
 
-#if !defined(_WIN32)
-	// No audio device yet off Windows (Android gets one in milestone A4): silent.
-	struct Audio::Impl {};
-	Audio::Audio() : mImpl(std::make_unique<Impl>()) {}
-	Audio::~Audio() = default;
-	bool Audio::Running() const { return false; }
-	void Audio::Start() {}
-	void Audio::Play(Sound, float, bool) {}
-#else
+	// The synthesised sounds and Play's throttling are shared; the device part is per platform:
+	// XAudio2 on Windows, AAudio on Android (a small mixer in the stream's callback).
 	struct Audio::Impl
 	{
-		IXAudio2* engine = nullptr;
-		IXAudio2MasteringVoice* master = nullptr;
-		std::array<IXAudio2SourceVoice*, 32> voices{};
 		std::vector<float> clack;
 		std::vector<std::vector<float>> knocks, ticks;   // variants at the reference's random frequencies
 		std::mt19937 rng{ 0x5eed };
 		std::chrono::steady_clock::time_point lastKnock{}, lastTick{};
+		bool running = false;
+
+		void Synthesise()
+		{
+			if (!clack.empty()) return;
+			const std::vector<float> noise = synth::NoiseBuffer(0xd1ce);
+			clack = synth::Clack(noise);
+			std::uniform_real_distribution<double> unit(0.0, 1.0);
+			for (int k = 0; k < 8; ++k)
+			{
+				knocks.push_back(synth::NoiseHit(noise, 1500 + unit(rng) * 500, 4, 0.45, 0.05));
+				ticks.push_back(synth::NoiseHit(noise, 1100 + unit(rng) * 900, 5, 0.12, 0.035));
+			}
+		}
+
+#if defined(_WIN32)
+		IXAudio2* engine = nullptr;
+		IXAudio2MasteringVoice* master = nullptr;
+		std::array<IXAudio2SourceVoice*, 32> voices{};
 		bool comInitialised = false;
+
+		bool StartDevice()
+		{
+			const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+			comInitialised = SUCCEEDED(com);
+			if (FAILED(XAudio2Create(&engine, 0, XAUDIO2_DEFAULT_PROCESSOR))) return false;
+			if (FAILED(engine->CreateMasteringVoice(&master, 1, synth::kSampleRate))) return false;
+			WAVEFORMATEX format{};
+			format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+			format.nChannels = 1;
+			format.nSamplesPerSec = synth::kSampleRate;
+			format.wBitsPerSample = 32;
+			format.nBlockAlign = 4;
+			format.nAvgBytesPerSec = synth::kSampleRate * 4;
+			for (IXAudio2SourceVoice*& voice : voices)
+				if (FAILED(engine->CreateSourceVoice(&voice, &format))) voice = nullptr;
+			return true;
+		}
 
 		void PlayBuffer(const std::vector<float>& samples, float volume)
 		{
@@ -113,46 +144,109 @@ namespace dice
 			if (master) { master->DestroyVoice(); master = nullptr; }
 			if (engine) { engine->Release(); engine = nullptr; }
 			if (comInitialised) { CoUninitialize(); comInitialised = false; }
+			running = false;
 		}
+#elif defined(__ANDROID__)
+		struct Voice
+		{
+			const float* samples = nullptr;
+			size_t size = 0, position = 0;
+			float volume = 0.0f;
+		};
+		AAudioStream* stream = nullptr;
+		std::mutex mutex;
+		std::array<Voice, 32> voices{};
+
+		static aaudio_data_callback_result_t Callback(AAudioStream*, void* user, void* audioData, int32_t frames)
+		{
+			Impl& a = *static_cast<Impl*>(user);
+			float* out = static_cast<float*>(audioData);
+			std::fill(out, out + frames, 0.0f);
+			// Never wait in the audio thread: if Play holds the lock, this buffer stays silent.
+			std::unique_lock<std::mutex> lock(a.mutex, std::try_to_lock);
+			if (!lock.owns_lock()) return AAUDIO_CALLBACK_RESULT_CONTINUE;
+			for (Voice& voice : a.voices)
+			{
+				if (!voice.samples) continue;
+				const size_t count = std::min(static_cast<size_t>(frames), voice.size - voice.position);
+				for (size_t i = 0; i < count; ++i) out[i] += voice.samples[voice.position + i] * voice.volume;
+				voice.position += count;
+				if (voice.position >= voice.size) voice = {};
+			}
+			for (int32_t i = 0; i < frames; ++i) out[i] = std::clamp(out[i], -1.0f, 1.0f);
+			return AAUDIO_CALLBACK_RESULT_CONTINUE;
+		}
+
+		bool StartDevice()
+		{
+			AAudioStreamBuilder* builder = nullptr;
+			if (AAudio_createStreamBuilder(&builder) != AAUDIO_OK) return false;
+			AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
+			AAudioStreamBuilder_setChannelCount(builder, 1);
+			AAudioStreamBuilder_setSampleRate(builder, synth::kSampleRate);
+			AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+			AAudioStreamBuilder_setUsage(builder, AAUDIO_USAGE_GAME);
+			AAudioStreamBuilder_setDataCallback(builder, &Impl::Callback, this);
+			const aaudio_result_t opened = AAudioStreamBuilder_openStream(builder, &stream);
+			AAudioStreamBuilder_delete(builder);
+			if (opened != AAUDIO_OK || !stream) return false;
+			if (AAudioStream_getSampleRate(stream) != synth::kSampleRate || AAudioStream_getFormat(stream) != AAUDIO_FORMAT_PCM_FLOAT)
+				return false;   // the sounds are made at 48 kHz in float; no resampling here
+			return AAudioStream_requestStart(stream) == AAUDIO_OK;
+		}
+
+		void PlayBuffer(const std::vector<float>& samples, float volume)
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			for (Voice& voice : voices)
+			{
+				if (voice.samples) continue;
+				voice = { samples.data(), samples.size(), 0, volume };
+				return;
+			}
+		}
+
+		void Release()
+		{
+			if (stream)
+			{
+				AAudioStream_requestStop(stream);
+				AAudioStream_close(stream);
+				stream = nullptr;
+			}
+			running = false;
+		}
+#else
+		bool StartDevice() { return false; }
+		void PlayBuffer(const std::vector<float>&, float) {}
+		void Release() { running = false; }
+#endif
 	};
 
 	Audio::Audio() : mImpl(std::make_unique<Impl>()) {}
 	Audio::~Audio() { mImpl->Release(); }
 
-	bool Audio::Running() const { return mImpl->engine != nullptr; }
+	bool Audio::Running() const { return mImpl->running; }
 
 	void Audio::Start()
 	{
 		Impl& a = *mImpl;
-		if (a.engine) return;
-		const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-		a.comInitialised = SUCCEEDED(com);
-		if (FAILED(XAudio2Create(&a.engine, 0, XAUDIO2_DEFAULT_PROCESSOR))) { a.Release(); return; }
-		if (FAILED(a.engine->CreateMasteringVoice(&a.master, 1, synth::kSampleRate))) { a.Release(); return; }
-		WAVEFORMATEX format{};
-		format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-		format.nChannels = 1;
-		format.nSamplesPerSec = synth::kSampleRate;
-		format.wBitsPerSample = 32;
-		format.nBlockAlign = 4;
-		format.nAvgBytesPerSec = synth::kSampleRate * 4;
-		for (IXAudio2SourceVoice*& voice : a.voices)
-			if (FAILED(a.engine->CreateSourceVoice(&voice, &format))) voice = nullptr;
-
-		const std::vector<float> noise = synth::NoiseBuffer(0xd1ce);
-		a.clack = synth::Clack(noise);
-		std::uniform_real_distribution<double> unit(0.0, 1.0);
-		for (int k = 0; k < 8; ++k)
+		if (a.running) return;
+		if (!a.StartDevice())
 		{
-			a.knocks.push_back(synth::NoiseHit(noise, 1500 + unit(a.rng) * 500, 4, 0.45, 0.05));
-			a.ticks.push_back(synth::NoiseHit(noise, 1100 + unit(a.rng) * 900, 5, 0.12, 0.035));
+			CHERRY_WARN("Dice: no audio device");
+			a.Release();
+			return;
 		}
+		a.Synthesise();
+		a.running = true;
+		CHERRY_LOG("Dice: audio started");
 	}
 
 	void Audio::Play(Sound sound, float volume, bool landTicks)
 	{
 		Impl& a = *mImpl;
-		if (!a.engine) return;
+		if (!a.running) return;
 		const auto now = std::chrono::steady_clock::now();
 		std::uniform_int_distribution<int> variant(0, 7);
 		switch (sound)
@@ -173,5 +267,4 @@ namespace dice
 			break;
 		}
 	}
-#endif
 }

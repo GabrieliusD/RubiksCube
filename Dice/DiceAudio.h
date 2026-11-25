@@ -1,8 +1,8 @@
 #pragma once
 // The prototype's three sounds (PROTOTYPE_EXPORT.md B15 "Audio"), synthesised once the way its
 // WebAudio graph makes them (band-passed noise with an exponential decay; the clack adds a
-// falling triangle tone) and played through XAudio2. The engine has no audio, so this lives in
-// the game module.
+// falling triangle tone) and played through XAudio2 (Windows) or AAudio (Android). The engine
+// has no audio, so this lives in the game module.
 #include <cstdint>
 #include <memory>
 #include <vector>

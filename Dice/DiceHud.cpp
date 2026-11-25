@@ -37,16 +37,23 @@ void DiceModule::LoadFonts()
 	// that default first, as ImGui itself would.
 	if (!io.FontDefault && atlas->Fonts.Size == 0) atlas->AddFontDefault();
 	ImFont* engineDefault = io.FontDefault ? io.FontDefault : atlas->Fonts[0];
-	auto load = [&](const char* file) -> ImFont*
+	auto load = [&](const std::string& path) -> ImFont*
 	{
-		const std::string path = std::string("C:\\Windows\\Fonts\\") + file;
 		if (std::ifstream(path, std::ios::binary)) return atlas->AddFontFromFileTTF(path.c_str(), 16.0f);
 		return nullptr;
 	};
-	mFontRegular = load("segoeui.ttf");
-	mFontSemibold = load("seguisb.ttf");
-	mFontBold = load("segoeuib.ttf");
-	mFontBlack = load("seguibl.ttf");
+#if defined(__ANDROID__)
+	// The system's Roboto (Android 12 ships it as one variable font, which ImGui reads at its
+	// regular weight): every weight uses it (FontFor falls back to the regular one).
+	mFontRegular = load("/system/fonts/Roboto-Regular.ttf");
+	if (!mFontRegular) mFontRegular = load("/system/fonts/RobotoStatic-Regular.ttf");
+#else
+	const std::string fonts = "C:\\Windows\\Fonts\\";
+	mFontRegular = load(fonts + "segoeui.ttf");
+	mFontSemibold = load(fonts + "seguisb.ttf");
+	mFontBold = load(fonts + "segoeuib.ttf");
+	mFontBlack = load(fonts + "seguibl.ttf");
+#endif
 	if (engineDefault) io.FontDefault = engineDefault;
 }
 

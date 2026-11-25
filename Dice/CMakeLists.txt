@@ -31,6 +31,9 @@ else()
 endif()
 
 target_link_libraries(DiceGame PRIVATE CherryEngine)
+if(ANDROID)
+    target_link_libraries(DiceGame PRIVATE aaudio)
+endif()
 cherry_register_game_module(DiceGame)
 
 if(MSVC)

@@ -119,6 +119,10 @@ void DiceModule::ApplyConfig(Engine& engine, const DiceConfig& config)
 
 void DiceModule::DrawPanel(Engine& engine)
 {
+#if defined(__ANDROID__)
+	// On a phone the panel would cover the board: it starts folded (tap its title to open it).
+	ImGui::SetNextWindowCollapsed(true, ImGuiCond_FirstUseEver);
+#endif
 	if (!ImGui::Begin("Dice##Panel"))
 	{
 		ImGui::End();
