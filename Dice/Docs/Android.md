@@ -1,13 +1,14 @@
 # Android support for CherryEngine, and the Dice game as an APK
 
-Status (2026-11-25): **A0–A2 done** on branch `features/android`; A3–A5 not started. A2 and A3 were re-scoped (see "Change of approach" below).
+Status (2026-11-25): **A0–A3 done** on branch `features/android`; A4–A5 not started. A2 and A3 were re-scoped (see "Change of approach" below).
 
 | # | Milestone | State |
 |---|---|---|
 | A0 | Engine compiles for Android | Done. `Tools/Android/Build.ps1 [-Config Release] [-Configure]` builds `out/build/android-arm64/CherryLaunch/<Config>/libgame.so` (engine + Dice, arm64). Windows Debug, Release and monolithic build without new warnings; all four test suites pass; Dice still runs (screenshot with the pretend pointer). Not run on a device: nothing is drawn yet and there is no APK. |
 | A1 | Platform layer, APK | Done, on an x86_64 emulator (Android 12, `Cherry_API_32_x64`); no phone yet. `Tools/Android/Package.ps1 -Project Dice/Dice.cherryproject -Abi arm64-v8a,x86_64 [-Install] [-Run]` makes `out/android/DiceGame-Debug.apk` (35.6 MB). On the emulator: the game files unpack on first start (not again after), the project and scene load, Dice deals its board and plays at a paced 60 fps (frames logged every 5 s); Home and back keeps the process; density and font-scale changes don't restart it; when the activity is destroyed the play session stops and the engine exits with 0. The screen is black: nothing is drawn until A3. |
 | A2 | Vulkan renderer: device, swapchain, ImGui | Done, on the emulator (Vulkan 1.3 through the host's RTX 4070). `Renderer/Vulkan/VulkanRenderer.cpp` draws the Dice HUD and debug panel over the sky colour at 60 fps; Home and back releases and recreates the surface in the same process. No 3D yet. |
-| A3–A5 | | Not started. |
+| A3 | Dice's 3D on Vulkan | Done, on the emulator. The board, dice (atlas texture, tint), felt grid, wooden base and shadows render; a swipe launches dice that tumble, glow when ready and throw sparks; 60 fps. Background colour identical to the Windows build (#14161a); the rest compared by eye only (tops, sides and felt read the same). arm64 Release builds; not yet seen on a phone. |
+| A4–A5 | | Not started. |
 
 Goal: `Tools/ExportAndroid.ps1 -Project Dice/Dice.cherryproject` produces an installable,
 signed `Dice.apk` that plays the dice game on an arm64 phone. Windows (D3D12, editor, hot
@@ -59,6 +60,19 @@ D3D12 renderer ignores it); `android_main` waits for the first surface before th
 Shaders: `Shaders/Mobile/*.hlsl` compiled to SPIR-V headers at build time by the host DXC
 (`directx-dxc` is now a vcpkg *host* dependency; on Windows host and target are the same triplet).
 Pre-rotation is left to the compositor (Android reports `SUBOPTIMAL`; ignored).
+
+**What A3 built:** Mobile shaders `Mesh.hlsl` (the built-in surface with the D3D12 renderer's GGX
+sun, 3x3 PCF shadow and sky/ground ambient), `Shadow.hlsl`, `Particles.hlsl` (camera-facing
+quads, square or round, covering sorted back to front, then additive), `Post.hlsl` (tonemap:
+exposure, ACES or clip, sRGB encode; FXAA; copy), sharing `Common.hlsli`. Renderer: GPU meshes
+(always the full 48-byte vertex), textures with CPU-built mips (averaged in linear light for sRGB)
+and anisotropic filtering, one descriptor set per texture; per frame a constants buffer, instance
+and particle storage buffers; mesh entities and `MeshInstances` grouped into runs of one mesh and
+material (one instanced draw each); passes: shadow (2048, fitted to `ShadowSettings::bounds*` like
+D3D12, else to the view out to `farDistance`), scene into RGBA16F with a transient depth, tonemap
+into RGBA8, then FXAA (or a copy) into the swapchain under ImGui. Not drawn yet on Vulkan: voxel
+volumes, surface shaders (materials draw with the built-in surface), point and fill lights, fog,
+sky, SSAO, bloom, light shafts, grading, eye adaptation, debug lines, view models, glass.
 
 ## Decisions to make (recommendations first)
 

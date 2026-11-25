@@ -248,7 +248,16 @@ function(cherry_mobile_shaders target)
   # name  file  entry  profile
   set(_shaders
     ImGuiVS ImGui.hlsl VSMain vs_6_0
-    ImGuiPS ImGui.hlsl PSMain ps_6_0)
+    ImGuiPS ImGui.hlsl PSMain ps_6_0
+    MeshVS Mesh.hlsl VSMain vs_6_0
+    MeshPS Mesh.hlsl PSMain ps_6_0
+    ShadowVS Shadow.hlsl VSMain vs_6_0
+    ParticlesVS Particles.hlsl VSMain vs_6_0
+    ParticlesPS Particles.hlsl PSMain ps_6_0
+    PostVS Post.hlsl VSMain vs_6_0
+    TonemapPS Post.hlsl TonemapPS ps_6_0
+    CopyPS Post.hlsl CopyPS ps_6_0
+    FxaaPS Post.hlsl FxaaPS ps_6_0)
   set(_headers "")
   list(LENGTH _shaders _count)
   math(EXPR _last "${_count} - 1")
@@ -261,9 +270,15 @@ function(cherry_mobile_shaders target)
     list(GET _shaders ${_e} _entry)
     list(GET _shaders ${_p} _profile)
     set(_header "${_out}/${_name}.spv.h")
+    # Scene and post vertex shaders keep D3D's clip space (y up), like the engine's shaders;
+    # ImGui's works in Vulkan's directly.
+    set(_flip "")
+    if(_profile MATCHES "^vs_" AND NOT _file STREQUAL "ImGui.hlsl")
+      set(_flip -fvk-invert-y)
+    endif()
     add_custom_command(OUTPUT "${_header}"
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${_out}"
-      COMMAND "${CHERRY_HOST_DXC}" -spirv -fspv-target-env=vulkan1.1 -T ${_profile} -E ${_entry}
+      COMMAND "${CHERRY_HOST_DXC}" -spirv -fspv-target-env=vulkan1.1 ${_flip} -T ${_profile} -E ${_entry}
         -I "${_src}" -I "${CMAKE_CURRENT_SOURCE_DIR}/Shaders" -Fh "${_header}" -Vn kSpirv_${_name} "${_src}/${_file}"
       DEPENDS "${_src}/${_file}" ${_includes}
       COMMENT "SPIR-V ${_name}" VERBATIM)
