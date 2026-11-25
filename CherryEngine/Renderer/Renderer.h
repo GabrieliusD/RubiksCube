@@ -2,7 +2,9 @@
 #include "CherryAPI.h"
 #include "Renderer/RenderTypes.h"
 #include "Renderer/DebugDraw.h"
+#if defined(_WIN32)
 #include <windows.h>
+#endif
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -110,7 +112,8 @@ public:
 	const std::string& ShaderError() const;
 
 	// ---- Frame (engine-facing) -----------------------------------------------
-	bool Initialize(HWND hwnd, uint32_t width, uint32_t height, std::string& error);
+	// `nativeWindow`: the HWND on Windows, the ANativeWindow* on Android.
+	bool Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error);
 	void Shutdown();
 	void OnWindowResized(uint32_t width, uint32_t height);
 	// Size of the offscreen view the scene is rendered into (applied next frame).

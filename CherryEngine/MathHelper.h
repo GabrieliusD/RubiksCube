@@ -6,7 +6,9 @@
 
 #pragma once
 
+#if defined(_WIN32)
 #include <Windows.h>
+#endif
 #include <DirectXMath.h>
 #include <cstdint>
 #include "CherryAPI.h"

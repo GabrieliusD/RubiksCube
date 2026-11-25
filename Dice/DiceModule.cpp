@@ -32,14 +32,26 @@ namespace
 	//   DICE_DEV_PROFILE=1   vsync off; log "DICE_PROFILE ..." timings every 2 s
 	//   DICE_DEV_POINTER="px py [px2 py2 seconds]"  a pretend mouse at view pixels (moving to the
 	//                        second point and back over `seconds`), for hover checks without a person
-	int EnvInt(const char* name, int fallback)
+	// An environment variable, or "" when it isn't set.
+	std::string GetEnv(const char* name)
 	{
+#if defined(_MSC_VER)
 		char* value = nullptr;
 		size_t length = 0;
-		if (_dupenv_s(&value, &length, name) != 0 || !value) return fallback;
-		const int result = std::atoi(value);
+		if (_dupenv_s(&value, &length, name) != 0 || !value) return {};
+		std::string result(value);
 		std::free(value);
 		return result;
+#else
+		const char* value = std::getenv(name);
+		return value ? std::string(value) : std::string();
+#endif
+	}
+
+	int EnvInt(const char* name, int fallback)
+	{
+		const std::string value = GetEnv(name);
+		return value.empty() ? fallback : std::atoi(value.c_str());
 	}
 
 	// The reference's camera: orthographic, 30 degrees down, 45 degrees round, 300 units out.
@@ -62,18 +74,15 @@ void DiceModule::OnStartup(Engine& engine)
 	Renderer& renderer = engine.GetRenderer();
 	// A preset first, then the hot-reloaded config (the previous module's SaveState), then the dev switches.
 	{
-		char* value = nullptr;
-		size_t length = 0;
-		if (_dupenv_s(&value, &length, "DICE_DEV_PRESET") == 0 && value)
+		if (const std::string value = GetEnv("DICE_DEV_PRESET"); !value.empty())
 		{
-			std::ifstream file(engine.ContentPath(L"Presets/" + std::wstring(value, value + std::strlen(value)) + L".json"));
+			std::ifstream file(engine.ContentPath(L"Presets/" + std::wstring(value.begin(), value.end()) + L".json"));
 			std::stringstream text;
 			text << file.rdbuf();
 			std::vector<std::string> problems;
 			DiceConfig config;
 			if (file && dice::ConfigFromJson(text.str(), config, problems)) mSim.config = config;
-			else CHERRY_WARN("Dice: preset %s not found or not valid", value);
-			std::free(value);
+			else CHERRY_WARN("Dice: preset %s not found or not valid", value.c_str());
 		}
 	}
 	if (!engine.HotReloadState().empty())
@@ -95,12 +104,14 @@ void DiceModule::OnStartup(Engine& engine)
 	const int board = EnvInt("DICE_DEV_BOARD", 0);
 	if (board > 0) mSim.config.boardSize = std::clamp(board, 6, kMaxProfileSide);
 	{
-		char* value = nullptr;
-		size_t length = 0;
-		if (_dupenv_s(&value, &length, "DICE_DEV_POINTER") == 0 && value)
+		if (const std::string value = GetEnv("DICE_DEV_POINTER"); !value.empty())
 		{
 			float p[5] = { 0, 0, 0, 0, 0 };
-			const int n = sscanf_s(value, "%f %f %f %f %f", &p[0], &p[1], &p[2], &p[3], &p[4]);
+#if defined(_MSC_VER)
+			const int n = sscanf_s(value.c_str(), "%f %f %f %f %f", &p[0], &p[1], &p[2], &p[3], &p[4]);
+#else
+			const int n = std::sscanf(value.c_str(), "%f %f %f %f %f", &p[0], &p[1], &p[2], &p[3], &p[4]);
+#endif
 			if (n >= 2)
 			{
 				mDevPointer = true;
@@ -108,7 +119,6 @@ void DiceModule::OnStartup(Engine& engine)
 				mDevTo = n >= 5 ? XMFLOAT2(p[2], p[3]) : mDevFrom;
 				mDevSeconds = n >= 5 ? std::max(p[4], 0.1f) : 1.0f;
 			}
-			std::free(value);
 		}
 	}
 

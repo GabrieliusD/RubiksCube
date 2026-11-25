@@ -765,7 +765,7 @@ fs::path AssetManager::FullPath(const std::string& path) const { return mImpl->F
 std::string AssetManager::AssetPathOf(const fs::path& file) const
 {
 	const fs::path relative = file.lexically_normal().lexically_relative(mImpl->contentRoot);
-	if (relative.empty() || relative.native().rfind(L"..", 0) == 0) return {};
+	if (relative.empty() || relative.generic_string().rfind("..", 0) == 0) return {};
 	return relative.generic_u8string();
 }
 

@@ -61,6 +61,8 @@ out/build/x64-debug/bin/Debug/UndertimeTests.exe          # run directly to see 
 - **Hot reload:** HLSL (SM 6.6) is compiled at runtime by DXC. Debug builds read `CherryEngine/Shaders` straight from the source tree and hot-reload it on save.
 - **Shared layouts:** `Shaders/Shared/ShaderInterop.h` is included by both the C++ code and the HLSL.
 
+**Android (in progress, `Dice/Docs/Android.md`):** `Tools/Android/Build.ps1 [-Config Release] [-Configure]` cross-compiles the engine and Dice (preset `android-arm64`, NDK from the Android SDK, vcpkg triplet `arm64-android`) into `out/build/android-arm64/CherryLaunch/<Config>/libgame.so`. Off Windows `CHERRY_EDITOR` is 0: no editor, module host, D3D12 or DXC, and `Renderer/NullRenderer.cpp` draws nothing until the Vulkan backend exists. Keep Win32 calls in engine code behind `_WIN32`.
+
 The `.github/` folder exists but is empty: there is no CI.
 
 ## Engine architecture (big picture)

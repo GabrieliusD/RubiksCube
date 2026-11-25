@@ -1,7 +1,9 @@
 #pragma once
 #include "CherryAPI.h"
 #include <DirectXMath.h>
-#include <windows.h>
+#if defined(_WIN32)
+#include <windows.h>   // games use the VK_ key codes
+#endif
 #include <array>
 #include <cstdint>
 
@@ -37,8 +39,15 @@ public:
 	bool IsMouseCaptured() const { return mMouseCaptured; }
 
 	// ---- Engine-facing ----
-	void AttachWindow(HWND hwnd);                // enables raw mouse input
+	void AttachWindow(void* nativeWindow);       // Windows: the HWND; enables raw mouse input
+#if defined(_WIN32)
 	void HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
+	// Platform-neutral feeders (touch on Android: one finger is the left button and the pointer).
+	void OnPointerMove(float x, float y);        // window client pixels
+	void OnPointerButton(MouseButton button, bool down);
+	void OnWheel(float notches);
+	void OnKey(int virtualKey, bool down);
 	void BeginFrame();                           // call before pumping messages
 	// View rectangle in window client pixels. While captured, the mouse and keyboard
 	// stay routed to the game regardless of the other flags (except text input).
@@ -61,7 +70,7 @@ private:
 	void ApplyCapture(bool captured);
 	void ClipToView();
 
-	HWND mHwnd = nullptr;
+	void* mWindow = nullptr;
 	bool mMouseCaptured = false;
 	DirectX::XMFLOAT2 mRawDelta{ 0, 0 };
 	float mViewWidth = 0.0f, mViewHeight = 0.0f;

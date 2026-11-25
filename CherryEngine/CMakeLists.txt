@@ -96,6 +96,37 @@ set(ENGINE_SOURCES
   MathHelper.cpp
 )
 
+# The editor (scene editing, hot-reloaded game modules, the shader graph editor) and the
+# D3D12 renderer are Windows-only. Other platforms (Android) build a packaged game: the
+# engine without them, the game linked in (CHERRY_MONOLITHIC), and a renderer without a
+# graphics backend until the Vulkan one (Dice/Docs/Android.md).
+if(WIN32)
+  set(CHERRY_EDITOR ON)
+else()
+  set(CHERRY_EDITOR OFF)
+endif()
+set(CHERRY_EDITOR ${CHERRY_EDITOR} PARENT_SCOPE)
+
+if(NOT WIN32)
+  set(_cherry_windows_only
+    Core/ModuleHost.h Core/ModuleHost.cpp Core/BuildProcess.h Core/BuildProcess.cpp
+    Core/Window.cpp
+    Renderer/Renderer.cpp
+    Editor/EditorLayer.h Editor/EditorLayer.cpp Editor/ScenePanels.cpp Editor/Gizmo.h Editor/Gizmo.cpp
+    Editor/ContentBrowser.cpp Editor/ShaderGraphEditor.h Editor/ShaderGraphEditor.cpp
+    RHI/D3DCommon.h RHI/DescriptorHeap.h RHI/Device.h RHI/Resources.h RHI/SwapChain.h RHI/UploadRing.h RHI/Pipeline.h
+    RHI/D3DCommon.cpp RHI/DescriptorHeap.cpp RHI/Device.cpp RHI/Resources.cpp RHI/SwapChain.cpp RHI/UploadRing.cpp RHI/Pipeline.cpp
+    ShaderSystem/ShaderCompiler.h ShaderSystem/ShaderCompiler.cpp
+    DDSTextureLoader.h DDSTextureLoader.cpp d3dx12.h)
+  list(REMOVE_ITEM ENGINE_HEADERS ${_cherry_windows_only})
+  list(REMOVE_ITEM ENGINE_SOURCES ${_cherry_windows_only})
+  list(APPEND ENGINE_HEADERS Core/NoEditor.h)
+  list(APPEND ENGINE_SOURCES Renderer/NullRenderer.cpp)
+  if(ANDROID)
+    list(APPEND ENGINE_SOURCES Platform/Android/Window_Android.cpp)
+  endif()
+endif()
+
 # Shaders are compiled at runtime by DXC; listed here so they show up in the IDE.
 file(GLOB ENGINE_SHADERS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/*.hlsl"
@@ -111,9 +142,10 @@ set(IMGUI_SOURCES
   ${IMGUI_DIR}/imgui_draw.cpp
   ${IMGUI_DIR}/imgui_tables.cpp
   ${IMGUI_DIR}/imgui_widgets.cpp
-  ${IMGUI_DIR}/imgui_impl_dx12.cpp
-  ${IMGUI_DIR}/imgui_impl_win32.cpp
 )
+if(WIN32)
+  list(APPEND IMGUI_SOURCES ${IMGUI_DIR}/imgui_impl_dx12.cpp ${IMGUI_DIR}/imgui_impl_win32.cpp)
+endif()
 # imgui-node-editor (the shader graph editor), compiled into the engine with ImGui.
 set(NODE_EDITOR_DIR thirdparty/imgui-node-editor)
 set(NODE_EDITOR_SOURCES
@@ -122,12 +154,17 @@ set(NODE_EDITOR_SOURCES
   ${NODE_EDITOR_DIR}/imgui_node_editor.cpp
   ${NODE_EDITOR_DIR}/imgui_node_editor_api.cpp
 )
-set_source_files_properties(${NODE_EDITOR_SOURCES} PROPERTIES COMPILE_OPTIONS "/W0")
-list(APPEND IMGUI_SOURCES ${NODE_EDITOR_SOURCES})
+if(CHERRY_EDITOR)
+  if(MSVC)
+    set_source_files_properties(${NODE_EDITOR_SOURCES} PROPERTIES COMPILE_OPTIONS "/W0")
+  endif()
+  list(APPEND IMGUI_SOURCES ${NODE_EDITOR_SOURCES})
+endif()
 
 # ---------------------------------------------------------------------------
 # DirectX Shader Compiler (vcpkg: directx-dxc)
 # ---------------------------------------------------------------------------
+if(WIN32)
 find_package(directx-dxc CONFIG QUIET)
 
 set(CHERRY_DXC_TARGET "")
@@ -186,15 +223,18 @@ if(CHERRY_DXC_DLL_PATH)
   set(CHERRY_DXIL_DLL_PATH "${_dxc_bin_dir}/dxil.dll" CACHE INTERNAL "Path to dxil.dll sidecar for DXC" FORCE)
   set(CHERRY_DXC_DLL_PATH "${CHERRY_DXC_DLL_PATH}" CACHE INTERNAL "Path to dxcompiler.dll" FORCE)
 endif()
+endif() # WIN32
 
 # ---------------------------------------------------------------------------
 # Engine target
 # ---------------------------------------------------------------------------
 if(CHERRYENGINE_BUILD_SHARED)
   add_library(CherryEngine SHARED ${ENGINE_SOURCES} ${ENGINE_HEADERS} ${IMGUI_SOURCES} ${ENGINE_SHADERS})
-  target_compile_definitions(CherryEngine
-    PRIVATE CHERRYENGINE_EXPORTS "IMGUI_API=__declspec(dllexport)"
-    INTERFACE CHERRYENGINE_SHARED "IMGUI_API=__declspec(dllimport)")
+  if(WIN32)
+    target_compile_definitions(CherryEngine
+      PRIVATE CHERRYENGINE_EXPORTS "IMGUI_API=__declspec(dllexport)"
+      INTERFACE CHERRYENGINE_SHARED "IMGUI_API=__declspec(dllimport)")
+  endif()
 else()
   add_library(CherryEngine STATIC ${ENGINE_SOURCES} ${ENGINE_HEADERS} ${IMGUI_SOURCES} ${ENGINE_SHADERS})
 endif()
@@ -209,7 +249,18 @@ find_path(CHERRY_CGLTF_INCLUDE_DIR "cgltf.h" REQUIRED)
 find_path(CHERRY_STB_INCLUDE_DIR "stb_image.h" REQUIRED)
 target_include_directories(CherryEngine PRIVATE "${CHERRY_CGLTF_INCLUDE_DIR}" "${CHERRY_STB_INCLUDE_DIR}")
 target_include_directories(CherryEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${NODE_EDITOR_DIR}")
-target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt)
+if(WIN32)
+  target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt)
+else()
+  target_link_libraries(CherryEngine PRIVATE Jolt::Jolt)
+  # DirectXMath (header-only) is part of the Windows SDK; elsewhere it comes from vcpkg.
+  find_package(directxmath CONFIG REQUIRED)
+  target_link_libraries(CherryEngine PUBLIC Microsoft::DirectXMath)
+  if(ANDROID)
+    target_link_libraries(CherryEngine PUBLIC log android)
+  endif()
+endif()
+target_compile_definitions(CherryEngine PUBLIC CHERRY_EDITOR=$<BOOL:${CHERRY_EDITOR}>)
 # nlohmann/json (header-only) is public: game modules read and write JSON with it too
 # (UNDERTIME's dialog files and save game).
 target_link_libraries(CherryEngine PUBLIC nlohmann_json::nlohmann_json)
@@ -241,6 +292,7 @@ target_include_directories(CherryEngine
 # ---------------------------------------------------------------------------
 # Tests: scene, reflection and serialization (no window or GPU needed)
 # ---------------------------------------------------------------------------
+if(WIN32)
 add_executable(CherryEngineTests Tests/EngineTests.cpp Tests/ShaderGraphTests.cpp Tests/VoxelModelTests.cpp Tests/RendererTests.cpp)
 target_link_libraries(CherryEngineTests PRIVATE CherryEngine)
 # Generated shader graph code is compiled with DXC against the engine's shaders.
@@ -250,6 +302,7 @@ if(MSVC)
   target_compile_options(CherryEngineTests PRIVATE /W3 /utf-8)
 endif()
 add_test(NAME CherryEngineTests COMMAND CherryEngineTests)
+endif()
 
 # ---------------------------------------------------------------------------
 # Install (engine SDK: headers + library + runtime DLLs)

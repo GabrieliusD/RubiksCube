@@ -40,5 +40,10 @@ namespace cherry
 	// %LOCALAPPDATA%/CherryEngine (created on demand): editor state when no project is open.
 	CHERRY_API std::filesystem::path EngineUserDir();
 
+	// The folder a packaged game's files sit in (next to the executable on Windows).
 	CHERRY_API std::filesystem::path ExecutableDir();
+#if !defined(_WIN32)
+	// Android: the app's data folder, where its packaged files were unpacked. Set before Run.
+	CHERRY_API void SetExecutableDir(const std::filesystem::path& dir);
+#endif
 }

@@ -1,0 +1,196 @@
+# Android support for CherryEngine, and the Dice game as an APK
+
+Status (2026-11-25): **A0 done** on branch `features/android`; A1–A5 not started.
+
+| # | Milestone | State |
+|---|---|---|
+| A0 | Engine compiles for Android | Done. `Tools/Android/Build.ps1 [-Config Release] [-Configure]` builds `out/build/android-arm64/CherryLaunch/<Config>/libgame.so` (engine + Dice, arm64). Windows Debug, Release and monolithic build without new warnings; all four test suites pass; Dice still runs (screenshot with the pretend pointer). Not run on a device: nothing is drawn yet and there is no APK. |
+| A1–A5 | | Not started. |
+
+Goal: `Tools/ExportAndroid.ps1 -Project Dice/Dice.cherryproject` produces an installable,
+signed `Dice.apk` that plays the dice game on an arm64 phone. Windows (D3D12, editor, hot
+reload) keeps working exactly as today after every milestone.
+
+## Where the engine stands (survey)
+
+| Area | Today | Android problem |
+|---|---|---|
+| Graphics | D3D12 only. `RHI/` is a thin wrapper that hands out `ID3D12*` objects; `Renderer.cpp` (2.5k lines) records D3D12 commands directly (~256 lines touch `ID3D12`/`D3D12_`/`cmd->`). `Renderer.h` is pimpl: only `Initialize(HWND, ...)` leaks. | No D3D12. Needs a Vulkan backend. |
+| Shaders | HLSL SM 6.6, compiled at runtime by DXC, bindless through `ResourceDescriptorHeap[]` in 17 shaders. | No DXC on device. `ResourceDescriptorHeap` maps to Vulkan only through `VK_EXT_mutable_descriptor_type`, which few phones have. |
+| Window / input | `Core/Window` and `Core/Input` are Win32 (`HWND`, messages). ImGui uses `imgui_impl_win32` + `imgui_impl_dx12`. | Need `ANativeWindow`, touch, `imgui_impl_android` + `imgui_impl_vulkan` (both upstream). |
+| Files | `std::filesystem` everywhere; Content read from the source tree; Shaders copied next to the exe. | Content lives inside the APK (`AAssetManager`); writable data goes to the app's internal storage. |
+| Modules | `ModuleHost` (`LoadLibrary`), `BuildProcess`, editor, shader graph editor, DXC. | Not wanted on device. The monolithic build already links one game statically. |
+| Libraries | vcpkg: directx-dxc, Jolt, nlohmann-json, cgltf, stb. DirectXMath comes from the Windows SDK. | Jolt, json, cgltf, stb build for `arm64-android`. DirectXMath is header-only with NEON support; take vcpkg's `directxmath` port on Android. DXC is host-only. |
+| Dice | Pure C++ sim (`DiceSim`, `DiceControls`, `DiceVisuals`), ImGui HUD, `MeshInstances`, particles. Audio is XAudio2 (`DiceAudio.cpp`). Fonts load from `C:\Windows\Fonts`. Mouse hover drives everything. | Audio, fonts and input need replacing; the sim ports as is. |
+
+What Dice actually uses from the renderer is small: opaque mesh pass (instanced
+`MeshInstances`, built-in surface shader), two shadow cascades, particles (additive), FXAA,
+tonemap with `toneCurve = false`, ImGui. Sky, SSAO, bloom, clouds, light shafts, edges, eye
+adaptation and voxels are all switched off (`DiceModule.cpp:217-227`). **The Android renderer
+only has to cover that subset first.**
+
+Toolchain already on this PC: Android SDK (platform 34, build-tools 34), NDK 28.1, JDK 17,
+Android Studio. The SDK's CMake (3.10) is too old; use Visual Studio's CMake + Ninja.
+
+## Decisions to make (recommendations first)
+
+1. **Graphics API: Vulkan** (1.1 + `descriptorIndexing`, standard on Android 10+ GPUs:
+   Adreno 6xx+, Mali-G7x+, Xclipse). GLES 3 has no bindless and would mean a second renderer
+   design; a third-party abstraction (bgfx, Diligent, SDL_GPU) means rewriting all of
+   `Renderer.cpp` and SDL_GPU has no bindless anyway.
+2. **The Vulkan backend also runs on Windows.** Debug it on the desktop with validation layers
+   and RenderDoc, compare screenshots against D3D12 with `Dice/Tools/Screenshot.ps1`, and only
+   then go to a phone. `--rhi vulkan` on the launcher picks it.
+3. **Bindless through typed arrays, not `ResourceDescriptorHeap`.** A new
+   `Shaders/Shared/Bindless.hlsli` defines `CHERRY_TEX2D(i)`, `CHERRY_BUFFER(i)`, ... On D3D12 they
+   stay `ResourceDescriptorHeap[i]`; on SPIR-V they index unbounded arrays
+   (`Texture2D gTex2D[]`, `ByteAddressBuffer gBuffers[]`, ...) in one descriptor set. The C++
+   side keeps one index space per resource kind.
+4. **Shaders are compiled offline for Android.** DXC on the Windows host (`-spirv
+   -fspv-target-env=vulkan1.1`) during the build; the APK carries `.spv` files and a manifest
+   keyed by shader + variant. The runtime `ShaderCompiler` is replaced by a loader on Android.
+   Surface shaders a game uses are listed by a **cook** step (see A5) so nothing compiles at run
+   time.
+5. **Packaging: Gradle + GameActivity** (AndroidX games library), with
+   `externalNativeBuild { cmake }` pointing at the repo's root `CMakeLists.txt` with
+   `CHERRY_MONOLITHIC=ON`, `CHERRY_ACTIVE_GAME_TARGET=DiceGame`, `CHERRY_EDITOR=OFF`. One
+   `libgame.so` (one name for every game, so one Gradle template fits all), arm64-v8a only, minSdk 29.
+6. **Audio: miniaudio** (single header, AAudio/OpenSL on Android, WASAPI on Windows), so
+   `DiceAudio` has one implementation instead of an XAudio2 one plus an Android one. It stays
+   in the game, as today (the engine has no audio).
+
+## Milestones
+
+Each one builds and runs on Windows (modular and monolithic) and ends with a report.
+Everything under `CherryEngine/` needs the user's OK; these changes are the plan for asking it.
+
+### A0. The engine compiles for Android (no window yet)
+
+- `CMakePresets.json`: `android-arm64` (Ninja, NDK toolchain, vcpkg `arm64-android` triplet
+  chained with `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`).
+- `vcpkg.json`: `directx-dxc` only on Windows (`"platform": "windows"`), `directxmath` on
+  Android.
+- `CherryEngine/CMakeLists.txt`: split sources into common / `Platform/Windows` /
+  `Platform/Android`; `CHERRY_EDITOR` option (default ON on Windows, OFF on Android) dropping
+  `Editor/`, `ModuleHost`, `BuildProcess`, `ShaderGraph` editor, imgui-node-editor, DXC;
+  MSVC-only flags behind `if(MSVC)`; `IMGUI_API` dllexport only for shared builds.
+- `Core/Engine.cpp`: editor paths behind `CHERRY_EDITOR` (`MessageBoxA`, editor state,
+  hot reload, Play/Stop).
+- Code fixes found by clang: `fopen_s`, `wchar_t` paths (`Widen`), Win32 includes in headers
+  (`Input.h`, `Window.h`, `Renderer.h`, `ShaderCompiler.h`).
+- **Done when:** `cmake --preset android-arm64 && cmake --build` links `libgame.so` with stub
+  window/renderer; all Windows tests still pass.
+
+**What A0 built:**
+- `CMakePresets.json` `android-arm64` (Ninja Multi-Config; Debug and Release); `Tools/Android/Build.ps1` finds Visual Studio's CMake, Ninja and vcpkg and the newest NDK.
+- `vcpkg.json`: `directx-dxc` on Windows only, `directxmath` on Android.
+- `CherryEngine/CMakeLists.txt`: `CHERRY_EDITOR` (ON on Windows, OFF elsewhere, a public define). Off Windows the editor, module host, build process, D3D12 RHI and renderer, DXC, DDS loader, node editor and ImGui's Win32/DX12 backends are left out, and `Renderer/NullRenderer.cpp` stands in for the renderer (handles, bounds and materials are kept; ImGui runs its frames; nothing is drawn). Tests build on Windows only.
+- `Core/NoEditor.h`: what `Engine.cpp` uses from the editor, module host and build process, reduced to a packaged game's behaviour.
+- Platform guards: `Log` (logcat; `cherry::ShowError` replaces `MessageBoxA`), `Project` (`SetExecutableDir`, the app's data folder), `Input` (Win32 parts behind `_WIN32`; new `OnPointerMove/OnPointerButton/OnWheel/OnKey` feeders), `Window` (an Android class around the `ANativeWindow`, driven by a pump the platform layer installs), `Renderer::Initialize(void* nativeWindow, ...)`, `MathHelper.h`, `Engine.cpp` (`_stricmp`, `swprintf_s`, `CreateProcessW`).
+- `CherryLaunch/AndroidMain.cpp`: NativeActivity glue (`android_main`), lifecycle commands into `Window`, touch as the pointer and left button; links the game with `--whole-archive`.
+- Dice: `GetEnv` instead of `_dupenv_s`, portable `sscanf`/font file check, `DiceAudio` silent off Windows (XAudio2 behind `_WIN32`).
+- Two fixes clang needed: `ShaderGraph.cpp` (an `ordered_json` push ambiguity), `Assets.cpp` (`rfind` on a wide path).
+
+### A1. Platform layer (Windows first, then Android)
+
+- `Platform/Platform.h`: `NativeWindow` (opaque handle + size + DPI), events (resize,
+  focus, pause/resume, surface lost/created), `FileSystem` (read-only content root, writable
+  saved root), `Log` sink, time.
+- Windows implementation = today's `Window`/`Input`/`Log` moved behind it; `Renderer::Initialize`
+  takes `NativeWindow` instead of `HWND`.
+- Android implementation on GameActivity: `android_main` → engine loop; `AAssetManager` reads
+  for `Content/` and `Shaders/`; `Saved/` → `internalDataPath`; `__android_log_print`;
+  `AInputEvent`/GameActivity motion events into `Input`.
+- **Input on touch:** one finger = the pointer (`MousePosition`, `HasMouse` true while touching,
+  `WasMousePressed` on touch down); two-finger pinch = `WheelDelta`. ImGui gets touch through
+  `imgui_impl_android`.
+- **Done when:** Windows unchanged; an APK opens full screen, logs frames, survives
+  rotate / home / back, and quits cleanly.
+
+### A2. A backend-neutral RHI (D3D12 behind it, no visual change)
+
+The biggest and riskiest step.
+
+- `RHI/` becomes an interface: `Device`, `CommandList` (render passes, pipelines, root/push
+  constants, draw/dispatch, barriers, copies), `Buffer`, `Texture`, `Pipeline`, `SwapChain`,
+  bindless index allocation, deferred release, `ExecuteAsync` uploads. Two frames in flight as now.
+- Move today's code to `RHI/D3D12/`. Port `Renderer.cpp` off `ID3D12*` onto the interface
+  (pass by pass; ImGui backend chosen by the RHI).
+- Shaders switch to the `Bindless.hlsli` macros (D3D12 output identical).
+- **Done when:** Dice, Rubik and UNDERTIME screenshots match the pre-change build pixel for
+  pixel (or within FXAA noise); `CherryEngineTests` pass; frame times unchanged.
+
+### A3. Vulkan backend on Windows, Dice's subset
+
+- `RHI/Vulkan/`: volk + VMA (vcpkg: `volk`, `vulkan-memory-allocator`, `vulkan-headers`),
+  one bindless descriptor set per kind, push constants for the root constants, dynamic rendering
+  (or render passes where the device lacks it), timeline-free fences for broad device support.
+- Offline SPIR-V: a CMake step runs DXC `-spirv` for the shaders Dice needs (mesh pass +
+  compact variant, shadow + compact, particles, FXAA, tonemap, blit, debug lines) and writes
+  `Shaders/spirv/*.spv` + manifest. Passes not yet ported are skipped when the backend lacks
+  them (logged once).
+- `CherryLaunch.exe Dice/Dice.cherryproject --play --rhi vulkan`.
+- **Done when:** Dice under Vulkan matches D3D12 screenshots (`Screenshot.ps1 -Rhi vulkan`):
+  board, shadows, mid-tumble dice, sparks, HUD; no validation errors; 1,600 dice at well over
+  60 fps.
+
+### A4. Dice runs on a phone
+
+- Vulkan surface from `ANativeWindow`; swapchain recreated on surface loss and rotation;
+  pre-rotation handled (`VK_SURFACE_TRANSFORM`); FIFO present (vsync on, Dice's `vsync = false`
+  ignored on Android).
+- Dice changes: `DiceAudio` on miniaudio; a bundled open-licensed UI font in
+  `Content/Fonts/` replacing Segoe UI (Inter or Noto Sans, OFL) on both platforms or Android
+  only (**your call**: same look everywhere vs. keeping Segoe on Windows); ImGui scaled by
+  the display density; debug panel behind a corner button; landscape lock.
+- Mobile defaults in a preset (`Content/Presets/mobile.json`): shadow map 1024, FXAA on.
+- **Done when:** installed with `adb install`, it plays a full session by touch: dragging the
+  finger launches dice, Start/Restart work, sound plays, score card shows; pause/resume keeps
+  the session; measured fps and frame times on the test phone go into this doc.
+
+### A5. Export: project → APK in one command
+
+- `.cherryproject` gets an `"android"` section: `packageId` (e.g. `com.cherry.dice`), `label`,
+  `version`/`versionCode`, `orientation`, `icon` (PNG in Content).
+- `Android/` folder at the repo root: one generic Gradle app template (GameActivity, manifest
+  filled from the project file, `assets/` filled by the export).
+- **Cook:** the export runs the game on Windows headless for one frame
+  (`--cook`), records every surface shader, material and variant it created, compiles them to
+  SPIR-V and copies Content + `.spv` + manifest into the APK's assets. That keeps working when a
+  game uses `.mat`/`.shadergraph` shaders later.
+- `Tools/ExportAndroid.ps1 -Project <file> [-Release] [-Install] [-Run]`: configure + build
+  native, cook, Gradle `assembleDebug`/`assembleRelease`, sign (debug keystore; release keystore
+  path and passwords from environment variables, never the repo), optional `adb install` and
+  launch, output in `out/android/<Name>-<version>.apk`.
+- Editor: **File → Export → Android APK...** runs the script through `BuildProcess` and shows
+  its log.
+- **Done when:** from a clean checkout, the one command makes a signed APK that installs and runs;
+  the editor menu does the same.
+
+### Later (not needed for Dice)
+
+- The remaining passes on Vulkan (voxels, sky, SSAO, bloom, clouds, light shafts, eye
+  adaptation), then Rubik and UNDERTIME on Android.
+- Android App Bundle (`.aab`) for the Play Store, multiple ABIs, `ASTC` texture compression.
+- Physics: Jolt already builds for Android; nothing to do until a game on Android needs it.
+
+## Risks
+
+- **A2 size.** Every pass in `Renderer.cpp` is touched. Mitigation: port pass by pass, keep
+  screenshot comparisons for all three games after each.
+- **Descriptor indexing on the test phone.** Check `vulkaninfo` / GPU Caps Viewer on the
+  device before A3. Without `runtimeDescriptorArray` + partially bound, fall back to fixed-size
+  arrays (Dice needs only a handful of textures and buffers).
+- **SPIR-V differences from DXIL:** half precision, `SV_InstanceID` base (Vulkan includes the
+  base instance; DXIL doesn't), Y flip of clip space (flip in the viewport), depth range.
+  The `instances[gDraw.instanceIndex + SV_InstanceID]` read in the mesh pass needs care.
+- **Tile-based GPUs:** load/store ops must be right (clear, don't load) or the frame pays
+  bandwidth; FXAA + tonemap as separate full-screen passes cost more than on desktop.
+- **Per-instance CPU cost** (`Port.md` M10: ~0.26 µs per instance on a 5900X) will be several
+  times higher on a phone; fine at 1,600 dice, an issue past ~10k.
+
+## What you'd need to provide
+
+- A test phone (model / GPU), USB debugging on.
+- The app id and name, and later a release keystore.
+- OK for the engine changes in A0–A3 and A5 (all of them are engine work).

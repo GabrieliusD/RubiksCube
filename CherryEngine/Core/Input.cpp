@@ -1,10 +1,21 @@
 #include "Core/Input.h"
 #include "imgui.h"
+#if defined(_WIN32)
 #include <windowsx.h>
+#endif
 
-void Input::AttachWindow(HWND hwnd)
+void Input::OnPointerMove(float x, float y) { mMouseClient = { x, y }; }
+void Input::OnPointerButton(MouseButton button, bool down) { mButtons[static_cast<int>(button)] = down; }
+void Input::OnWheel(float notches) { mWheel += notches; }
+void Input::OnKey(int vk, bool down) { if (vk >= 0 && vk < 256) mKeys[vk] = down; }
+
+#if !defined(_WIN32)
+void Input::AttachWindow(void* nativeWindow) { mWindow = nativeWindow; }
+#else
+void Input::AttachWindow(void* nativeWindow)
 {
-	mHwnd = hwnd;
+	mWindow = nativeWindow;
+	const HWND hwnd = static_cast<HWND>(nativeWindow);
 	// Raw mouse input gives unaccelerated relative motion for mouse look.
 	RAWINPUTDEVICE device{};
 	device.usUsagePage = 0x01;   // generic desktop
@@ -56,6 +67,7 @@ void Input::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 		break;
 	}
 }
+#endif
 
 void Input::BeginFrame()
 {
@@ -74,7 +86,11 @@ void Input::SetRouting(bool mouse, bool keyboard, float viewX, float viewY, floa
 	mViewHeight = viewHeight;
 
 	// Lose capture if the window lost focus (alt-tab, another window clicked, ...).
-	if (mMouseCaptured && GetForegroundWindow() != mHwnd)
+#if defined(_WIN32)
+	if (mMouseCaptured && GetForegroundWindow() != static_cast<HWND>(mWindow))
+#else
+	if (false)
+#endif
 	{
 		ApplyCapture(false);
 	}
@@ -103,7 +119,11 @@ void Input::SetMouseCaptured(bool captured)
 {
 	if (captured == mMouseCaptured) return;
 	// Only take the cursor while our window is the one the user is using.
-	if (captured && (!mHwnd || GetForegroundWindow() != mHwnd)) return;
+#if defined(_WIN32)
+	if (captured && (!mWindow || GetForegroundWindow() != static_cast<HWND>(mWindow))) return;
+#else
+	if (captured && !mWindow) return;
+#endif
 	ApplyCapture(captured);
 }
 
@@ -111,6 +131,7 @@ void Input::ApplyCapture(bool captured)
 {
 	mMouseCaptured = captured;
 	ImGuiIO* io = ImGui::GetCurrentContext() ? &ImGui::GetIO() : nullptr;
+#if defined(_WIN32)
 	if (captured)
 	{
 		while (ShowCursor(FALSE) >= 0) {}
@@ -124,17 +145,23 @@ void Input::ApplyCapture(bool captured)
 		ClipCursor(nullptr);
 		if (io) io->ConfigFlags &= ~(ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange);
 	}
+#else
+	(void)io;
+#endif
 }
 
 void Input::ClipToView()
 {
-	if (!mHwnd) return;
+#if defined(_WIN32)
+	const HWND hwnd = static_cast<HWND>(mWindow);
+	if (!hwnd) return;
 	POINT topLeft{ static_cast<LONG>(mViewX), static_cast<LONG>(mViewY) };
 	POINT bottomRight{ static_cast<LONG>(mViewX + mViewWidth), static_cast<LONG>(mViewY + mViewHeight) };
-	ClientToScreen(mHwnd, &topLeft);
-	ClientToScreen(mHwnd, &bottomRight);
+	ClientToScreen(hwnd, &topLeft);
+	ClientToScreen(hwnd, &bottomRight);
 	RECT clip{ topLeft.x, topLeft.y, bottomRight.x, bottomRight.y };
 	ClipCursor(&clip);
+#endif
 }
 
 void Input::Reset()

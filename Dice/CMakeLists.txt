@@ -37,6 +37,10 @@ if(MSVC)
     target_compile_options(DiceGame PRIVATE /W3 /utf-8)
 endif()
 
+if(ANDROID)
+    return()   # the tests and the benchmark run on the build machine
+endif()
+
 # Face mapping, tumble direction, board and (from M3 on) the B11 invariants: ctest -C Debug -R DiceTests
 add_executable(DiceTests Tests/DiceTests.cpp ${DiceCore} DiceAudio.cpp)
 target_link_libraries(DiceTests PRIVATE CherryEngine)

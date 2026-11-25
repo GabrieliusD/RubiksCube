@@ -1,6 +1,24 @@
 cmake_minimum_required(VERSION 3.22.1)
 
-project(CherryLaunch LANGUAGES CXX)
+project(CherryLaunch LANGUAGES C CXX)
+
+if(ANDROID)
+	# The app's native library (lib<OUTPUT_NAME>.so, named in AndroidManifest.xml): NativeActivity
+	# glue, the engine and the active game, all static.
+	if(NOT CHERRY_MONOLITHIC)
+		message(FATAL_ERROR "Android builds are monolithic: configure with -DCHERRY_MONOLITHIC=ON")
+	endif()
+	set(_glue "${ANDROID_NDK}/sources/android/native_app_glue")
+	add_library(${PROJECT_NAME} SHARED AndroidMain.cpp "${_glue}/android_native_app_glue.c")
+	target_include_directories(${PROJECT_NAME} PRIVATE "${_glue}")
+	set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "game")
+	# NativeActivity looks up ANativeActivity_onCreate, which the glue defines.
+	target_link_options(${PROJECT_NAME} PRIVATE "-u" "ANativeActivity_onCreate")
+	target_link_libraries(${PROJECT_NAME} PRIVATE CherryEngine
+		"$<LINK_LIBRARY:WHOLE_ARCHIVE,${CHERRY_ACTIVE_GAME_TARGET}>" android log)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE CHERRY_MONOLITHIC=1)
+	return()
+endif()
 
 add_executable(${PROJECT_NAME} main.cpp)
 

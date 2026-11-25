@@ -103,7 +103,7 @@ namespace sg
 			if (!node.inputs.empty())
 			{
 				nlohmann::ordered_json inputs = nlohmann::ordered_json::array();
-				for (const Float4& input : node.inputs) inputs.push_back(ToJson(input));
+				for (const Float4& input : node.inputs) inputs.push_back(nlohmann::ordered_json::array({ input[0], input[1], input[2], input[3] }));
 				n["inputs"] = inputs;
 			}
 			const uint32_t settings = def ? def->settings : 0xFFFFFFFFu;

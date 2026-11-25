@@ -404,8 +404,9 @@ Renderer::~Renderer()
 	Shutdown();
 }
 
-bool Renderer::Initialize(HWND hwnd, uint32_t width, uint32_t height, std::string& error)
+bool Renderer::Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error)
 {
+	const HWND hwnd = static_cast<HWND>(nativeWindow);
 	Impl& r = *mImpl;
 	r.hwnd = hwnd;
 

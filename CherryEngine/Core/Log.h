@@ -20,6 +20,10 @@ namespace cherry
 	};
 	// Appends the kept entries with sequence > `after` to `out`.
 	CHERRY_API void ReadLog(uint64_t after, std::vector<LogEntry>& out);
+
+	// Logs an error and shows it to the user in a message box where there is one
+	// (`owner`: the native window it belongs to, or null).
+	CHERRY_API void ShowError(const char* title, const char* text, void* owner = nullptr);
 }
 
 #define CHERRY_LOG(...)   ::cherry::Log(::cherry::LogLevel::Info, __VA_ARGS__)

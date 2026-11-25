@@ -1,9 +1,13 @@
 #include "Core/Engine.h"
 #include "Core/Log.h"
+#include "Game/GameModule.h"
+#if CHERRY_EDITOR
 #include "Core/ModuleHost.h"
 #include "Core/BuildProcess.h"
-#include "Game/GameModule.h"
 #include "Editor/EditorLayer.h"
+#else
+#include "Core/NoEditor.h"
+#endif
 #include "Scene/SceneSerializer.h"
 #include "Game/Script.h"
 #include "imgui.h"
@@ -14,6 +18,8 @@
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <cstring>
+#include <cwchar>
 
 using namespace DirectX;
 namespace fs = std::filesystem;
@@ -38,6 +44,17 @@ namespace
 	}
 
 	std::wstring Widen(const std::string& text) { return fs::path(text).wstring(); }
+
+	bool EndsWithNoCase(const std::string& text, const char* suffix)
+	{
+		const size_t n = std::strlen(suffix);
+		if (text.size() < n) return false;
+		for (size_t i = 0; i < n; ++i)
+		{
+			if (std::tolower(static_cast<unsigned char>(text[text.size() - n + i])) != std::tolower(static_cast<unsigned char>(suffix[i]))) return false;
+		}
+		return true;
+	}
 
 	Transform DefaultCameraTransform()
 	{
@@ -193,7 +210,7 @@ void Engine::CompileModule(bool reconfigure)
 {
 	Impl& e = *mImpl;
 	if (!e.project.IsValid() || e.staticGame || e.build.IsRunning()) return;
-#if defined(CHERRY_CMAKE_COMMAND) && defined(CHERRY_BUILD_DIR) && defined(CHERRY_BUILD_CONFIG)
+#if CHERRY_EDITOR && defined(CHERRY_CMAKE_COMMAND) && defined(CHERRY_BUILD_DIR) && defined(CHERRY_BUILD_CONFIG)
 	// /nodeReuse:false: no MSBuild node outlives the build holding our output pipe.
 	// A PDB name of its own for every editor build: a debugger attached to the editor keeps
 	// the loaded module's PDB open, and relinking over it would fail (LNK1201).
@@ -226,6 +243,7 @@ void Engine::OpenProject(const fs::path& projectFile)
 {
 	if (!ConfirmDiscardSceneChanges()) return;
 	mImpl->sceneDirty = false;   // answered: don't ask again on the way out
+#if defined(_WIN32)
 	// A fresh process is the simplest way to get a clean engine, ImGui layout and module.
 	wchar_t exePath[MAX_PATH];
 	GetModuleFileNameW(nullptr, exePath, MAX_PATH);
@@ -240,6 +258,9 @@ void Engine::OpenProject(const fs::path& projectFile)
 	CloseHandle(info.hThread);
 	CloseHandle(info.hProcess);
 	mImpl->quitRequested = true;
+#else
+	CHERRY_ERROR("Opening another project needs the editor (%s)", projectFile.string().c_str());
+#endif
 }
 
 void Engine::NewScene() { mImpl->wantNewScene = true; }
@@ -288,6 +309,9 @@ bool Engine::ConfirmDiscardSceneChanges()
 {
 	Impl& e = *mImpl;
 	if (!e.sceneDirty) return true;
+#if !defined(_WIN32)
+	return true;   // no editor: nothing edits the scene document
+#else
 	const std::string name = e.scenePath.empty() ? std::string("the untitled scene") : e.scenePath.filename().string();
 	const std::string question = "Save changes to " + name + "?";
 	const int answer = MessageBoxA(e.window.Handle(), question.c_str(), "Cherry Editor", MB_YESNOCANCEL | MB_ICONQUESTION);
@@ -304,6 +328,7 @@ bool Engine::ConfirmDiscardSceneChanges()
 		return SaveScene();
 	}
 	return true;
+#endif
 }
 
 fs::path Engine::Impl::ResolveScenePath(const fs::path& file) const
@@ -392,7 +417,7 @@ void Engine::Impl::ResolveAssets(Scene& scene)
 		if (!renderer.material.IsValid() && !renderer.materialAsset.empty()) renderer.material = assets.GetMaterial(renderer.materialAsset);
 		// Voxel models (.vox) default to the material that shows their colours and glow.
 		if (!renderer.material.IsValid() && renderer.materialAsset.empty() && renderer.meshAsset.size() > 4
-			&& _stricmp(renderer.meshAsset.c_str() + renderer.meshAsset.size() - 4, ".vox") == 0)
+			&& EndsWithNoCase(renderer.meshAsset, ".vox"))
 		{
 			renderer.material = assets.GetMaterial("engine/VoxelModel");
 		}
@@ -402,7 +427,7 @@ void Engine::Impl::ResolveAssets(Scene& scene)
 			renderer.glassCheckedFor = renderer.meshAsset;
 			renderer.glassMesh = {};
 			const std::string& asset = renderer.meshAsset;
-			if (asset.size() > 4 && _stricmp(asset.c_str() + asset.size() - 4, ".vox") == 0) renderer.glassMesh = assets.GetMesh(asset + "#glass");
+			if (asset.size() > 4 && EndsWithNoCase(asset, ".vox")) renderer.glassMesh = assets.GetMesh(asset + "#glass");
 		}
 		if (renderer.glassMesh.IsValid() && !renderer.glassMaterial.IsValid())
 		{
@@ -926,7 +951,7 @@ int Engine::Run(const LaunchOptions& options)
 	if (!e.ResolveProject(options, error))
 	{
 		CHERRY_ERROR("%s", error.c_str());
-		MessageBoxA(nullptr, error.c_str(), "Cherry Engine", MB_ICONERROR);
+		cherry::ShowError("Cherry Engine", error.c_str());
 		return -1;
 	}
 	if (e.project.IsValid())
@@ -954,7 +979,11 @@ int Engine::Run(const LaunchOptions& options)
 		return -1;
 	}
 	e.input.AttachWindow(e.window.Handle());
+#if defined(_WIN32)
 	e.window.SetMessageHandler([&e](UINT msg, WPARAM wParam, LPARAM lParam) { e.input.HandleMessage(msg, wParam, lParam); });
+#else
+	e.window.SetInput(&e.input);
+#endif
 	e.window.SetResizeHandler([&e](uint32_t width, uint32_t height) { e.renderer.OnWindowResized(width, height); });
 
 	int exitCode = 0;
@@ -963,7 +992,7 @@ int Engine::Run(const LaunchOptions& options)
 		if (!e.renderer.Initialize(e.window.Handle(), e.window.Width(), e.window.Height(), error))
 		{
 			CHERRY_ERROR("Renderer initialization failed: %s", error.c_str());
-			MessageBoxA(e.window.Handle(), error.c_str(), "Cherry Engine", MB_ICONERROR);
+			cherry::ShowError("Cherry Engine", error.c_str(), e.window.Handle());
 			e.window.Destroy();
 			return -2;
 		}
@@ -993,7 +1022,7 @@ int Engine::Run(const LaunchOptions& options)
 	catch (const std::exception& ex)
 	{
 		CHERRY_ERROR("Fatal: %s", ex.what());
-		MessageBoxA(e.window.Handle(), ex.what(), "Cherry Engine - fatal error", MB_ICONERROR);
+		cherry::ShowError("Cherry Engine - fatal error", ex.what(), e.window.Handle());
 		exitCode = -3;
 	}
 
@@ -1157,7 +1186,7 @@ int Engine::Impl::Loop(Engine& engine)
 			wchar_t title[256];
 			std::wstring sceneName = scenePath.empty() ? std::wstring(L"untitled") : scenePath.stem().wstring();
 			if (sceneDirty) sceneName += L"*";
-			swprintf_s(title, L"%s - %s  |  %.0f fps  %.2f ms  |  GPU %.2f ms  |  %s, %s (F1)", baseTitle.c_str(), sceneName.c_str(),
+			std::swprintf(title, sizeof(title) / sizeof(title[0]), L"%ls - %ls  |  %.0f fps  %.2f ms  |  GPU %.2f ms  |  %ls, %ls (F1)", baseTitle.c_str(), sceneName.c_str(),
 				titleFrames / titleTimer, 1000.0f * titleTimer / titleFrames, renderer.Stats().gpuFrameMs,
 				state, editorMode ? L"editor" : L"game view");
 			window.SetTitle(title);

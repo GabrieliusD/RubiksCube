@@ -1,14 +1,18 @@
 #include "DiceAudio.h"
 #include "DiceSim.h"
+#if defined(_WIN32)
 #include <windows.h>
 #include <xaudio2.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <random>
 
+#if defined(_WIN32)
 #pragma comment(lib, "xaudio2.lib")
+#endif
 
 namespace dice
 {
@@ -63,6 +67,15 @@ namespace dice
 		}
 	}
 
+#if !defined(_WIN32)
+	// No audio device yet off Windows (Android gets one in milestone A4): silent.
+	struct Audio::Impl {};
+	Audio::Audio() : mImpl(std::make_unique<Impl>()) {}
+	Audio::~Audio() = default;
+	bool Audio::Running() const { return false; }
+	void Audio::Start() {}
+	void Audio::Play(Sound, float, bool) {}
+#else
 	struct Audio::Impl
 	{
 		IXAudio2* engine = nullptr;
@@ -160,4 +173,5 @@ namespace dice
 			break;
 		}
 	}
+#endif
 }

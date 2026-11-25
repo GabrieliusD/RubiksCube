@@ -5,6 +5,7 @@
 #include "DiceModule.h"
 #include "DiceVisuals.h"
 #include <imgui.h>
+#include <fstream>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -39,7 +40,7 @@ void DiceModule::LoadFonts()
 	auto load = [&](const char* file) -> ImFont*
 	{
 		const std::string path = std::string("C:\\Windows\\Fonts\\") + file;
-		if (FILE* f = nullptr; fopen_s(&f, path.c_str(), "rb") == 0 && f) { std::fclose(f); return atlas->AddFontFromFileTTF(path.c_str(), 16.0f); }
+		if (std::ifstream(path, std::ios::binary)) return atlas->AddFontFromFileTTF(path.c_str(), 16.0f);
 		return nullptr;
 	};
 	mFontRegular = load("segoeui.ttf");

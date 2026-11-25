@@ -1,7 +1,9 @@
 #include "Core/Project.h"
 #include "Core/Log.h"
 #include <nlohmann/json.hpp>
+#if defined(_WIN32)
 #include <windows.h>
+#endif
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -24,6 +26,7 @@ namespace cherry
 		}
 	}
 
+#if defined(_WIN32)
 	fs::path ExecutableDir()
 	{
 		wchar_t buffer[MAX_PATH];
@@ -40,6 +43,20 @@ namespace cherry
 		fs::create_directories(dir, ec);
 		return dir;
 	}
+#else
+	namespace { fs::path sExecutableDir = fs::current_path(); }
+
+	void SetExecutableDir(const fs::path& dir) { sExecutableDir = dir; }
+	fs::path ExecutableDir() { return sExecutableDir; }
+
+	fs::path EngineUserDir()
+	{
+		fs::path dir = ExecutableDir() / "Saved";
+		std::error_code ec;
+		fs::create_directories(dir, ec);
+		return dir;
+	}
+#endif
 
 	bool LoadProjectFile(const fs::path& file, ProjectDesc& out, std::string& error)
 	{

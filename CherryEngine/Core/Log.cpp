@@ -1,5 +1,9 @@
 #include "Core/Log.h"
+#if defined(_WIN32)
 #include <windows.h>
+#elif defined(__ANDROID__)
+#include <android/log.h>
+#endif
 #include <cstdarg>
 #include <cstdio>
 #include <mutex>
@@ -39,11 +43,26 @@ namespace cherry
 		std::lock_guard lock(sMutex);
 		std::fprintf(level == LogLevel::Error ? stderr : stdout, "%s%s\n", prefix, message);
 		std::fflush(stdout);
+#if defined(_WIN32)
 		OutputDebugStringA(prefix);
 		OutputDebugStringA(message);
 		OutputDebugStringA("\n");
+#elif defined(__ANDROID__)
+		const int priority = level == LogLevel::Error ? ANDROID_LOG_ERROR : level == LogLevel::Warning ? ANDROID_LOG_WARN : ANDROID_LOG_INFO;
+		__android_log_write(priority, "Cherry", message);
+#endif
 
 		sHistory.push_back({ sNextSequence++, level, message });
 		if (sHistory.size() > kMaxHistory) sHistory.pop_front();
+	}
+
+	void ShowError(const char* title, const char* text, void* owner)
+	{
+#if defined(_WIN32)
+		MessageBoxA(static_cast<HWND>(owner), text, title, MB_ICONERROR);
+#else
+		(void)owner;
+		Log(LogLevel::Error, "%s: %s", title, text);
+#endif
 	}
 }
