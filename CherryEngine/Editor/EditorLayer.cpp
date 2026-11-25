@@ -203,6 +203,17 @@ void EditorLayer::DrawMenuBar(Engine& engine)
 			ImGui::EndMenu();
 		}
 		ImGui::Separator();
+		if (ImGui::BeginMenu("Export", status.hasProject))
+		{
+			const bool busy = engine.IsExportingAndroid();
+			if (ImGui::MenuItem("Android APK (debug)", nullptr, false, !busy)) engine.ExportAndroid(false);
+			ImGui::SetItemTooltip("Tools/Android/Package.ps1: builds the game for arm64 and writes out/android/<Module>-Debug.apk (see the Output panel)");
+			if (ImGui::MenuItem("Android APK (release)", nullptr, false, !busy)) engine.ExportAndroid(true);
+			ImGui::SetItemTooltip("Signed with the keystore in CHERRY_ANDROID_KEYSTORE (and its passwords), else the debug key");
+			if (busy) ImGui::TextDisabled("Exporting...");
+			ImGui::EndMenu();
+		}
+		ImGui::Separator();
 		if (ImGui::MenuItem("Exit")) engine.RequestQuit();
 		ImGui::EndMenu();
 	}

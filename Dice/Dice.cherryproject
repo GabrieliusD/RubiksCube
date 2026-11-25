@@ -8,6 +8,7 @@
     "label": "Dice",
     "versionCode": 1,
     "versionName": "0.1",
-    "orientation": "landscape"
+    "orientation": "landscape",
+    "icon": "Icon.png"
   }
 }

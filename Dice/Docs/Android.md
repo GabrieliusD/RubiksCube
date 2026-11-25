@@ -1,6 +1,6 @@
 # Android support for CherryEngine, and the Dice game as an APK
 
-Status (2026-11-25): **A0–A4 done** on branch `features/android` (on an emulator; no phone yet); A5 not started. A2 and A3 were re-scoped (see "Change of approach" below).
+Status (2026-11-25): **A0–A5 done** on branch `features/android`, checked on an Android 12 emulator; not yet on a phone. A2 and A3 were re-scoped (see "Change of approach" below).
 
 | # | Milestone | State |
 |---|---|---|
@@ -9,7 +9,7 @@ Status (2026-11-25): **A0–A4 done** on branch `features/android` (on an emulat
 | A2 | Vulkan renderer: device, swapchain, ImGui | Done, on the emulator (Vulkan 1.3 through the host's RTX 4070). `Renderer/Vulkan/VulkanRenderer.cpp` draws the Dice HUD and debug panel over the sky colour at 60 fps; Home and back releases and recreates the surface in the same process. No 3D yet. |
 | A3 | Dice's 3D on Vulkan | Done, on the emulator. The board, dice (atlas texture, tint), felt grid, wooden base and shadows render; a swipe launches dice that tumble, glow when ready and throw sparks; 60 fps. Background colour identical to the Windows build (#14161a); the rest compared by eye only (tops, sides and felt read the same). arm64 Release builds; not yet seen on a phone. |
 | A4 | Dice playable by touch | Done on the emulator: Start by tap, swipes launch dice (13,045 points in one session), Home and back mid-session keeps it, the "Time's up" card with its stats, 60 fps; the UI is scaled to 440 dpi (x2.75) in Roboto; the debug panel starts folded; the AAudio stream opens ("Dice: audio started") but the sound hasn't been listened to. Windows: Segoe and XAudio2 as before, `DiceTests` pass. |
-| A5 | | Not started. |
+| A5 | Project to APK in one command | Done. `Tools/Android/Package.ps1 -Project Dice/Dice.cherryproject [-Config Release] [-Abi arm64-v8a,x86_64] [-Install] [-Run]`, or the editor's **File > Export > Android APK (debug / release)** (the same script in the background, output in the Output panel). Release, both ABIs: `out/android/DiceGame-Release.apk`, 12.1 MB, label "Dice" with its icon, installs and runs on the emulator. Projects whose game doesn't build for Android are refused with a message. Not checked: signing with a real keystore (none exists yet), the menu clicked by hand (its command line was run as is). |
 
 Goal: `Tools/ExportAndroid.ps1 -Project Dice/Dice.cherryproject` produces an installable,
 signed `Dice.apk` that plays the dice game on an arm64 phone. Windows (D3D12, editor, hot
@@ -90,6 +90,27 @@ sky, SSAO, bloom, light shafts, grading, eye adaptation, debug lines, view model
 Left for later: Vulkan pre-rotation (the compositor rotates now), immersive mode (the navigation
 handle shows), drawing under the display cutout (a black band on the cutout side), the audio
 stream's disconnect callback (headphones), a mobile shadow-map size, and checks on a real phone.
+
+**What A5 built (and differences from the plan):**
+- `Package.ps1` grew the project check (`$AndroidGames`: DiceGame only), the launcher icon
+  (`android.icon` in the project file; Dice's is `Dice/Icon.png`, a drawn die) and release signing
+  from `CHERRY_ANDROID_KEYSTORE`, `CHERRY_ANDROID_KEYSTORE_PASSWORD`, `CHERRY_ANDROID_KEY_ALIAS`,
+  `CHERRY_ANDROID_KEY_PASSWORD` (environment only; without them a release APK is signed with the
+  debug key and the script says so).
+- `Engine::ExportAndroid(release)` / `IsExportingAndroid()` run the script through a second
+  `BuildProcess` (arm64), and `EditorLayer` has the File > Export menu.
+- **No cook step:** the mobile shaders are compiled into the library, and the Vulkan renderer
+  draws every material with its built-in surface, so there is nothing per game to cook yet. The
+  cook comes back when the mobile renderer supports surface shaders (`.mat` / `.shadergraph`).
+
+## What's next (not started)
+
+- Try it on a phone (any Android 10+ arm64 phone with Vulkan): `Package.ps1 -Project
+  Dice/Dice.cherryproject -Install -Run` with the phone on USB debugging.
+- Vulkan pre-rotation, immersive mode, drawing under the cutout, the audio disconnect callback.
+- A release keystore for store builds, and an `.aab` for the Play Store.
+- More of the renderer on Vulkan (surface shaders, point lights, fog, sky, voxels) before Rubik or
+  UNDERTIME can go to Android.
 
 ## Decisions to make (recommendations first)
 

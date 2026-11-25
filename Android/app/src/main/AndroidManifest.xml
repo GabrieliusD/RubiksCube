@@ -8,6 +8,7 @@
 
     <application
         android:label="${appLabel}"
+        android:icon="${appIcon}"
         android:hasCode="false"
         android:allowBackup="false"
         android:appCategory="game"

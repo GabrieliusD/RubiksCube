@@ -111,6 +111,10 @@ public:
 	// `reconfigure`: run CMake's configure step first, needed after adding source files
 	// (a build regenerates the projects, but only the next build would compile them).
 	void CompileModule(bool reconfigure = false);
+	// Exports the project as an Android APK in the background (Tools/Android/Package.ps1, arm64;
+	// its output goes to the log, the APK to out/android/). Editor builds only.
+	void ExportAndroid(bool release);
+	bool IsExportingAndroid() const;
 	void ReloadModule();
 	// Restarts the editor on another project (asks about unsaved scene changes first).
 	void OpenProject(const std::filesystem::path& projectFile);

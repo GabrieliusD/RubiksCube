@@ -97,6 +97,7 @@ struct Engine::Impl
 	std::vector<Entity> destroyQueue;     // DestroyLater
 	std::string moduleError;
 	BuildProcess build;
+	BuildProcess androidExport;
 	bool lastBuildFailed = false;
 	uint32_t reloads = 0;
 	float watchTimer = 0.0f;
@@ -238,6 +239,25 @@ void Engine::CompileModule(bool reconfigure)
 }
 
 void Engine::ReloadModule() { mImpl->wantReload = true; }
+
+bool Engine::IsExportingAndroid() const { return mImpl->androidExport.IsRunning(); }
+
+void Engine::ExportAndroid(bool release)
+{
+	Impl& e = *mImpl;
+	if (!e.project.IsValid() || e.project.file.empty() || e.androidExport.IsRunning()) return;
+#if CHERRY_EDITOR && defined(CHERRY_SOURCE_DIR)
+	const std::wstring script = (fs::path(CHERRY_SOURCE_DIR) / "Tools" / "Android" / "Package.ps1").wstring();
+	const std::wstring command = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + script + L"\" -Project \""
+		+ e.project.file.wstring() + L"\" -Config " + (release ? L"Release" : L"Debug") + L" -Abi arm64-v8a";
+	CHERRY_LOG("[build] Android export: %s", fs::path(command).string().c_str());
+	std::string error;
+	if (!e.androidExport.Start(command, error)) CHERRY_ERROR("[build] Android export: %s", error.c_str());
+#else
+	(void)release;
+	CHERRY_ERROR("Exporting to Android needs the editor build on Windows");
+#endif
+}
 
 void Engine::OpenProject(const fs::path& projectFile)
 {
@@ -883,6 +903,16 @@ void Engine::Impl::UpdateModuleWatch(float dt)
 		lastBuildFailed = exitCode != 0;
 		if (lastBuildFailed) CHERRY_ERROR("[build] failed (exit code %d)", exitCode);
 		else CHERRY_LOG("[build] succeeded");
+	}
+	int exportCode = 0;
+	if (androidExport.Poll(exportCode))
+	{
+		if (exportCode != 0) CHERRY_ERROR("[build] Android export failed (exit code %d)", exportCode);
+#if defined(CHERRY_SOURCE_DIR)
+		else CHERRY_LOG("[build] Android export done: the APK is in %s", (fs::path(CHERRY_SOURCE_DIR) / "out" / "android").string().c_str());
+#else
+		else CHERRY_LOG("[build] Android export done");
+#endif
 	}
 	if (staticGame || !project.IsValid() || build.IsRunning()) return;
 

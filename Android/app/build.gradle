@@ -5,12 +5,17 @@
 //   cherryOrientation  landscape | portrait | unspecified ...
 //   cherryJniLibs      folder with <abi>/libgame.so
 //   cherryAssets       folder with the game's files (unpacked on the device at first start)
+//   cherryRes          optional resources folder (the launcher icon: mipmap/ic_launcher.png)
 //   cherryNdkVersion   the NDK libgame.so was built with
+// Release signing comes from the environment, never from the repository:
+//   CHERRY_ANDROID_KEYSTORE (path), CHERRY_ANDROID_KEYSTORE_PASSWORD, CHERRY_ANDROID_KEY_ALIAS,
+//   CHERRY_ANDROID_KEY_PASSWORD. Without them a release APK is signed with the debug key.
 plugins {
     id 'com.android.application'
 }
 
 def prop = { String name, String fallback -> project.findProperty(name) ?: fallback }
+def releaseKeystore = System.getenv('CHERRY_ANDROID_KEYSTORE')
 
 android {
     namespace 'com.cherryengine.game'
@@ -27,6 +32,7 @@ android {
         manifestPlaceholders = [
             appLabel   : prop('cherryLabel', 'Cherry Game'),
             orientation: prop('cherryOrientation', 'landscape'),
+            appIcon    : project.findProperty('cherryRes') ? '@mipmap/ic_launcher' : '@android:drawable/sym_def_app_icon',
         ]
     }
 
@@ -34,14 +40,25 @@ android {
         main {
             jniLibs.srcDirs = [prop('cherryJniLibs', 'build/cherry/jniLibs')]
             assets.srcDirs = [prop('cherryAssets', 'build/cherry/assets')]
+            if (project.findProperty('cherryRes')) res.srcDirs += [project.findProperty('cherryRes')]
+        }
+    }
+
+    signingConfigs {
+        if (releaseKeystore) {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv('CHERRY_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('CHERRY_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('CHERRY_ANDROID_KEY_PASSWORD')
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            // Replaced by a real keystore in milestone A5 (Dice/Docs/Android.md).
-            signingConfig signingConfigs.debug
+            signingConfig releaseKeystore ? signingConfigs.release : signingConfigs.debug
         }
     }
 
