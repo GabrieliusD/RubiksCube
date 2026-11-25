@@ -6,6 +6,8 @@
 #include "imgui.h"
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 using namespace DirectX;
@@ -71,6 +73,7 @@ struct Renderer::Impl
 	std::string shaderError;
 	uint32_t width = 0, height = 0, viewWidth = 1, viewHeight = 1;
 	bool imguiOwned = false;
+	std::chrono::steady_clock::time_point nextFrame{};
 };
 
 Renderer::Renderer() : mImpl(std::make_unique<Impl>()) {}
@@ -185,6 +188,15 @@ void Renderer::RenderScene(Scene&, const RenderView&)
 void Renderer::EndFrame(bool)
 {
 	ImGui::Render();
+	// Stand in for vsync (60 Hz), so a game without a backend doesn't spin a core.
+	if (mImpl->settings.vsync)
+	{
+		using clock = std::chrono::steady_clock;
+		const clock::time_point now = clock::now();
+		if (mImpl->nextFrame < now - std::chrono::milliseconds(50)) mImpl->nextFrame = now;
+		mImpl->nextFrame += std::chrono::microseconds(16667);
+		std::this_thread::sleep_until(mImpl->nextFrame);
+	}
 	// No backend uploads ImGui's textures (the font atlas): mark them handled so ImGui stops asking.
 	if (ImDrawData* data = ImGui::GetDrawData(); data && data->Textures)
 	{

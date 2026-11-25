@@ -66,7 +66,8 @@ public:
 	bool PumpMessages();
 
 	void SetResizeHandler(ResizeHandler handler) { mResizeHandler = std::move(handler); }
-	void SetTitle(const std::wstring&) {}
+	// No title bar: the engine's title (fps, frame times) goes to the log every few seconds.
+	void SetTitle(const std::wstring& title);
 	void SetInput(Input* input) { mInput = input; }
 
 	void* Handle() const { return mNative; }

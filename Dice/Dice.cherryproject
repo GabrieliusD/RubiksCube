@@ -2,5 +2,12 @@
   "name": "Dice Roll Feel Test",
   "module": "DiceGame",
   "content": "Content",
-  "startupScene": "Content/Scenes/Main.scene"
+  "startupScene": "Content/Scenes/Main.scene",
+  "android": {
+    "packageId": "com.cherryengine.dice",
+    "label": "Dice",
+    "versionCode": 1,
+    "versionName": "0.1",
+    "orientation": "landscape"
+  }
 }

@@ -1,35 +1,27 @@
-# Builds the engine and a game (the Dice game for now) for Android arm64.
-#   Tools/Android/Build.ps1 [-Config Debug|Release] [-Configure]
-# Uses Visual Studio's CMake, Ninja and vcpkg, and the Android NDK from the SDK.
+# Builds the engine and the active game (Dice for now) for Android: libgame.so per ABI.
+#   Tools/Android/Build.ps1 [-Config Debug|Release] [-Abi arm64-v8a,x86_64] [-Configure]
+# arm64-v8a is for phones, x86_64 for emulators. Uses Visual Studio's CMake, Ninja and vcpkg,
+# and the newest NDK in the Android SDK. Output: out/build/<preset>/CherryLaunch/<Config>/libgame.so
 param(
     [ValidateSet('Debug', 'Release')] [string] $Config = 'Debug',
+    [string[]] $Abi = @('arm64-v8a'),
     [switch] $Configure
 )
 $ErrorActionPreference = 'Stop'
-$root = Resolve-Path "$PSScriptRoot/../.."
+. "$PSScriptRoot/Common.ps1"
+$tools = Get-CherryAndroidTools
+$Abi = @($Abi | ForEach-Object { $_ -split ',' } | Where-Object { $_ })   # -File passes "a,b" as one string
 
-$vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -prerelease -property installationPath
-$cmakeDir = Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake'
-$cmake = Join-Path $cmakeDir 'CMake/bin/cmake.exe'
-$env:PATH = (Join-Path $cmakeDir 'Ninja') + ';' + $env:PATH
-if (-not $env:VCPKG_ROOT) { $env:VCPKG_ROOT = Join-Path $vs 'VC/vcpkg' }
-
-$sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
-if (-not $env:ANDROID_NDK_HOME) {
-    $ndk = Get-ChildItem (Join-Path $sdk 'ndk') -Directory | Sort-Object { [version]$_.Name } | Select-Object -Last 1
-    if (-not $ndk) { throw "No NDK under $sdk/ndk. Install one with the Android Studio SDK Manager." }
-    $env:ANDROID_NDK_HOME = $ndk.FullName
+foreach ($a in $Abi) {
+    $preset = Get-CherryAndroidPreset $a
+    $build = Join-Path $tools.Root "out/build/$preset"
+    Push-Location $tools.Root
+    try {
+        if ($Configure -or -not (Test-Path (Join-Path $build 'CMakeCache.txt'))) {
+            & $tools.CMake --preset $preset
+            if ($LASTEXITCODE) { throw "configure ($preset) failed ($LASTEXITCODE)" }
+        }
+        & $tools.CMake --build $build --config $Config
+        if ($LASTEXITCODE) { throw "build ($preset, $Config) failed ($LASTEXITCODE)" }
+    } finally { Pop-Location }
 }
-Write-Host "NDK: $env:ANDROID_NDK_HOME"
-Write-Host "vcpkg: $env:VCPKG_ROOT"
-
-$build = Join-Path $root 'out/build/android-arm64'
-Push-Location $root
-try {
-    if ($Configure -or -not (Test-Path (Join-Path $build 'CMakeCache.txt'))) {
-        & $cmake --preset android-arm64
-        if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE)" }
-    }
-    & $cmake --build $build --config $Config
-    if ($LASTEXITCODE) { throw "build failed ($LASTEXITCODE)" }
-} finally { Pop-Location }

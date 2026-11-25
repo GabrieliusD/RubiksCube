@@ -1,0 +1,59 @@
+// Properties (all passed by Tools/Android/Package.ps1):
+//   cherryAppId        application id, e.g. com.cherryengine.dice
+//   cherryLabel        the name under the icon
+//   cherryVersionCode  integer, cherryVersionName text
+//   cherryOrientation  landscape | portrait | unspecified ...
+//   cherryJniLibs      folder with <abi>/libgame.so
+//   cherryAssets       folder with the game's files (unpacked on the device at first start)
+//   cherryNdkVersion   the NDK libgame.so was built with
+plugins {
+    id 'com.android.application'
+}
+
+def prop = { String name, String fallback -> project.findProperty(name) ?: fallback }
+
+android {
+    namespace 'com.cherryengine.game'
+    compileSdk 34
+    // The NDK the native library was built with: Gradle strips its debug symbols with it.
+    if (project.findProperty('cherryNdkVersion')) ndkVersion project.findProperty('cherryNdkVersion')
+
+    defaultConfig {
+        applicationId prop('cherryAppId', 'com.cherryengine.game')
+        minSdk 29
+        targetSdk 34
+        versionCode prop('cherryVersionCode', '1') as int
+        versionName prop('cherryVersionName', '1.0')
+        manifestPlaceholders = [
+            appLabel   : prop('cherryLabel', 'Cherry Game'),
+            orientation: prop('cherryOrientation', 'landscape'),
+        ]
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = [prop('cherryJniLibs', 'build/cherry/jniLibs')]
+            assets.srcDirs = [prop('cherryAssets', 'build/cherry/assets')]
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Replaced by a real keystore in milestone A5 (Dice/Docs/Android.md).
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Stored uncompressed and page-aligned in the APK, loaded in place.
+            useLegacyPackaging = false
+        }
+    }
+
+    // The game's files go in as they are (scenes, presets and models are text or already packed).
+    androidResources {
+        noCompress += ['']
+    }
+}

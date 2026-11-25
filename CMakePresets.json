@@ -108,7 +108,7 @@
     {
       "name": "android-arm64",
       "displayName": "Android arm64 (Dice)",
-      "description": "Cross-compiles the engine and the Dice game for Android arm64 (monolithic, no editor). Tools/Android/Build.ps1 sets VCPKG_ROOT, ANDROID_NDK_HOME and Ninja.",
+      "description": "Cross-compiles the engine and the active game (Dice) for Android arm64 (monolithic, no editor). Tools/Android/Build.ps1 sets VCPKG_ROOT, ANDROID_NDK_HOME and Ninja.",
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
       "cacheVariables": {
@@ -117,10 +117,22 @@
         "VCPKG_TARGET_TRIPLET": "arm64-android",
         "ANDROID_ABI": "arm64-v8a",
         "ANDROID_PLATFORM": "android-29",
-        "ANDROID_STL": "c++_shared",
+        "ANDROID_STL": "c++_static",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release",
         "CHERRY_MONOLITHIC": "ON",
-        "CHERRY_ACTIVE_GAME_TARGET": "DiceGame"
+        "CHERRY_ACTIVE_GAME_TARGET": "DiceGame",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/Tools/Android/triplets"
+      }
+    },
+    {
+      "name": "android-x64",
+      "displayName": "Android x86_64 (emulator)",
+      "inherits": "android-arm64",
+      "description": "Like android-arm64, for x86_64 emulators (Jolt without AVX: Tools/Android/triplets).",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-android-sse4",
+        "ANDROID_ABI": "x86_64"
       }
     }
   ]

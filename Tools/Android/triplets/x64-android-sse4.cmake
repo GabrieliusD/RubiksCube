@@ -1,0 +1,13 @@
+# x86_64 Android for emulators: like vcpkg's x64-android, but Jolt without AVX/AVX2/FMA/BMI
+# (emulator CPUs often stop at SSE4.2 + F16C; with them Jolt dies at load with SIGILL).
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME Android)
+set(VCPKG_CMAKE_SYSTEM_VERSION 29)
+set(VCPKG_MAKE_BUILD_TRIPLET "--host=x86_64-linux-android")
+set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DANDROID_ABI=x86_64)
+if(PORT STREQUAL "joltphysics")
+  list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DUSE_AVX=OFF -DUSE_AVX2=OFF -DUSE_AVX512=OFF -DUSE_FMADD=OFF
+    -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF -DUSE_F16C=OFF -DUSE_SSE4_1=ON -DUSE_SSE4_2=ON)
+endif()

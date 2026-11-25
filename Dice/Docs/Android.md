@@ -1,11 +1,12 @@
 # Android support for CherryEngine, and the Dice game as an APK
 
-Status (2026-11-25): **A0 done** on branch `features/android`; A1–A5 not started.
+Status (2026-11-25): **A0 and A1 done** on branch `features/android`; A2–A5 not started.
 
 | # | Milestone | State |
 |---|---|---|
 | A0 | Engine compiles for Android | Done. `Tools/Android/Build.ps1 [-Config Release] [-Configure]` builds `out/build/android-arm64/CherryLaunch/<Config>/libgame.so` (engine + Dice, arm64). Windows Debug, Release and monolithic build without new warnings; all four test suites pass; Dice still runs (screenshot with the pretend pointer). Not run on a device: nothing is drawn yet and there is no APK. |
-| A1–A5 | | Not started. |
+| A1 | Platform layer, APK | Done, on an x86_64 emulator (Android 12, `Cherry_API_32_x64`); no phone yet. `Tools/Android/Package.ps1 -Project Dice/Dice.cherryproject -Abi arm64-v8a,x86_64 [-Install] [-Run]` makes `out/android/DiceGame-Debug.apk` (35.6 MB). On the emulator: the game files unpack on first start (not again after), the project and scene load, Dice deals its board and plays at a paced 60 fps (frames logged every 5 s); Home and back keeps the process; density and font-scale changes don't restart it; when the activity is destroyed the play session stops and the engine exits with 0. The screen is black: nothing is drawn until A3. |
+| A2–A5 | | Not started. |
 
 Goal: `Tools/ExportAndroid.ps1 -Project Dice/Dice.cherryproject` produces an installable,
 signed `Dice.apk` that plays the dice game on an arm64 phone. Windows (D3D12, editor, hot
@@ -90,6 +91,14 @@ Everything under `CherryEngine/` needs the user's OK; these changes are the plan
 - `CherryLaunch/AndroidMain.cpp`: NativeActivity glue (`android_main`), lifecycle commands into `Window`, touch as the pointer and left button; links the game with `--whole-archive`.
 - Dice: `GetEnv` instead of `_dupenv_s`, portable `sscanf`/font file check, `DiceAudio` silent off Windows (XAudio2 behind `_WIN32`).
 - Two fixes clang needed: `ShaderGraph.cpp` (an `ordered_json` push ambiguity), `Assets.cpp` (`rfind` on a wide path).
+
+**What A1 built (and where it differs from the plan):**
+- **NativeActivity instead of GameActivity:** no Java code or AndroidX libraries at all (`android:hasCode="false"`), so the Gradle template needs only the Android Gradle plugin (8.6.1, Gradle 8.9 wrapper, compileSdk 34, minSdk 29). GameActivity can come later if text input or insets need it.
+- **Unpacked files instead of reading through `AAssetManager`:** `Package.ps1` puts the project file and `Content/` in the APK with `files.txt` (a build stamp, then every path); `AndroidMain.cpp` copies them into the app's data folder when the stamp changes. The engine keeps using ordinary file I/O and `ExecutableDir()` is that folder. Shaders will come the same way (A3).
+- `Android/`: the generic Gradle app (`app/build.gradle` takes `-PcherryAppId/Label/VersionCode/VersionName/Orientation/JniLibs/Assets/NdkVersion`). `.cherryproject` files get an optional `"android"` section (Dice: `com.cherryengine.dice`, "Dice", landscape).
+- `Tools/Android/Package.ps1` (native build per ABI, staging in `out/android/<Module>/`, Gradle, copy to `out/android/<Module>-<Config>.apk`, `-Install`, `-Run`); `Build.ps1 -Abi arm64-v8a,x86_64`; `Common.ps1` finds the tools. Preset `android-x64` for emulators; its triplet `Tools/Android/triplets/x64-android-sse4.cmake` builds Jolt without AVX/AVX2/FMA (the emulator CPU stops at SSE4.2 + F16C; with them the library died at load with SIGILL). Both presets link libc++ statically.
+- Lifecycle: the manifest handles every configuration change itself (the engine can't restart inside one process), so the activity is only destroyed when it finishes; `android_main` then ends the process. Back on Android 12+ moves a launcher app's root activity to the background instead of finishing it (system behaviour); the engine sleeps while there is no surface.
+- Touch feeds ImGui as well as `Input` (mouse source "touch screen"). `NullRenderer` paces frames to 60 Hz when vsync is on. On Android, `Window::SetTitle` logs the title (fps, frame time) every 5 s.
 
 ### A1. Platform layer (Windows first, then Android)
 
