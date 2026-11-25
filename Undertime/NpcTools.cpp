@@ -358,7 +358,7 @@ void NpcTools::DrawSteps(const std::vector<npc::Step>& steps, const npc::DialogC
 	{
 		for (const npc::Effect& e : s.effects)
 		{
-			static const char* const kKinds[] = { "friendship", "set flag", "clear flag", "end", "accept", "complete", "take" };
+			static const char* const kKinds[] = { "friendship", "set flag", "clear flag", "end", "accept", "complete", "take", "shop" };
 			ImGui::TextColored(kMatch, "  do: %s %s%s", kKinds[static_cast<int>(e.kind)], e.name.c_str(),
 				e.kind == npc::Effect::Kind::Regard || e.kind == npc::Effect::Kind::Take ? (" " + std::to_string(static_cast<int>(e.amount))).c_str() : "");
 		}

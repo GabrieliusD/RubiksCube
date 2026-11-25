@@ -1,6 +1,7 @@
 #pragma once
 #include "VoxelWorld.h"
 #include "Fragments.h"
+#include <unordered_set>
 #include <vector>
 
 // Structural support: after the world changes, finds solid regions next to the change that
@@ -17,4 +18,7 @@ struct DetachResult
 	int visited = 0;                        // voxels examined (for the stats display)
 };
 
-DetachResult DetachUnsupported(VoxelWorld& world, const VoxelWorld::Box& changed, int budget);
+// `held`: voxels held up from outside the rock (timber props: the voxel a prop's top presses
+// on), by SupportKey; a region that touches one stays.
+DetachResult DetachUnsupported(VoxelWorld& world, const VoxelWorld::Box& changed, int budget, const std::unordered_set<uint32_t>* held = nullptr);
+uint32_t SupportKey(int x, int y, int z);

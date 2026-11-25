@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <DirectXPackedVector.h>
@@ -294,6 +295,7 @@ struct Renderer::Impl
 	DynamicStructuredBuffer debugVertexBuffer{ "DebugVertexBuffer", sizeof(gpu::DebugVertex) };
 	DynamicStructuredBuffer particleBuffer{ "ParticleBuffer", sizeof(gpu::ParticleData) };
 	std::vector<ParticleInstance> particles;           // this frame's, from Renderer::Particles
+	std::vector<MeshInstance> meshInstances;           // this frame's, from Renderer::MeshInstances
 	std::vector<gpu::ParticleData> particleScratch;
 
 	// Offscreen view targets.
@@ -788,13 +790,51 @@ void Renderer::Impl::SetupShadowCascades(const XMMATRIX& view, const XMMATRIX& p
 	const XMMATRIX lightToWorld = XMMatrixInverse(nullptr, lightView);
 	const XMMATRIX toUv = XMMatrixScaling(0.5f, -0.5f, 1.0f) * XMMatrixTranslation(0.5f, 0.5f, 0.0f);
 
+	// A fixed world box (ShadowSettings::boundsExtents): one fit, used by both cascades.
+	const XMFLOAT3& boundsExtents = settings.shadows.boundsExtents;
+	if (boundsExtents.x > 0.0f || boundsExtents.y > 0.0f || boundsExtents.z > 0.0f)
+	{
+		XMFLOAT3 corners[8];
+		BoundingBox(settings.shadows.boundsCenter, boundsExtents).GetCorners(corners);
+		XMVECTOR lo = XMVectorReplicate(FLT_MAX), hi = XMVectorReplicate(-FLT_MAX);
+		for (const XMFLOAT3& corner : corners)
+		{
+			const XMVECTOR lp = XMVector3TransformCoord(XMLoadFloat3(&corner), lightView);
+			lo = XMVectorMin(lo, lp);
+			hi = XMVectorMax(hi, lp);
+		}
+		XMFLOAT3 l, h;
+		XMStoreFloat3(&l, lo);
+		XMStoreFloat3(&h, hi);
+		const float radius = 0.5f * std::max(h.x - l.x, h.y - l.y);
+		const float texel = 2.0f * radius / kShadowMapSize;
+		const float cx = std::floor(0.5f * (l.x + h.x) / texel) * texel, cy = std::floor(0.5f * (l.y + h.y) / texel) * texel;
+		const float zNear = l.z - 1.0f, zFar = h.z + 1.0f;
+		const XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(cx - radius, cx + radius, cy - radius, cy + radius, zNear, zFar);
+		for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c)
+		{
+			ShadowCascade& cascade = cascades[c];
+			XMStoreFloat4x4(&cascade.viewProj, lightView * lightProj);
+			XMStoreFloat4x4(&cascade.uv, lightView * lightProj * toUv);
+			cascade.texelWorld = texel;
+			cascade.split = 1e30f;   // the first cascade covers every distance
+			BoundingOrientedBox::CreateFromBoundingBox(cascade.box,
+				BoundingBox(XMFLOAT3(cx, cy, 0.5f * (zNear + zFar)), XMFLOAT3(radius, radius, 0.5f * (zFar - zNear))));
+			cascade.box.Transform(cascade.box, lightToWorld);
+		}
+		return;
+	}
+
+	// An orthographic view: each slice is a box (half sizes 1/_11 and 1/_22), not a cone.
+	const bool orthographic = p._44 == 1.0f;
 	const float splits[CHERRY_SHADOW_CASCADES + 1] = { std::max(renderView.nearZ, 0.01f),
 		std::max(settings.shadows.nearDistance, 1.0f), std::max(settings.shadows.farDistance, settings.shadows.nearDistance + 1.0f) };
 	for (uint32_t c = 0; c < CHERRY_SHADOW_CASCADES; ++c)
 	{
 		const float n = splits[c], f = splits[c + 1];
-		const float zc = std::min(f, 0.5f * (n + f) * (1.0f + k2));
-		const float radius = std::max(std::sqrt((f - zc) * (f - zc) + f * f * k2), std::sqrt((zc - n) * (zc - n) + n * n * k2));
+		const float zc = orthographic ? 0.5f * (n + f) : std::min(f, 0.5f * (n + f) * (1.0f + k2));
+		const float radius = orthographic ? std::sqrt(k2 + 0.25f * (f - n) * (f - n))
+			: std::max(std::sqrt((f - zc) * (f - zc) + f * f * k2), std::sqrt((zc - n) * (zc - n) + n * n * k2));
 		const XMVECTOR center = XMVectorAdd(eye, XMVectorScale(forward, zc));
 
 		XMFLOAT3 cl;
@@ -1425,6 +1465,7 @@ XMUINT3 Renderer::GetVoxelVolumeSize(VoxelVolumeHandle volume) const
 
 RenderSettings& Renderer::Settings() { return mImpl->settings; }
 std::vector<ParticleInstance>& Renderer::Particles() { return mImpl->particles; }
+std::vector<MeshInstance>& Renderer::MeshInstances() { return mImpl->meshInstances; }
 DebugDraw& Renderer::Debug() { return mImpl->debugDraw; }
 const RenderStats& Renderer::Stats() const { return mImpl->stats; }
 const std::string& Renderer::AdapterName() const { return mImpl->device.Caps().adapterName; }
@@ -1490,6 +1531,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	XMStoreFloat4x4(&instance.world, XMMatrixIdentity());
 	XMStoreFloat4x4(&instance.normalMatrix, XMMatrixIdentity());
 	instance.materialIndex = material.index;
+	instance.tint = { 1, 1, 1, 1 };
 	frame.instanceBufferIndex = r.previewInstanceBuffer.Write(r.device, frameIndex, &instance, 1);
 
 	gpu::ViewConstants viewConstants{};
@@ -1537,7 +1579,7 @@ unsigned long long Renderer::RenderPreview(MeshHandle meshHandle, MaterialHandle
 	r.previewHdr->Transition(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmd->SetPipelineState(r.pipelines.Get("tonemap"));
-	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f };
+	gpu::TonemapConstants tonemap{ r.previewHdr->SrvIndex(), r.previewLdr->UavIndex(), size, size, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, CHERRY_INVALID_INDEX, 0.0f, 1u };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((size + 7) / 8, (size + 7) / 8, 1);
 	r.previewLdr->Transition(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1753,8 +1795,30 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	const XMMATRIX viewProj = view * proj;
 	const XMMATRIX invView = XMMatrixInverse(nullptr, view);
 
-	BoundingFrustum frustum(proj);
-	frustum.Transform(frustum, invView);
+	// What the camera sees: a frustum, or for an orthographic projection a box (BoundingFrustum
+	// assumes a perspective apex).
+	struct ViewVolume
+	{
+		bool box = false;
+		BoundingFrustum frustum;
+		BoundingOrientedBox orientedBox;
+		bool Intersects(const BoundingBox& bounds) const { return box ? orientedBox.Intersects(bounds) : frustum.Intersects(bounds); }
+		bool Intersects(const BoundingOrientedBox& bounds) const { return box ? orientedBox.Intersects(bounds) : frustum.Intersects(bounds); }
+	} frustum;
+	if (renderView.proj._44 == 1.0f)
+	{
+		const float halfWidth = 1.0f / renderView.proj._11, halfHeight = 1.0f / renderView.proj._22;
+		const float n = -renderView.proj._43 / renderView.proj._33, f = n + 1.0f / renderView.proj._33;
+		frustum.box = true;
+		BoundingOrientedBox::CreateFromBoundingBox(frustum.orientedBox,
+			BoundingBox(XMFLOAT3(0.0f, 0.0f, 0.5f * (n + f)), XMFLOAT3(halfWidth, halfHeight, 0.5f * (f - n))));
+		frustum.orientedBox.Transform(frustum.orientedBox, invView);
+	}
+	else
+	{
+		frustum.frustum = BoundingFrustum(proj);
+		frustum.frustum.Transform(frustum.frustum, invView);
+	}
 
 	r.BuildMaterialScratch();
 
@@ -1802,7 +1866,16 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 	const uint32_t boundsColor = DebugDraw::Color(0.2f, 1.0f, 0.3f);
 	// One part of a mesh entity (its mesh, or a voxel model's glass part): a shadow caster,
 	// and a draw unless culled.
-	auto submit = [&](const MeshRenderer& renderer, const XMMATRIX& world, MeshHandle meshHandle, MaterialHandle requestedMaterial)
+	// How one submitted mesh is drawn (from a MeshRenderer, or a MeshInstance).
+	struct DrawLook
+	{
+		RenderLayer layer = RenderLayer::World;
+		bool castShadows = true;
+		float dither = 1.0f;
+		bool ditherInvert = false;
+		XMFLOAT4 tint{ 1, 1, 1, 1 };
+	};
+	auto submit = [&](const DrawLook& renderer, const XMMATRIX& world, MeshHandle meshHandle, MaterialHandle requestedMaterial)
 	{
 		const MeshResource* mesh = r.meshes.Get(meshHandle);
 		if (!mesh) return;
@@ -1852,6 +1925,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		instance.materialIndex = materialHandle.index;
 		instance.ditherCut = 1.0f - std::clamp(renderer.dither, 0.0f, 1.0f);
 		instance.ditherInvert = renderer.ditherInvert ? 1u : 0u;
+		instance.tint = renderer.tint;
 		if (!renderer.ditherInvert && renderer.dither <= 0.0f) return;   // faded out entirely
 		const uint32_t pipeline = surface ? material->shader.index + 1 : 0;
 		const uint32_t translucent = surface && surface->options.translucent ? 1u : 0u;
@@ -1866,9 +1940,19 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		const MeshRenderer& renderer = scene.Get<MeshRenderer>(entity);
 		if (!renderer.visible) continue;
 		const XMMATRIX world = scene.WorldMatrix(entity);
-		submit(renderer, world, renderer.mesh, renderer.material);
-		if (renderer.glassMesh.IsValid()) submit(renderer, world, renderer.glassMesh, renderer.glassMaterial);
+		const DrawLook look{ renderer.layer, renderer.castShadows, renderer.dither, renderer.ditherInvert };
+		submit(look, world, renderer.mesh, renderer.material);
+		if (renderer.glassMesh.IsValid()) submit(look, world, renderer.glassMesh, renderer.glassMaterial);
 	}
+	// Instances the game handed over this frame (Renderer::MeshInstances), drawn like entities.
+	for (const MeshInstance& instance : r.meshInstances)
+	{
+		DrawLook look;
+		look.castShadows = instance.castShadows;
+		look.tint = instance.tint;
+		submit(look, XMLoadFloat4x4(&instance.world), instance.mesh, instance.material);
+	}
+	r.meshInstances.clear();
 	// Layer first (world before view models), opaque before translucent; opaque by pipeline
 	// (surface shader), then by mesh so pipelines and vertex/index buffers change rarely;
 	// translucent back to front so blending comes out right.
@@ -2348,7 +2432,7 @@ void Renderer::RenderScene(Scene& scene, const RenderView& renderView)
 		bloomOn ? r.bloomChain[0]->SrvIndex() : CHERRY_INVALID_INDEX, bloom.intensity,
 		ssaoOn ? r.ao->SrvIndex() : CHERRY_INVALID_INDEX, r.depth->SrvIndex(), std::clamp(ssaoSettings.strength, 0.0f, 1.0f),
 		shaftsOn ? r.shaft->SrvIndex() : CHERRY_INVALID_INDEX, eyeOn ? r.adaptedExposure->SrvIndex() : CHERRY_INVALID_INDEX,
-		edgesOn ? r.edges->SrvIndex() : CHERRY_INVALID_INDEX, edgeSettings.strength };
+		edgesOn ? r.edges->SrvIndex() : CHERRY_INVALID_INDEX, edgeSettings.strength, r.settings.toneCurve ? 1u : 0u };
 	cmd->SetComputeRoot32BitConstants(rhi::RootSlot_DrawConstants, sizeof(tonemap) / 4, &tonemap, 0);
 	cmd->Dispatch((r.viewWidth + 7) / 8, (r.viewHeight + 7) / 8, 1);
 	if (antiAliasing)

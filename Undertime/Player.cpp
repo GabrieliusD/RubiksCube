@@ -53,6 +53,14 @@ void PlayerController::Update(const Input& input, float dt, float speedScale, bo
 	}
 	const bool run = input.IsKeyDown(VK_SHIFT);
 	const float s = std::sin(yaw), c = std::cos(yaw);
+	if (climbing)
+	{
+		velocity = { 0.0f, forward * cfg::kClimbSpeed, 0.0f };
+		position = { position.x, position.y + velocity.y * dt, position.z };
+		mBody->SetPosition(position);
+		grounded = false;
+		return;
+	}
 	if (flying)
 	{
 		// Debug flight: along the view, straight through walls.

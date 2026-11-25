@@ -1,0 +1,6 @@
+{
+  "name": "Dice Roll Feel Test",
+  "module": "DiceGame",
+  "content": "Content",
+  "startupScene": "Content/Scenes/Main.scene"
+}

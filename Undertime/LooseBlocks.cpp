@@ -100,8 +100,64 @@ void LooseBlocks::Spawn(Engine& engine, cfg::Block block, int colorX, int colorY
 	SpawnLive(engine, block, ColourKey(block, colorX, colorY, colorZ), center, rotation, velocity, spin);
 }
 
+LooseBlocks::Settled LooseBlocks::MakeSettled(const XMFLOAT3& p, const XMFLOAT4& r, cfg::Block block, uint16_t colour, bool town)
+{
+	Settled s{ p, r, block, colour, town };
+	if (!town && InYard(p))
+	{
+		s.town = true;
+		++mYardPaid[static_cast<int>(block)];
+		++mYardCount;
+	}
+	return s;
+}
+
+LooseBlocks::Counts LooseBlocks::TakeYardPaid()
+{
+	const Counts paid = mYardPaid;
+	mYardPaid.fill(0);
+	return paid;
+}
+
+void LooseBlocks::FillYard(Engine& engine, cfg::Block block, int count, float groundY)
+{
+	// A stepped mound in the middle of the yard: square layers, each one block smaller all
+	// round, as wide as it needs to be for `count` (a little jittered, so it reads as a heap).
+	const float s = cfg::kVoxelSize;
+	const int nx = std::max(2, static_cast<int>((mYard[2] - mYard[0]) / s) - 2);
+	const int nz = std::max(2, static_cast<int>((mYard[3] - mYard[1]) / s) - 2);
+	const int widest = std::min(nx, nz);
+	auto holds = [](int side) { int n = 0; for (int k = side; k > 0; k -= 2) n += k * k; return n; };
+	int side = 2;
+	while (side < widest && holds(side) < count) side += 1;
+	const float x0 = (mYard[0] + mYard[2]) * 0.5f - side * s * 0.5f, z0 = (mYard[1] + mYard[3]) * 0.5f - side * s * 0.5f;
+	const uint16_t colour = ColourKey(block, cfg::kVoxX / 2, 4, 2);
+	int placed = 0;
+	for (int layer = 0; placed < count; ++layer)
+	{
+		const int shrink = std::min(layer, (side - 1) / 2);   // past the top, layers of the smallest square
+		const int across = side - 2 * shrink;
+		for (int z = 0; z < across && placed < count; ++z)
+			for (int x = 0; x < across && placed < count; ++x)
+			{
+				uint32_t h = static_cast<uint32_t>(placed) * 2654435761u;
+				h ^= h >> 15;
+				const float jx = ((h & 0xff) / 255.0f - 0.5f) * 0.06f, jz = (((h >> 8) & 0xff) / 255.0f - 0.5f) * 0.06f;
+				const XMFLOAT3 p{ x0 + (shrink + x + 0.5f) * s + jx, groundY + (layer + 0.5f) * s, z0 + (shrink + z + 0.5f) * s + jz };
+				XMFLOAT4 r;
+				XMStoreFloat4(&r, XMQuaternionRotationRollPitchYaw(0.0f, ((h >> 16) & 0xff) / 255.0f * 0.5f - 0.25f, 0.0f));
+				Pile& pile = mPiles[PileFor(engine, PileCellKey(p))];
+				pile.blocks.push_back(Settled{ p, r, block, colour, true });
+				pile.dirty = true;
+				++mSettledCount;
+				++mYardCount;
+				++placed;
+			}
+	}
+}
+
 void LooseBlocks::SpawnLive(Engine& engine, cfg::Block block, uint16_t colour, const XMFLOAT3& center,
-	const XMFLOAT4& rotation, const XMFLOAT3& velocity, const XMFLOAT3& spin)
+	const XMFLOAT4& rotation, const XMFLOAT3& velocity, const XMFLOAT3& spin, bool town)
 {
 	const float half = BlockHalf();
 	const std::vector<PhysicsBox> box{ PhysicsBox{ { 0, 0, 0 }, { half, half, half } } };
@@ -109,7 +165,7 @@ void LooseBlocks::SpawnLive(Engine& engine, cfg::Block block, uint16_t colour, c
 	if (body == kInvalidBody)
 	{
 		// Out of physics bodies: the block still isn't lost, it joins the pile where it is.
-		Settled s{ center, rotation, block, colour };
+		Settled s = MakeSettled(center, rotation, block, colour, town);
 		Pile& pile = mPiles[PileFor(engine, PileCellKey(center))];
 		pile.blocks.push_back(s);
 		pile.dirty = true;
@@ -122,6 +178,7 @@ void LooseBlocks::SpawnLive(Engine& engine, cfg::Block block, uint16_t colour, c
 	b.block = block;
 	b.colour = colour;
 	b.body = body;
+	b.town = town;
 	b.entity = scene.CreateEntity();
 	Transform transform;
 	transform.position = center;
@@ -179,6 +236,7 @@ void LooseBlocks::TakeSettled(Engine& engine, int pileIndex, int index, bool col
 	Block b;
 	b.block = s.block;
 	b.colour = s.colour;
+	b.town = s.town;
 	b.entity = scene.CreateEntity();
 	Transform transform;
 	transform.position = s.position;
@@ -209,7 +267,7 @@ void LooseBlocks::Settle(Engine& engine, const Block& b)
 	XMFLOAT4 r;
 	engine.GetPhysics().GetTransform(b.body, p, r, false);
 	Pile& pile = mPiles[PileFor(engine, PileCellKey(p))];
-	pile.blocks.push_back(Settled{ p, r, b.block, b.colour });
+	pile.blocks.push_back(MakeSettled(p, r, b.block, b.colour, b.town));
 	pile.dirty = true;
 	++mSettledCount;
 }
@@ -312,7 +370,7 @@ int LooseBlocks::JoinWaiting(Engine& engine, Pile& pile)
 		XMFLOAT4 r;
 		physics.GetTransform(b.body, p, r, false);
 		if (PileCellKey(p) != pile.key) { Unqueue(b); continue; }   // jittered into the next cell: waits there instead
-		pile.blocks.push_back(Settled{ p, r, b.block, b.colour });
+		pile.blocks.push_back(MakeSettled(p, r, b.block, b.colour, b.town));
 		++mSettledCount;
 		RemoveAt(engine, i);
 		++joined;
@@ -444,7 +502,7 @@ void LooseBlocks::Update(Engine& engine, float dt, const XMFLOAT3& collector, co
 				const XMFLOAT3 at{ cfg::kSpawnX - 0.75f + (n % 6) * 0.3f, cfg::kGroundY + 1.5f + ((n / 36) % 10) * 0.3f, cfg::kSpawnZ + 1.0f + ((n / 6) % 6) * 0.3f };
 				const Block rescued = b;
 				RemoveAt(engine, i);
-				SpawnLive(engine, rescued.block, rescued.colour, at, { 0, 0, 0, 1 }, { 0, 0, 0 }, { 0, 0, 0 });
+				SpawnLive(engine, rescued.block, rescued.colour, at, { 0, 0, 0, 1 }, { 0, 0, 0 }, { 0, 0, 0 }, rescued.town);
 				continue;
 			}
 			// Staying put: measured from where it last moved to, so a block jittering in a
@@ -486,7 +544,8 @@ void LooseBlocks::Update(Engine& engine, float dt, const XMFLOAT3& collector, co
 				// Flies into the backpack, shrinking as it goes.
 				const float u = std::min(b.leaving / cfg::kScoopFlyTime, 1.0f);
 				const float e = u * u;
-				t.position = { b.from.x + (collector.x - b.from.x) * e, b.from.y + (collector.y - b.from.y) * e, b.from.z + (collector.z - b.from.z) * e };
+				const XMFLOAT3 to = b.toPoint ? b.to : collector;
+				t.position = { b.from.x + (to.x - b.from.x) * e, b.from.y + (to.y - b.from.y) * e, b.from.z + (to.z - b.from.z) * e };
 				const float k = 1.0f - 0.7f * u;
 				t.scale = { k, k, k };
 				remove = u >= 1.0f;
@@ -614,7 +673,7 @@ void LooseBlocks::Wake(Engine& engine, const VoxelWorld::Box& box)
 		--mSettledCount;
 	}
 	FlushPiles(engine, false);
-	for (const Settled& b : live) SpawnLive(engine, b.block, b.colour, b.position, b.rotation, { 0, 0, 0 }, { 0, 0, 0 });
+	for (const Settled& b : live) SpawnLive(engine, b.block, b.colour, b.position, b.rotation, { 0, 0, 0 }, { 0, 0, 0 }, b.town);
 }
 
 std::optional<float> LooseBlocks::RaycastPiles(const XMFLOAT3& origin, const XMFLOAT3& direction, float maxDistance) const
@@ -653,7 +712,7 @@ std::vector<LooseBlocks::Ref> LooseBlocks::InReach(Engine& engine, const XMFLOAT
 	};
 	for (const Block& b : mBlocks)
 	{
-		if (b.body == kInvalidBody) continue;
+		if (b.body == kInvalidBody || b.town) continue;
 		XMFLOAT3 p;
 		XMFLOAT4 r;
 		physics.GetTransform(b.body, p, r, true);
@@ -666,7 +725,8 @@ std::vector<LooseBlocks::Ref> LooseBlocks::InReach(Engine& engine, const XMFLOAT
 				auto it = mPileIndex.find(PackCell(cx, cy, cz));
 				if (it == mPileIndex.end()) continue;
 				const Pile& pile = mPiles[it->second];
-				for (int i = 0; i < static_cast<int>(pile.blocks.size()); ++i) consider(pile.blocks[i].position, Ref{ kInvalidBody, it->second, i });
+				for (int i = 0; i < static_cast<int>(pile.blocks.size()); ++i)
+					if (!pile.blocks[i].town) consider(pile.blocks[i].position, Ref{ kInvalidBody, it->second, i });
 			}
 	std::sort(nearby.begin(), nearby.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
 	if (static_cast<int>(nearby.size()) > max) nearby.resize(max);
@@ -676,7 +736,7 @@ std::vector<LooseBlocks::Ref> LooseBlocks::InReach(Engine& engine, const XMFLOAT
 	return out;
 }
 
-int LooseBlocks::Collect(Engine& engine, const std::vector<Ref>& refs, Counts& taken)
+int LooseBlocks::Collect(Engine& engine, const std::vector<Ref>& refs, Counts& taken, const XMFLOAT3* to)
 {
 	int count = 0;
 	std::vector<Ref> settled;
@@ -698,6 +758,12 @@ int LooseBlocks::Collect(Engine& engine, const std::vector<Ref>& refs, Counts& t
 		++taken[static_cast<int>(mPiles[ref.pile].blocks[ref.index].block)];
 		TakeSettled(engine, ref.pile, ref.index, true);
 		++count;
+	}
+	if (to)
+	{
+		// Towards the barrow: every block that started leaving in this call (leaving is still 0).
+		for (Block& b : mBlocks)
+			if (b.body == kInvalidBody && b.collected && b.leaving == 0.0f) { b.toPoint = true; b.to = *to; }
 	}
 	return count;
 }
@@ -777,6 +843,8 @@ void LooseBlocks::Clear(Engine& engine)
 	mPileBodies.clear();
 	mSettledCount = 0;
 	mPendingCount = 0;
+	mYardPaid.fill(0);
+	mYardCount = 0;
 }
 
 void LooseBlocks::Shutdown(Engine& engine)
@@ -784,4 +852,50 @@ void LooseBlocks::Shutdown(Engine& engine)
 	Clear(engine);
 	for (auto& [key, mesh] : mMeshes) engine.GetRenderer().DestroyMesh(mesh);
 	mMeshes.clear();
+}
+
+int LooseBlocks::TakeFromYard(Engine& engine, int count)
+{
+	// The town's blocks, highest first.
+	std::vector<std::pair<float, std::pair<int, int>>> town;
+	for (int p = 0; p < static_cast<int>(mPiles.size()); ++p)
+		for (int i = 0; i < static_cast<int>(mPiles[p].blocks.size()); ++i)
+			if (mPiles[p].blocks[i].town) town.push_back({ -mPiles[p].blocks[i].position.y, { p, i } });
+	if (town.empty() || count <= 0) return 0;
+	const size_t n = std::min(town.size(), static_cast<size_t>(count));
+	std::partial_sort(town.begin(), town.begin() + n, town.end());
+	std::vector<std::pair<int, int>> take;
+	for (size_t k = 0; k < n; ++k) take.push_back(town[k].second);
+	// Highest index first within each pile, so removing one doesn't move the others.
+	std::sort(take.begin(), take.end(), [](const auto& a, const auto& b) { return a.first != b.first ? a.first < b.first : a.second > b.second; });
+	for (const auto& [p, i] : take)
+	{
+		Pile& pile = mPiles[p];
+		pile.blocks[i] = pile.blocks.back();
+		pile.blocks.pop_back();
+		pile.dirty = true;
+		--mSettledCount;
+		--mYardCount;
+	}
+	FlushPiles(engine, false);
+	return static_cast<int>(n);
+}
+
+void LooseBlocks::Push(Engine& engine, const BoundingBox& area, const XMFLOAT3& velocity)
+{
+	PhysicsWorld& physics = engine.GetPhysics();
+	const float s = cfg::kVoxelSize;
+	const float mass = cfg::kRockDensity * s * s * s;
+	for (Block& b : mBlocks)
+	{
+		if (b.body == kInvalidBody) continue;
+		XMFLOAT3 p;
+		XMFLOAT4 r;
+		physics.GetTransform(b.body, p, r, false);
+		if (area.Contains(XMLoadFloat3(&p)) == DISJOINT) continue;
+		const XMFLOAT3 v = physics.GetLinearVelocity(b.body);
+		physics.AddImpulse(b.body, { (velocity.x - v.x) * mass * 0.5f, 0.0f, (velocity.z - v.z) * mass * 0.5f }, p);
+		b.still = 0.0f;
+		Unqueue(b);
+	}
 }

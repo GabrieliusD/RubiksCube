@@ -180,6 +180,7 @@ struct InstanceData
 	uint flags;
 	float ditherCut;     // screen-door fading: 1 - the share of pixels drawn (0 = all drawn)
 	uint ditherInvert;   // 1: draw the other pixels (see MeshRenderer::dither)
+	float4 tint;         // multiplies the vertex colour (MeshInstance::tint); 1 for entities
 };
 
 // One material. Surface shaders read the fixed fields directly and their own parameters
@@ -264,6 +265,7 @@ struct TonemapConstants
 	uint exposureTextureIndex;     // Texture2D<float> 1x1 eye adaptation exposure, or CHERRY_INVALID_INDEX
 	uint edgeTextureIndex;         // Texture2D<float> edge highlights (Edges.hlsl), or CHERRY_INVALID_INDEX
 	float edgeStrength;
+	uint toneCurve;                // 1: the ACES curve; 0: none (RenderSettings::toneCurve)
 };
 
 // Eye adaptation (EyeAdaptation.hlsl): CSReduce sums the view per 16x16 block, CSAdapt eases

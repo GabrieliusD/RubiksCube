@@ -13,4 +13,6 @@ namespace meshes
 	MeshData Pick();
 	MeshData Shovel();
 	MeshData Lantern();
+	MeshData Hammer();
+	MeshData Axe();
 }

@@ -181,7 +181,7 @@ A small number of hand-written trees for story and missions, plus shared, tagged
 
 ### On screen
 - Press **E** near an NPC: the camera eases to face them, and an ImGui dialog box appears at the bottom (drawn like the HUD in `Hud.h`), with a portrait, their name, tier and the lines.
-- **Portrait:** a render of their voxel head through `Renderer::RenderPreview(mesh, material, size, yaw, pitch)`, which exists (it serves the shader graph preview). Whether it works well from game code at runtime needs checking. A fallback is a 2D portrait image per NPC, which Design.md §7 already mentions for shopkeepers.
+- **Portrait:** a render of their voxel head through `Renderer::RenderPreview(mesh, material, size, yaw, pitch)`, which exists (it serves the shader graph preview). Whether it works well from game code at runtime needs checking. A fallback is a 2D portrait image per NPC.
 - **The clock during dialog (decided):** the outside clock pauses while a conversation is open, as does your own time. NPCs nearby freeze in place or carry on their idle animation without moving along their routes.
 
 ### Later: a dialog editor
@@ -291,7 +291,7 @@ There are no animated characters in the engine (Design.md §7). A proposal that 
 
 Each one builds and runs on its own, like the visual milestones.
 
-1. **People in the valley:** placeholder voxel puppets (written by the placeholder tool), schedules, the waypoint graph, walking with LOD; the first cast (the trading post keeper, the clockmaker and two or three campers) living their day by the clock. Time-lapse figures seen from the mine. No talking yet. This is also "the valley alive" from Design.md §8.
+1. **People in the valley:** placeholder voxel puppets (written by the placeholder tool), schedules, the waypoint graph, walking with LOD; the first cast (the trading post keeper, the clockmaker and two or three campers) living their day by the clock. Time-lapse figures seen from the mine. No talking yet. This is also "the valley alive" (Design.md §9).
    **Built (2026-11-23, not yet tested by the user):**
    - **The cast** (`Npcs.h`, `Npcs.cpp`): Agnes Rook (trading post), Tom and Mae Harlan (prospector and cook), Bram Kettle (smith), all in Camp only, and the Clockmaker (every era). Each has placeholder traits, ties, a story line and a day with rain alternatives. 24 named places on the props (counter, campfire seats, tent beds, anvil, workbench...) and on the river bank.
    - **Where they are** (`NpcTown.h`): computed from the outside clock alone (tested: same date, same answer; nobody jumps; every walk ends before the next block; no route through water; two people never share a spot; rain sends them to their rain places). Block starts vary up to 20 minutes a day. Routes follow the trails (`cfg::kPathSegments` joined where their ends come close over dry land), straight across under 40 m, and through doorways into buildings.

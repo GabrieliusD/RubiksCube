@@ -16,6 +16,7 @@
 # -Showcase  build the showcase cave (UNDERTIME_DEV_SHOWCASE=1).
 # -Talk    "id [continues]": stand in front of that person and talk to them (UNDERTIME_DEV_TALK).
 # -Missions "ids... [journal|board]": take on missions and open the journal or board (UNDERTIME_DEV_MISSIONS).
+# -Haul    "words": money, the barrow, the yard, a shop (UNDERTIME_DEV_HAUL; see Hauling.cpp).
 # -Config  Release (default) or Debug.             -Log  where the game's output goes.
 param(
 	[Parameter(Mandatory = $true)][string]$View,
@@ -28,6 +29,7 @@ param(
 	[switch]$Showcase,
 	[string]$Talk = "",
 	[string]$Missions = "",
+	[string]$Haul = "",
 	[string]$Config = "Release",
 	[string]$Log = ""
 )
@@ -67,6 +69,7 @@ $settings = @{
 	UNDERTIME_DEV_SHOWCASE = $(if ($Showcase) { "1" } else { "" })
 	UNDERTIME_DEV_TALK = $Talk
 	UNDERTIME_DEV_MISSIONS = $Missions
+	UNDERTIME_DEV_HAUL = $Haul
 }
 foreach ($k in $settings.Keys) { if ($settings[$k]) { Set-Item "Env:$k" $settings[$k] } else { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } }
 try {

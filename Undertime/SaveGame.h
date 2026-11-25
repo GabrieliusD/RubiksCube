@@ -21,6 +21,8 @@ struct SaveGame
 	std::map<std::string, int> backpack;   // by block name
 	int pickLevel = 0, lanternLevel = 0;
 	npc::PlayerLog log;
+	// Money, goods, the barrow, the claim, crops, machines... (Hauling.cpp writes and reads it).
+	nlohmann::json hauling;
 	std::string date;                // the outside date when saved ("14:05, 3 June 1871"), for the title screen
 
 	nlohmann::json ToJson() const;

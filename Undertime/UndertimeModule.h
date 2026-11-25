@@ -24,7 +24,12 @@
 #include "Letters.h"
 #include "NpcTools.h"
 #include "SaveGame.h"
+#include "Economy.h"
+#include "Building.h"
+#include <algorithm>
 #include <array>
+#include <deque>
+#include <unordered_set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,9 +53,11 @@ public:
 	void LoadState(Engine& engine, const std::string& state) override;
 
 private:
-	enum class State { Title, Playing, Paused, Talking, Board };
+	enum class State { Title, Playing, Paused, Talking, Board, Shop, Menu };
 	enum class WorldRenderer { RayMarched, Meshes };
-	enum class Tool { Pick, Shovel };
+	enum class Tool { Pick, Shovel, Hammer, Axe };
+	// The windows of State::Menu: the hammer's piece list, a crate, your bench, a fire.
+	enum class Menu { None, Pieces, Store, Bench, Cook };
 
 	struct Target
 	{
@@ -105,6 +112,9 @@ private:
 	void UpdateClock(Engine& engine, float deltaTime);
 	void SetEra(Engine& engine, int newEra);
 	std::vector<float> ZoneStarts() const;
+	// Which sealed band between zones a bedrock voxel is part of (1 = between zones 1 and 2),
+	// 0 if it isn't one (a pocket's shell, the grid's shell).
+	int SealBand(int x, int y, int z) const;
 	void DrawWatch(const hud::Frame& frame);
 	// Dust: a puff where the pick broke rock, a cloud where rock fell, motes in the shafts.
 	void RockDust(Engine& engine, const DirectX::XMFLOAT3& at, int count, const DirectX::XMFLOAT4& colour, const DirectX::XMFLOAT3& out, float size);
@@ -252,7 +262,9 @@ private:
 	Entity pickEntity = INVALID_ENTITY;
 	Entity shovelEntity = INVALID_ENTITY;
 	Entity lanternEntity = INVALID_ENTITY;
-	MeshHandle pickMesh, shovelMesh, lanternMesh;
+	Entity hammerEntity = INVALID_ENTITY, axeEntity = INVALID_ENTITY;
+	MeshHandle pickMesh, shovelMesh, lanternMesh, hammerMesh, axeMesh;
+	bool HasTool(Tool t) const { return t != Tool::Axe || purse.Count("axe") > 0; }
 
 	// Mining
 	Tool tool = Tool::Pick;
@@ -281,9 +293,233 @@ private:
 	LooseBlocks::Counts recentPickup{};   // shown as "+3 Copper"
 	float pickupToast = 0.0f;
 
-	// Gear (upgrade levels, 0-based; trading arrives in milestone 2)
+	// Gear (upgrade levels, 0-based; bought from the smith and the stores)
 	int pickLevel = 0;
 	int lanternLevel = 0;
+	int packLevel = 0;
+	int PackCapacity() const { return cfg::kPackCapacity[std::clamp(packLevel, 0, 2)]; }
+
+	// ---- Money, shops, the yard, the barrow, the claim (Docs/Hauling.md; Hauling.cpp) ----
+	void StartHauling(Engine& engine);              // OnStartup, after the world is made
+	void StopHauling(Engine& engine);               // OnShutdown
+	void UpdateHauling(Engine& engine, float dt);   // every frame while playing
+	void AfterHauling(Engine& engine, float dt);    // every frame, in any state (the yard, the barrow's body)
+	// E with nothing else to do (the barrow...). Returns true if it did something.
+	bool HaulingInteract(Engine& engine);
+	std::string HaulingPrompt() const;              // the "E ..." line, or empty
+	void HaulingHud(std::vector<std::string>& bag) const;
+	nlohmann::json SaveHauling() const;
+	void LoadHauling(Engine& engine, const nlohmann::json& j);
+	void ResetHauling(Engine& engine);              // a new game
+	void DevHauling(Engine& engine);                // UNDERTIME_DEV_HAUL (Hauling.cpp)
+	// Shops: a "Trade" topic with whoever keeps one, then the shop window.
+	void ShopTopics(const npc::DialogContext& c, std::deque<npc::Topic>& out);
+	void OpenShop(Engine& engine, econ::Shop shop);
+	void CloseShop(Engine& engine);
+	void DrawShop(Engine& engine);
+	// Goods: blocks in the backpack (by block name) plus everything in the purse.
+	int Have(const std::string& id) const;
+	void Take(const std::string& id, int count);
+	void Give(Engine& engine, const std::string& id, int count);   // upgrades set gear, tools arrive
+	econ::Purse purse;
+	econ::Shop shopOpen = econ::Shop::Count;
+	econ::Shop pendingShop = econ::Shop::Count;   // chosen in a conversation; opens when it ends
+	std::string shopKeeper;
+	std::string shopNote;           // the last thing bought or sold
+	float yardTimer = 0.0f;         // collecting the yard's payments into one toast
+	int yardCents = 0, yardBlocks = 0;
+	Entity yardEntity = INVALID_ENTITY;
+	MeshHandle yardMesh;
+	float yardGround = 0.0f;
+	int yardRestore = 0;            // the town's stone to put back in the yard (loading a save)
+	std::vector<BodyId> yardBodies;
+	// Town projects (econ::Projects): stone used from the yard, by project id; finished ones.
+	void UpdateProjects(Engine& engine);
+	void DrawProjects();
+	std::map<std::string, int> projectStone;
+	std::map<std::string, double> projectDone;   // the outside day it was finished
+	double projectClock = -1.0;
+	float projectStoneDebt = 0.0f;
+
+	// The wheelbarrow (Barrow.cpp): bought at the trading post, pushed with E, filled with the
+	// shovel when it's parked within reach, tipped with Q.
+	void StartBarrow(Engine& engine);
+	void StopBarrow(Engine& engine);
+	void ResetBarrow(Engine& engine);
+	void BuyBarrow(Engine& engine);
+	bool HasBarrow() const { return barrow.owned; }
+	void UpdateBarrow(Engine& engine, float dt);
+	void AfterBarrow(Engine& engine, float dt);
+	bool BarrowInteract(Engine& engine);
+	std::string BarrowPrompt() const;
+	void BarrowHud(std::vector<std::string>& bag) const;
+	nlohmann::json SaveBarrow() const;
+	void LoadBarrow(Engine& engine, const nlohmann::json& j);
+	float BarrowSpeedScale() const;
+	int BarrowCount() const;
+	// Whether the next scoop goes into the barrow (parked within reach), and where it lands.
+	bool BarrowTakesScoops(DirectX::XMFLOAT3& into) const;
+	void AddToBarrow(const LooseBlocks::Counts& counts);
+	void PlaceBarrow(Engine& engine, const DirectX::XMFLOAT3& at, float yaw);
+	void RebuildBarrowLoad(Engine& engine);
+	void ParkBarrow(Engine& engine);
+	// ---- Your claim and building on it (Claim.cpp) ----
+	void StartClaim(Engine& engine);
+	void StopClaim(Engine& engine);
+	void ResetClaim(Engine& engine);
+	void UpdateClaim(Engine& engine, float dt);     // the hammer, while it's the tool
+	bool ClaimInteract(Engine& engine);             // E on furniture, doors, the tent
+	std::string ClaimPrompt() const;
+	void ClaimHud(std::vector<std::string>& lines) const;
+	nlohmann::json SaveClaim() const;
+	void LoadClaim(Engine& engine, const nlohmann::json& j);
+	void RebuildClaim(Engine& engine);
+	void OpenMenu(Engine& engine, Menu which);
+	void CloseMenu(Engine& engine);
+	void DrawMenu(Engine& engine);
+	// The claim's grid corner (voxel 0, 0, 0 of its model) in the world.
+	DirectX::XMFLOAT3 ClaimOrigin() const { return claim.origin; }
+	bool OnClaim(const DirectX::XMFLOAT3& p, float margin = 0.0f) const;
+	// Building materials come from the backpack and purse, a barrow parked close by, and (on
+	// the claim) your crates.
+	int BuildHave(const std::string& id) const;
+	void BuildTake(const std::string& id, int count);
+	void Sleep(Engine& engine);
+	build::Plan claimPlan{ cfg::kClaimCells, cfg::kClaimCells, cfg::kClaimLevels };
+	struct Claim
+	{
+		DirectX::XMFLOAT3 origin{ 0, 0, 0 };
+		Entity entity = INVALID_ENTITY, ghost = INVALID_ENTITY, tent = INVALID_ENTITY;
+		MeshHandle mesh, ghostMesh, tentMesh;
+		BodyId body = kInvalidBody, tentBody = kInvalidBody;
+		bool dirty = true;
+		int selected = 0;           // the piece the hammer places (build::Pieces index)
+		int turn = 0;               // R turns cell pieces
+		int ghostKey = -1;          // the piece and turn the ghost mesh was made for
+		build::Piece candidate;     // where the selected piece would go
+		bool candidateValid = false;
+		std::string why;            // why it can't go there
+		int aimed = -1;             // the piece under the crosshair
+		float swingTimer = 0.0f;
+		float takeDown = 0.0f;
+		econ::Goods store;          // what's in your crates
+		std::vector<Entity> lamps;
+	} claim;
+	Menu menu = Menu::None;
+
+	// ---- Hunger and food (Food.cpp) ----
+	void UpdateHunger(Engine& engine, float dt);    // drains in your own time; F eats
+	bool Eat(const std::string& id);
+	void DrawCooking(Engine& engine);
+	void OnSlept(Engine& engine, double days);      // a night passed (the bed, the tent)
+	float Strength() const { return hunger > 0.0f ? 1.0f : cfg::kHungryStrength; }
+	float hunger = 1.0f;            // 1 full .. 0 empty
+	bool hungerWarned = false, starvingWarned = false;
+
+	// ---- Wood (Wood.cpp): the axe fells trees; stumps grow back with outside time ----
+	void StartWood(Engine& engine);
+	void StopWood(Engine& engine);
+	void ResetWood(Engine& engine);
+	void UpdateWood(Engine& engine, float dt);
+	std::string WoodPrompt() const;
+	nlohmann::json SaveWood() const;
+	void LoadWood(Engine& engine, const nlohmann::json& j);
+	int AimedTree() const;          // the tree the axe points at, -1 if none
+	std::map<int, double> felled;   // tree -> the outside day it was felled
+	std::map<int, Entity> stumps;
+	MeshHandle stumpMesh;
+	float axeTimer = 0.0f;
+	bool axeSwinging = false;
+	int chopTree = -1, chops = 0;
+	int axeTarget = -1;
+	float woodTimer = 0.0f;
+
+	// ---- Things placed in the world (Placeables.cpp: props, ladders, chutes, torches;
+	// Machines.cpp: drills, belts, engines, the mill, rails and the cart) ----
+	struct Placed
+	{
+		std::string item;
+		DirectX::XMFLOAT3 at{ 0, 0, 0 };   // its base: on the floor, or against the wall
+		float yaw = 0.0f;
+		float height = 0.0f;               // props and ladders
+		Entity entity = INVALID_ENTITY, light = INVALID_ENTITY, extra = INVALID_ENTITY;
+		BodyId body = kInvalidBody;
+		uint32_t anchor = UINT32_MAX;      // a prop: the voxel it holds up
+		double ownTime = 0.0;              // seconds of its own time (torches burn, machines work)
+		// Machines
+		float fuel = 0.0f;                 // coal (steam) in units
+		double wear = 0.0;                 // own seconds of work since the last repair
+		LooseBlocks::Counts hopper{};
+		double progress = 0.0;             // a drill: metres bored; a mill: stone crushed
+		bool on = true;
+	};
+	void UpdatePlacing(Engine& engine, float dt);   // the hammer with one of your things
+	void UpdatePlaced(Engine& engine, float dt);    // torches burn, ladders climb, machines work
+	bool PlacedInteract(Engine& engine);
+	std::string PlacedPrompt() const;
+	void SpawnPlaced(Engine& engine, Placed& p);
+	void DespawnPlaced(Engine& engine, Placed& p);
+	void RemovePlacedAt(Engine& engine, int index, bool giveBack);
+	nlohmann::json SavePlaced() const;
+	void LoadPlaced(Engine& engine, const nlohmann::json& j);
+	void StopPlaced(Engine& engine);
+	MeshHandle PlacedMesh(Engine& engine, const std::string& item, float height);
+	// Own seconds per real second at `at`: things work in the time of where they stand.
+	double OwnRate(const DirectX::XMFLOAT3& at) const;
+	bool InCave(const DirectX::XMFLOAT3& p) const { return p.z > 0.0f && p.x >= 0.0f && p.x <= cfg::kGridX && p.y < cfg::kGridY; }
+	std::vector<Placed> placed;
+	std::unordered_set<uint32_t> propHeld;   // voxels props hold up (Structure.h)
+	std::map<std::string, MeshHandle> placedMeshes;
+	std::string placeItem;                   // the hammer places this from your pack (instead of claim pieces)
+	int placedAimed = -1;
+	float placedTakeDown = 0.0f;
+	int climbLadder = -1;
+	// Machines.cpp: where a machine may go, and what it does each frame.
+	bool PlaceMachine(Engine& engine, const std::string& item, const DirectX::XMFLOAT3& point, const DirectX::XMFLOAT3& normal, Placed& out, std::string& why);
+	void UpdateMachines(Engine& engine, float dt);
+	bool MachineInteract(Engine& engine, Placed& p);
+	std::string MachinePrompt(const Placed& p) const;
+	bool IsMachine(const std::string& item) const;
+	MeshHandle MachineMesh(Engine& engine, const std::string& item);
+	void SpawnMachine(Engine& engine, Placed& p);
+	void UpdateDrill(Engine& engine, Placed& p, double hours);
+	void UpdateBelts(Engine& engine, float dt);
+	void UpdateMill(Engine& engine, Placed& p, double hours);
+	void UpdateCart(Engine& engine, Placed& p, float dt);
+	bool EngineNear(const DirectX::XMFLOAT3& at) const;
+	bool CartTakesScoops(DirectX::XMFLOAT3& into, int& cart) const;
+	MeshHandle PlacedMeshFor(Engine& engine, const std::string& key, const VoxelModel& model);
+	int heldCart = -1;              // the cart you're pushing (index in placed)
+	std::vector<int> beltLoad;      // blocks on each placed belt (parallel to placed; rebuilt as needed)
+	float beltWake = 0.0f;
+
+	// ---- Farming (Farm.cpp): crops on farm plots, by outside day ----
+	void StopFarm(Engine& engine);
+	void UpdateFarm(Engine& engine, float dt);
+	bool FarmInteract(Engine& engine);
+	std::string FarmPrompt() const;
+	nlohmann::json SaveFarm() const;
+	void LoadFarm(Engine& engine, const nlohmann::json& j);
+	struct Planting { int crop = 0; double day = 0.0; int harvestedYear = -1000; Entity entity = INVALID_ENTITY; int shown = -1; };
+	std::map<int, Planting> plantings;   // by plot cell key (x, y, z on the claim)
+	std::map<int, MeshHandle> cropMeshes;  // by crop and look
+	float farmTimer = 0.0f;
+
+	struct Barrow
+	{
+		bool owned = false;
+		bool held = false;
+		DirectX::XMFLOAT3 position{ 0, 0, 0 };   // on the ground under the middle of the tray
+		float yaw = 0.0f;
+		LooseBlocks::Counts load{};
+		float tipping = -1.0f;      // >= 0: seconds into tipping out
+		int tipped = 0;             // blocks out so far while tipping
+		bool fillPack = false;      // B: scoops go into the pack even next to the barrow
+		Entity entity = INVALID_ENTITY, loadEntity = INVALID_ENTITY;
+		MeshHandle mesh, loadMesh;
+		int loadShown = -1;         // the load the heap mesh was built for
+		BodyId body = kInvalidBody; // while parked
+	} barrow;
 
 	DirectX::XMFLOAT3 lanternWorld{ 0, 0, 0 };
 	float time = 0.0f;

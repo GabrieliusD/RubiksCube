@@ -13,7 +13,9 @@ namespace
 	}
 }
 
-DetachResult DetachUnsupported(VoxelWorld& world, const VoxelWorld::Box& changed, int budget)
+uint32_t SupportKey(int x, int y, int z) { return Key(x, y, z); }
+
+DetachResult DetachUnsupported(VoxelWorld& world, const VoxelWorld::Box& changed, int budget, const std::unordered_set<uint32_t>* held)
 {
 	DetachResult result;
 	if (changed.Empty()) return result;
@@ -51,6 +53,11 @@ DetachResult DetachUnsupported(VoxelWorld& world, const VoxelWorld::Box& changed
 			const int cy = stack.back(); stack.pop_back();
 			const int cx = stack.back(); stack.pop_back();
 			component.push_back(cx); component.push_back(cy); component.push_back(cz);
+			if (held && held->count(Key(cx, cy, cz)))
+			{
+				isAnchored = true;   // a prop holds it up
+				break;
+			}
 			if (static_cast<int>(component.size() / 3) > budget)
 			{
 				isAnchored = true;   // too big to be a loose piece: part of the mountain

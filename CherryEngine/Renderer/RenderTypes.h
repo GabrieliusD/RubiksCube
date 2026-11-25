@@ -167,6 +167,11 @@ struct ShadowSettings
 	// When `direction` changes, the old shadows fade into the new over this many seconds
 	// instead of jumping (0 = jump). Keeps a second set of shadow maps.
 	float fadeSeconds = 0.0f;
+	// Fit the shadows to a fixed world box instead of the camera's view (both cascades cover
+	// it, at one resolution): for a small scene seen whole, e.g. a board under an
+	// orthographic camera. Off while boundsExtents is zero.
+	DirectX::XMFLOAT3 boundsCenter{ 0, 0, 0 };
+	DirectX::XMFLOAT3 boundsExtents{ 0, 0, 0 };
 };
 
 // Glow around bright pixels (windows, fire, crystals, the sun).
@@ -327,6 +332,16 @@ struct ParticleInstance
 	float stretch = 0.0f;                      // seconds of motion drawn as a streak along the velocity
 };
 
+// One mesh to draw this frame without an entity (Renderer::MeshInstances).
+struct MeshInstance
+{
+	MeshHandle mesh;
+	MaterialHandle material;                   // invalid: the default material
+	DirectX::XMFLOAT4X4 world;                 // row-vector convention, like Transform::Matrix
+	DirectX::XMFLOAT4 tint{ 1, 1, 1, 1 };      // multiplies the vertex colour (above 1 brightens)
+	bool castShadows = true;
+};
+
 // Scene-wide lighting and presentation settings. Games may change any of these every frame.
 struct RenderSettings
 {
@@ -356,6 +371,9 @@ struct RenderSettings
 	EdgeHighlightSettings edgeHighlights;
 	std::vector<RoomSettings> rooms;
 	bool antiAliasing = true;   // FXAA after the tonemap: smooths stair-stepped edges
+	// The ACES filmic curve from HDR to the display (lifts mid-tones, rolls highlights off).
+	// Off: colours are only clipped at 1, as a renderer without tone mapping shows them.
+	bool toneCurve = true;
 
 	// Values every surface shader can read (ShaderGlobal(i) in HLSL, the Global Input graph
 	// node). Their meaning is up to the game, e.g. time of day, snow amount, wind.

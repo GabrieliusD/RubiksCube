@@ -63,6 +63,22 @@ set(UndertimeSrc
     Meshes.cpp
     Hud.h
     Hud.cpp
+    Economy.h
+    Economy.cpp
+    ModelKit.h
+    ModelKit.cpp
+    Hauling.cpp
+    Barrow.cpp
+    Building.h
+    Building.cpp
+    Claim.cpp
+    Food.cpp
+    Growth.h
+    Growth.cpp
+    Wood.cpp
+    Farm.cpp
+    Placeables.cpp
+    Machines.cpp
     UndertimeModule.h
     UndertimeModule.cpp
     SceneComponents.h
@@ -83,8 +99,8 @@ if(MSVC)
 endif()
 
 # Pure voxel/physics helper tests: ctest -C Debug
-add_executable(UndertimeTests Tests/UndertimeTests.cpp Tests/ValleyTests.cpp Tests/ClockTests.cpp Tests/LightTests.cpp Tests/NpcTests.cpp Tests/DialogTests.cpp Tests/MissionTests.cpp Tests/LifeTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp
-    Valley.cpp TerrainMesh.cpp Clock.cpp DayNight.cpp Skylight.cpp Npcs.cpp NpcTown.cpp NpcLog.cpp Dialog.cpp SaveGame.cpp Missions.cpp Life.cpp Letters.cpp)
+add_executable(UndertimeTests Tests/UndertimeTests.cpp Tests/ValleyTests.cpp Tests/ClockTests.cpp Tests/LightTests.cpp Tests/NpcTests.cpp Tests/DialogTests.cpp Tests/MissionTests.cpp Tests/LifeTests.cpp Tests/HaulingTests.cpp VoxelWorld.cpp Fragments.cpp LooseBlocks.cpp Meshes.cpp Structure.cpp CaveGenerator.cpp
+    Valley.cpp TerrainMesh.cpp Clock.cpp DayNight.cpp Skylight.cpp Npcs.cpp NpcTown.cpp NpcLog.cpp Dialog.cpp SaveGame.cpp Missions.cpp Life.cpp Letters.cpp Economy.cpp Building.cpp Growth.cpp)
 target_link_libraries(UndertimeTests PRIVATE CherryEngine)
 target_compile_definitions(UndertimeTests PRIVATE UNDERTIME_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Content")
 add_test(NAME UndertimeTests COMMAND UndertimeTests)

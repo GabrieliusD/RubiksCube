@@ -101,13 +101,17 @@ struct MeshRenderer
 	bool castShadows = true;
 };
 
-// Perspective camera. The view matrix comes from the entity's Transform
+// Perspective (or orthographic) camera. The view matrix comes from the entity's Transform
 // (view = inverse of the camera's world matrix without scale).
 struct Camera
 {
 	float fovY = DirectX::XM_PIDIV4;
 	float nearZ = 0.1f;
 	float farZ = 1000.0f;
+	// Orthographic: no perspective; the view is 2 x orthoHalfHeight world units tall (and as
+	// wide as the aspect makes it). fovY is unused then.
+	bool orthographic = false;
+	float orthoHalfHeight = 10.0f;
 };
 
 // Drives the entity's Transform from a physics body every frame (interpolated between

@@ -82,7 +82,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 		const float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
 		color = max(lerp(luma.xxx, color, gFrame.gradeSaturation), 0.0);
 	}
-	color = ACESFilm(color);
+	color = gDraw.toneCurve != 0 ? ACESFilm(color) : saturate(color);
 	float3 display = LinearToSrgb(color);
 	if (grade)
 	{

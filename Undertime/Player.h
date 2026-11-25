@@ -17,6 +17,7 @@ public:
 	float pitch = 0.0f;    // radians, positive = looking down
 	bool grounded = false;
 	bool flying = false;   // debug (G): free flight through everything; Shift goes faster
+	bool climbing = false; // on a ladder: W climbs, S goes down (the game starts and stops it)
 
 	void CreateBody(PhysicsWorld& physics);
 	// Moves the player (feet position) and sets the facing; clears velocity.

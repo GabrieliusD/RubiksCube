@@ -897,7 +897,10 @@ bool Engine::Impl::UpdateMainView()
 	const float aspect = static_cast<float>(renderer.ViewWidth()) / static_cast<float>(std::max(renderer.ViewHeight(), 1u));
 
 	XMStoreFloat4x4(&mainView.view, XMMatrixInverse(nullptr, world));
-	XMStoreFloat4x4(&mainView.proj, XMMatrixPerspectiveFovLH(cameraData.fovY, aspect, cameraData.nearZ, cameraData.farZ));
+	const XMMATRIX proj = cameraData.orthographic
+		? XMMatrixOrthographicLH(2.0f * cameraData.orthoHalfHeight * aspect, 2.0f * cameraData.orthoHalfHeight, cameraData.nearZ, cameraData.farZ)
+		: XMMatrixPerspectiveFovLH(cameraData.fovY, aspect, cameraData.nearZ, cameraData.farZ);
+	XMStoreFloat4x4(&mainView.proj, proj);
 	mainView.position = transform.position;
 	mainView.nearZ = cameraData.nearZ;
 	mainView.farZ = cameraData.farZ;
@@ -1180,6 +1183,8 @@ Ray Engine::ScreenPointToRay(const XMFLOAT2& viewPixel) const
 
 	Ray ray;
 	ray.origin = e.mainView.position;
+	if (e.mainView.proj._44 == 1.0f)   // orthographic: parallel rays, each from its own point
+		XMStoreFloat3(&ray.origin, nearPoint);
 	XMStoreFloat3(&ray.direction, XMVector3Normalize(farPoint - nearPoint));
 	return ray;
 }

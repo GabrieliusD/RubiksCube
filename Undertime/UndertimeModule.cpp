@@ -104,7 +104,7 @@ std::string UndertimeModule::SaveState(Engine&)
 	std::snprintf(text, sizeof(text), "%u %.4f %.4f %.4f %.4f %.9f %.3f %d %d %d %d %d", seed, player.position.x, player.position.y, player.position.z, player.yaw,
 		clock.Days(), clock.PersonalSeconds(), era, o.cap ? 1 : 0, o.piles ? 1 : 0, o.solidBlocks ? 1 : 0, o.solidPiles ? 1 : 0);
 	// The people's log on the second line (what you did with everyone).
-	return std::string(text) + "\n" + peopleLog.ToJson().dump();
+	return std::string(text) + "\n" + peopleLog.ToJson().dump() + "\n" + SaveHauling().dump();
 }
 
 void UndertimeModule::LoadState(Engine& engine, const std::string& text)
@@ -139,6 +139,11 @@ void UndertimeModule::LoadState(Engine& engine, const std::string& text)
 			if (!peopleLog.FromJson(nlohmann::json::parse(line), error)) CHERRY_LOG("UNDERTIME: the people's log didn't survive the reload: %s", error.c_str());
 		}
 		catch (const std::exception& e) { CHERRY_LOG("UNDERTIME: the people's log didn't survive the reload: %s", e.what()); }
+	}
+	if (std::getline(stream, line) && !line.empty())
+	{
+		try { LoadHauling(engine, nlohmann::json::parse(line)); }
+		catch (const std::exception& e) { CHERRY_LOG("UNDERTIME: money and goods didn't survive the reload: %s", e.what()); }
 	}
 	UpdateCamera(engine);
 	CHERRY_LOG("UNDERTIME: kept seed %u and the player's position across the reload", savedSeed);
@@ -175,6 +180,7 @@ void UndertimeModule::OnStartup(Engine& engine)
 		{
 			npc::LetterTopics(dialogs, c, out);
 			missions.Topics(c, out);
+			ShopTopics(c, out);
 		};
 		hooks.effect = [this](const npc::Effect& e) { MissionEffect(e); };
 		hooks.count = [this](const std::string& item) { return BackpackItem(item); };
@@ -265,6 +271,7 @@ void UndertimeModule::OnStartup(Engine& engine)
 		free(devSeed);
 	}
 	NewWorld(engine, startSeed);
+	StartHauling(engine);
 
 	Camera& camera = engine.GetScene().Get<Camera>(engine.MainCamera());
 	camera.nearZ = cfg::kNearPlane;
@@ -378,6 +385,7 @@ void UndertimeModule::OnStartup(Engine& engine)
 			state = State::Playing;
 		}
 	}
+	DevHauling(engine);
 	UpdateCamera(engine);
 	UpdateLighting(engine);
 }
@@ -538,7 +546,17 @@ void UndertimeModule::CreateScenery(Engine& engine)
 	Scene& scene = engine.GetScene();
 	PhysicsWorld& physics = engine.GetPhysics();
 	if (!valley) valley = std::make_unique<Valley>();
-	valley->SetPads(props.Pads(engine, scene, *valley));
+	{
+		// The town's building pads, and your claim's (flat ground to build on).
+		std::vector<GroundPad> pads = props.Pads(engine, scene, *valley);
+		GroundPad claimPad;
+		claimPad.x = cfg::kClaimCenter[0];
+		claimPad.z = cfg::kClaimCenter[1];
+		claimPad.halfX = claimPad.halfZ = cfg::kClaimCells * 0.5f + 0.75f;
+		claimPad.height = std::round(valley->Height(claimPad.x, claimPad.z) / cfg::kVoxelSize) * cfg::kVoxelSize;
+		pads.push_back(claimPad);
+		valley->SetPads(pads);
+	}
 	// The level of detail and collision start around where the player will start (they follow
 	// the camera from the first frame, so a development view elsewhere catches up there).
 	const XMFLOAT3 focus = hasSceneSpawn ? sceneSpawn : XMFLOAT3{ cfg::kSpawnX, cfg::kGroundY + 1.6f, cfg::kSpawnZ };
@@ -590,6 +608,10 @@ void UndertimeModule::CreateViewModels(Engine& engine)
 	pickEntity = spawn(pickMesh);
 	shovelEntity = spawn(shovelMesh);
 	scene.Get<MeshRenderer>(shovelEntity).visible = false;
+	hammerMesh = renderer.CreateMesh(meshes::Hammer());
+	axeMesh = renderer.CreateMesh(meshes::Axe());
+	hammerEntity = spawn(hammerMesh);
+	axeEntity = spawn(axeMesh);
 	lanternEntity = spawn(lanternMesh);
 }
 
@@ -603,6 +625,7 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	for (Grave& g : graves) if (engine.GetScene().IsAlive(g.entity)) engine.GetScene().DestroyEntity(g.entity);
 	graves.clear();
 	engine.GetInput().SetMouseCaptured(false);
+	StopHauling(engine);
 	fragments.Clear(engine);
 	blocks.Shutdown(engine);
 	player.DestroyBody();
@@ -615,6 +638,8 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	scene.DestroyEntity(pickEntity);
 	scene.DestroyEntity(shovelEntity);
 	scene.DestroyEntity(lanternEntity);
+	scene.DestroyEntity(hammerEntity);
+	scene.DestroyEntity(axeEntity);
 	for (Entity e : shaftDust) scene.DestroyEntity(e);
 	shaftDust.clear();
 	for (MeshHandle m : chunkMeshes) renderer.DestroyMesh(m);
@@ -624,6 +649,8 @@ void UndertimeModule::OnShutdown(Engine& engine)
 	renderer.DestroyMesh(pickMesh);
 	renderer.DestroyMesh(shovelMesh);
 	renderer.DestroyMesh(lanternMesh);
+	renderer.DestroyMesh(hammerMesh);
+	renderer.DestroyMesh(axeMesh);
 	renderer.DestroyMaterial(vertexColorMaterial);
 	renderer.DestroyLightVolume(skylightVolume);
 	skylightVolume = {};
@@ -721,7 +748,17 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 		const Tool before = tool;
 		if (input.WasKeyPressed('1')) tool = Tool::Pick;
 		if (input.WasKeyPressed('2')) tool = Tool::Shovel;
-		if (input.WheelDelta() != 0.0f) tool = tool == Tool::Pick ? Tool::Shovel : Tool::Pick;
+		if (input.WasKeyPressed('3')) tool = Tool::Hammer;
+		if (input.WasKeyPressed('4'))
+		{
+			if (HasTool(Tool::Axe)) tool = Tool::Axe;
+			else messages.Show("You've no axe yet (the smith makes them).", 1.5f);
+		}
+		if (input.WheelDelta() != 0.0f)
+		{
+			const int step = input.WheelDelta() > 0.0f ? 3 : 1;   // up goes back, down goes on
+			do tool = static_cast<Tool>((static_cast<int>(tool) + step) % 4); while (!HasTool(tool));
+		}
 		if (tool != before)
 		{
 			swingTimer = shovelTimer = 0.0f;
@@ -729,7 +766,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 			target = {};
 			scoopPreview.clear();
 		}
-		if (!devHold) player.Update(input, dt, 1.0f, input.IsMouseCaptured());
+		if (!devHold) player.Update(input, dt, BarrowSpeedScale(), input.IsMouseCaptured());
 		UpdateClock(engine, dt);
 		// Who you could talk to; E starts it.
 		talkTarget = people.TalkTarget(player.EyePosition(), player.LookDirection());
@@ -742,6 +779,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 		UpdateBarks(engine, dt);
 		UpdateMissions(engine);
 		UpdateLives(engine);
+		UpdateHauling(engine, dt);
 		if (input.WasKeyPressed(VK_TAB)) journalOpen = !journalOpen;
 		if (talkTarget < 0 && input.WasKeyPressed('E'))
 		{
@@ -770,6 +808,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 				missions.Found(peopleLog, thing.mission, clock.Days());
 				if (const npc::MissionDef* m = missions.Find(thing.mission)) messages.Show("You found " + m->thing + ".", 2.5f);
 			}
+			else HaulingInteract(engine);
 		}
 		autosaveTimer += dt;
 		if (autosaveTimer > cfg::kAutosaveSeconds || saveRequested)
@@ -778,8 +817,10 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 			autosaveTimer = 0.0f;
 			saveRequested = false;
 		}
-		if (tool == Tool::Pick) UpdateMining(engine, dt);
-		else UpdateShovel(engine, dt);
+		if (barrow.held) { target = {}; scoopPreview.clear(); }   // hands on the barrow's handles
+		else if (tool == Tool::Pick) UpdateMining(engine, dt);
+		else if (tool == Tool::Shovel) UpdateShovel(engine, dt);
+		else { target = {}; scoopPreview.clear(); }   // the hammer and axe: Claim.cpp, Wood.cpp
 
 		// Target outline (world-space lines, depth-tested so only the visible edges show).
 		if (target.valid && target.fragment == kInvalidBody)
@@ -795,6 +836,8 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 		swingTimer = shovelTimer = 0.0f;
 		scoopPreview.clear();
 		if (state == State::Talking) UpdateTalk(engine, dt);
+		if (state == State::Shop && shopOpen == econ::Shop::Count) CloseShop(engine);
+		if (state == State::Menu && menu == Menu::None) CloseMenu(engine);
 		if (state == State::Board && engine.GetInput().WasKeyPressed(VK_ESCAPE))
 		{
 			state = State::Playing;
@@ -813,6 +856,7 @@ void UndertimeModule::OnUpdate(Engine& engine, float dt)
 	}
 	const XMFLOAT3 chest{ player.position.x, player.position.y + cfg::kBodyHeight * 0.55f, player.position.z };
 	blocks.Update(engine, dt, chest, player.position);
+	AfterHauling(engine, dt);
 	pickupToast = std::max(pickupToast - dt, 0.0f);
 	fullWarning = std::max(fullWarning - dt, 0.0f);
 	// All of this frame's edits: rebuild each touched collision chunk once.
@@ -1054,7 +1098,15 @@ void UndertimeModule::DrawConversation(Engine& engine)
 		}
 	}
 	ImGui::End();
-	if (conversation.GetMode() == npc::Conversation::Mode::Over) EndTalk(engine);
+	if (conversation.GetMode() == npc::Conversation::Mode::Over)
+	{
+		EndTalk(engine);
+		if (pendingShop != econ::Shop::Count)
+		{
+			OpenShop(engine, pendingShop);
+			pendingShop = econ::Shop::Count;
+		}
+	}
 }
 
 // =============================================================================
@@ -1100,6 +1152,10 @@ void UndertimeModule::MissionEffect(const npc::Effect& e)
 	}
 	case npc::Effect::Kind::Take:
 		AddToBackpack({ { e.name, -static_cast<int>(e.amount) } });
+		break;
+	case npc::Effect::Kind::Shop:
+		pendingShop = static_cast<econ::Shop>(std::clamp(std::atoi(e.name.c_str()), 0, static_cast<int>(econ::Shop::Count)));
+		if (conversation.Npc() >= 0) shopKeeper = npc::Cast()[conversation.Npc()].name;
 		break;
 	default:
 		break;
@@ -1319,6 +1375,8 @@ void UndertimeModule::DrawBoard(Engine& engine)
 		ImGui::Separator();
 		ImGui::PopID();
 	}
+	DrawProjects();
+	ImGui::Separator();
 	if (ImGui::Button("Leave  (Esc)"))
 	{
 		state = State::Playing;
@@ -1420,6 +1478,7 @@ void UndertimeModule::SaveGameNow(Engine& engine)
 	save.pickLevel = pickLevel;
 	save.lanternLevel = lanternLevel;
 	save.log = peopleLog;
+	save.hauling = SaveHauling();
 	save.date = clock.DateText();
 	std::string error;
 	if (save.Write(path, error))
@@ -1452,6 +1511,7 @@ bool UndertimeModule::LoadSavedGame(Engine& engine)
 	pickLevel = save.pickLevel;
 	lanternLevel = save.lanternLevel;
 	peopleLog = save.log;
+	LoadHauling(engine, save.hauling);
 	wasInside = IsInside();
 	daysAtEntry = clock.Days();
 	eraAtEntry = era;
@@ -1493,7 +1553,9 @@ void UndertimeModule::UpdateState(Engine& engine)
 		break;
 	case State::Talking:
 	case State::Board:
-		break;   // UpdateTalk, the board's window
+	case State::Shop:
+	case State::Menu:
+		break;   // UpdateTalk, the board's or the shop's window
 	case State::Playing:
 		if (input.WasKeyPressed(VK_ESCAPE))
 		{
@@ -1595,7 +1657,7 @@ void UndertimeModule::Swing(Engine& engine)
 	// Hitting a loose boulder breaks a bite out of it and splits what's left.
 	if (target.fragment != kInvalidBody)
 	{
-		const ChipResult chip = fragments.Chip(engine, target.fragment, target.point, cfg::kPickSpeed[pickLevel] / cfg::kPickSpeed[0], ++swingCount);
+		const ChipResult chip = fragments.Chip(engine, target.fragment, target.point, cfg::kPickSpeed[pickLevel] * Strength() / cfg::kPickSpeed[0], ++swingCount);
 		if (!chip.hit) return;
 		hitFeedback = cfg::kHitFeedbackTime;
 		hitStrength = 1.0f;
@@ -1605,6 +1667,39 @@ void UndertimeModule::Swing(Engine& engine)
 		return;
 	}
 
+	// The sealed bands between the zones: a pick good enough breaks them (the copper pick the
+	// first band, silver the second, gold-edged the rest). The bite's sealing rock turns to
+	// stone first, then it's carved like any other.
+	if (target.block == Block::Bedrock)
+	{
+		const int band = SealBand(target.x, target.y, target.z);
+		if (band > 0 && pickLevel >= std::min(band, 3))
+		{
+			const int r = static_cast<int>(std::ceil(cfg::kBiteRadius * cfg::kBiteMaxScale * 1.4f / cfg::kVoxelSize));
+			VoxelWorld::Box changed;
+			for (int z = target.z - r; z <= target.z + r; ++z)
+				for (int y = target.y - r; y <= target.y + r; ++y)
+					for (int x = target.x - r; x <= target.x + r; ++x)
+						if (world.Get(x, y, z) == Block::Bedrock && SealBand(x, y, z) == band)
+						{
+							world.Set(x, y, z, Block::Stone);
+							if (changed.Empty()) changed = { { x, y, z }, { x, y, z } };
+							changed.min[0] = std::min(changed.min[0], x); changed.min[1] = std::min(changed.min[1], y); changed.min[2] = std::min(changed.min[2], z);
+							changed.max[0] = std::max(changed.max[0], x); changed.max[1] = std::max(changed.max[1], y); changed.max[2] = std::max(changed.max[2], z);
+						}
+			if (!changed.Empty()) ApplyWorldChange(engine, changed, false);
+			target.block = Block::Stone;
+		}
+		else if (band > 0)
+		{
+			hitFeedback = cfg::kHitFeedbackTime;
+			hitStrength = cfg::kHollowHitScale;
+			Sparks(engine, target, 3.0f);
+			static const char* const kPick[] = { "", "copper", "silver", "gold-edged" };
+			messages.Show(std::string("Sealing rock. Your pick only scratches it.\nA ") + kPick[std::min(band, 3)] + " pick would break it (the smith).", cfg::kMessageSeconds);
+			return;
+		}
+	}
 	if (cfg::Unbreakable(target.block))
 	{
 		hitFeedback = cfg::kHitFeedbackTime;
@@ -1620,7 +1715,7 @@ void UndertimeModule::Swing(Engine& engine)
 
 	// Bite centred just inside the surface we hit.
 	const XMFLOAT3 center{ target.point.x + dir.x * 0.08f, target.point.y + dir.y * 0.08f, target.point.z + dir.z * 0.08f };
-	const VoxelWorld::CarveResult result = world.Carve(center, cfg::kPickSpeed[pickLevel], target.x, target.y, target.z, ++swingCount);
+	const VoxelWorld::CarveResult result = world.Carve(center, cfg::kPickSpeed[pickLevel] * Strength(), target.x, target.y, target.z, ++swingCount);
 	if (cfg::Info(target.block).hardness >= cfg::kSparkHardness) Sparks(engine, target, cfg::Info(target.block).hardness);
 	hitFeedback = cfg::kHitFeedbackTime;
 	hitStrength = result.removed > 0 ? 1.0f : (result.cracked.Empty() ? cfg::kHollowHitScale : cfg::kCrackHitScale);
@@ -1843,7 +1938,13 @@ void UndertimeModule::UpdateShovel(Engine& engine, float dt)
 		aimDistance = *pile;
 	}
 	const XMFLOAT3 point{ eye.x + dir.x * aimDistance, eye.y + dir.y * aimDistance, eye.z + dir.z * aimDistance };
-	const int room = cfg::kBackpackCapacity - BackpackCount();
+	XMFLOAT3 barrowTop{};
+	const bool intoBarrow = BarrowTakesScoops(barrowTop);
+	int cartTarget = -1;
+	const bool intoCart = !intoBarrow && CartTakesScoops(barrowTop, cartTarget);
+	int cartLoad = 0;
+	if (intoCart) for (int n : placed[cartTarget].hopper) cartLoad += n;
+	const int room = intoBarrow ? cfg::kBarrowCapacity - BarrowCount() : intoCart ? cfg::kCartCapacity - cartLoad : PackCapacity() - BackpackCount();
 	scoopPreview = aimed ? blocks.InReach(engine, point, cfg::kShovelRadius, std::max(std::min(cfg::kShovelScoop, room), 1)) : std::vector<LooseBlocks::Ref>{};
 	blocks.Outline(engine, scoopPreview, room > 0 ? DebugDraw::Color(1.0f, 0.95f, 0.8f) : DebugDraw::Color(0.9f, 0.3f, 0.25f));
 
@@ -1865,14 +1966,21 @@ void UndertimeModule::UpdateShovel(Engine& engine, float dt)
 	if (scoopPreview.empty()) return;
 	if (room <= 0)
 	{
-		if (fullWarning <= 0.0f) messages.Show("Backpack full.", 1.5f);
+		if (fullWarning <= 0.0f) messages.Show(intoBarrow ? "The barrow is full." : intoCart ? "The cart is full." : "Backpack full.", 1.5f);
 		fullWarning = 2.0f;
 		return;
 	}
 
 	LooseBlocks::Counts got{};
-	if (blocks.Collect(engine, scoopPreview, got) == 0) return;
+	if (blocks.Collect(engine, scoopPreview, got, intoBarrow || intoCart ? &barrowTop : nullptr) == 0) return;
 	shovelDip = 0.2f;
+	if (intoBarrow || intoCart)
+	{
+		if (intoBarrow) AddToBarrow(got);
+		else for (size_t b = 0; b < got.size(); ++b) placed[cartTarget].hopper[b] += got[b];
+		scoopPreview.clear();
+		return;
+	}
 	if (pickupToast <= 0.0f) recentPickup.fill(0);
 	for (size_t b = 0; b < got.size(); ++b)
 	{
@@ -1880,7 +1988,7 @@ void UndertimeModule::UpdateShovel(Engine& engine, float dt)
 		recentPickup[b] += got[b];
 	}
 	pickupToast = cfg::kPickupToastTime;
-	CHERRY_LOG("Scooped %d blocks: backpack %d / %d", static_cast<int>(scoopPreview.size()), BackpackCount(), cfg::kBackpackCapacity);
+	CHERRY_LOG("Scooped %d blocks: backpack %d / %d", static_cast<int>(scoopPreview.size()), BackpackCount(), PackCapacity());
 	scoopPreview.clear();
 }
 
@@ -1925,7 +2033,7 @@ void UndertimeModule::ApplyWorldChange(Engine& engine, const VoxelWorld::Box& bo
 	CountCrystals(box);
 
 	// Anything left hanging free breaks off and falls.
-	DetachResult detached = DetachUnsupported(world, box, cfg::kSupportSearchBudget);
+	DetachResult detached = DetachUnsupported(world, box, cfg::kSupportSearchBudget, &propHeld);
 	lastSupportVisited = detached.visited;
 	for (const VoxelWorld::Box& removed : detached.removed)
 	{
@@ -2111,8 +2219,20 @@ void UndertimeModule::UpdateViewModels(Engine& engine, float dt)
 	const XMVECTOR shovelRotation = XMQuaternionRotationRollPitchYaw(1.05f + windUp - 0.45f * dip, 0.1f, -0.15f);
 	const XMFLOAT3 shovelOffset{ cfg::kPickOffset[0], cfg::kPickOffset[1] - 0.02f + bob - 0.05f * dip, cfg::kPickOffset[2] + 0.04f * dip };
 	place(shovelEntity, shovelOffset, shovelRotation, cfg::kPickScale);
-	scene.Get<MeshRenderer>(pickEntity).visible = tool == Tool::Pick;
-	scene.Get<MeshRenderer>(shovelEntity).visible = tool == Tool::Shovel;
+	// The hammer and the axe swing like the pick, on their own timers.
+	auto swingCurve = [](float u)
+	{
+		if (u < 0.6f) { const float a = u / 0.6f; return 0.6f + (-0.75f - 0.6f) * (a * a * (3.0f - 2.0f * a)); }
+		const float a = (u - 0.6f) / 0.4f;
+		return -0.75f + (0.6f + 0.75f) * (a * a);
+	};
+	const bool hammering = tool == Tool::Hammer && engine.GetInput().IsMouseDown(MouseButton::Left) && state == State::Playing;
+	place(hammerEntity, pickOffset, XMQuaternionRotationRollPitchYaw(0.55f + (hammering ? swingCurve(claim.swingTimer) : 0.0f) - cfg::kPickRecoil * hitStrength * k * k, 0.15f, -0.25f), cfg::kPickScale);
+	place(axeEntity, pickOffset, XMQuaternionRotationRollPitchYaw(0.55f + (axeSwinging ? swingCurve(axeTimer) : 0.0f) - cfg::kPickRecoil * hitStrength * k * k, 0.15f, -0.25f), cfg::kPickScale);
+	scene.Get<MeshRenderer>(pickEntity).visible = tool == Tool::Pick && !barrow.held;
+	scene.Get<MeshRenderer>(shovelEntity).visible = tool == Tool::Shovel && !barrow.held;
+	scene.Get<MeshRenderer>(hammerEntity).visible = tool == Tool::Hammer && !barrow.held;
+	scene.Get<MeshRenderer>(axeEntity).visible = tool == Tool::Axe && !barrow.held;
 
 	// Lantern (left hand), slight sway.
 	const float sway = 0.03f * std::sin(time * 1.7f);
@@ -2586,6 +2706,16 @@ void UndertimeModule::CreateShaftDust(Engine& engine)
 // The outside clock
 // =============================================================================
 
+int UndertimeModule::SealBand(int x, int y, int z) const
+{
+	// Not the grid's own shell (that would open the mountain to the void).
+	if (x <= 0 || y <= 0 || x >= cfg::kVoxX - 1 || y >= cfg::kVoxY - 1) return 0;
+	const float m = (z + 0.5f) * cfg::kVoxelSize;
+	for (size_t i = 0; i + 1 < layout.zones.size(); ++i)
+		if (m > layout.zones[i].z1 - 0.5f && m < layout.zones[i + 1].z0 + 0.5f) return static_cast<int>(i) + 1;
+	return 0;
+}
+
 std::vector<float> UndertimeModule::ZoneStarts() const
 {
 	std::vector<float> starts;
@@ -2700,6 +2830,7 @@ void UndertimeModule::OnImGui(Engine& engine)
 				"WASD  move        Space  jump        Mouse  look",
 				"1  pick   2  shovel   (or mouse wheel)        Esc  pause",
 				"Hold left mouse: the pick mines, the shovel scoops loose blocks into your backpack",
+				"3  hammer (build on your claim, east of the mine)   4  axe   F  eat   E  use, talk, trade",
 				"",
 				seedLine,
 				"",
@@ -2730,9 +2861,9 @@ void UndertimeModule::OnImGui(Engine& engine)
 		return;
 	}
 
-	if (state == State::Talking || state == State::Board)
+	if (state == State::Talking || state == State::Board || state == State::Shop || state == State::Menu)
 	{
-		// Only the conversation or the board.
+		// Only the conversation, the board or the shop.
 	}
 	else if (tool == Tool::Pick)
 	{
@@ -2757,10 +2888,19 @@ void UndertimeModule::OnImGui(Engine& engine)
 		std::snprintf(depthLine, sizeof(depthLine), "Outside");
 	char renderLine[64];
 	std::snprintf(renderLine, sizeof(renderLine), "%s  (V)", worldRenderer == WorldRenderer::RayMarched ? "Ray-marched voxels" : "Voxel meshes");
-	const char* toolLine = tool == Tool::Pick ? "[1 Pick]   2 Shovel" : " 1 Pick   [2 Shovel]";
+	std::string toolLine;
+	{
+		static const char* const kNames[] = { "Pick", "Shovel", "Hammer", "Axe" };
+		for (int i = 0; i < 4; ++i)
+		{
+			if (!HasTool(static_cast<Tool>(i))) continue;
+			const bool on = static_cast<int>(tool) == i;
+			toolLine += (toolLine.empty() ? "" : "  ") + std::string(on ? "[" : " ") + std::to_string(i + 1) + " " + kNames[i] + (on ? "]" : " ");
+		}
+	}
 	const std::string eraLine = std::string("Era  ") + era::Name(era) + "  (N)";
-	hud::Panel(frame, 0, { "UNDERTIME  " + buildStamp, depthLine, renderLine, toolLine, eraLine });
-	if (state != State::Talking) DrawWatch(frame);   // the conversation box sits there
+	if (state != State::Shop && state != State::Menu) hud::Panel(frame, 0, { "UNDERTIME  " + buildStamp, depthLine, renderLine, toolLine, eraLine });
+	if (state != State::Talking && state != State::Shop && state != State::Menu) DrawWatch(frame);   // the conversation box sits there
 
 	// Backpack, with what you just scooped up on top.
 	std::vector<std::string> bag;
@@ -2778,7 +2918,7 @@ void UndertimeModule::OnImGui(Engine& engine)
 	}
 	{
 		char line[48];
-		std::snprintf(line, sizeof(line), "Backpack  %d / %d", BackpackCount(), cfg::kBackpackCapacity);
+		std::snprintf(line, sizeof(line), "Backpack  %d / %d", BackpackCount(), PackCapacity());
 		bag.push_back(line);
 	}
 	for (int b = 0; b < static_cast<int>(Block::Count); ++b)
@@ -2788,7 +2928,8 @@ void UndertimeModule::OnImGui(Engine& engine)
 		std::snprintf(line, sizeof(line), "%-14s %d", cfg::Info(static_cast<Block>(b)).name, backpack[b]);
 		bag.push_back(line);
 	}
-	hud::Panel(frame, 1, bag);
+	HaulingHud(bag);
+	if (state != State::Shop && state != State::Menu) hud::Panel(frame, 1, bag);
 
 	messages.Draw(frame);
 	if (state == State::Playing && talkTarget >= 0)
@@ -2799,6 +2940,7 @@ void UndertimeModule::OnImGui(Engine& engine)
 		hud::Prompt(frame, asleep ? who + " is asleep" : "E  Talk to " + who);
 	}
 	else if (state == State::Playing && boardTarget) hud::Prompt(frame, "E  Read the notice board");
+	else if (state == State::Playing && !HaulingPrompt().empty()) hud::Prompt(frame, HaulingPrompt());
 	else if (state == State::Playing && graveTarget >= 0) hud::Prompt(frame, std::string("E  Read the grave of ") + npc::Cast()[graves[graveTarget].npc].name);
 	else if (state == State::Playing && lostTarget >= 0)
 	{
@@ -2815,7 +2957,7 @@ void UndertimeModule::OnImGui(Engine& engine)
 	{
 		hud::Overlay(frame, "Paused", { "Esc released the mouse." }, "Click to continue");
 	}
-	else if (!engine.GetInput().IsMouseCaptured() && !engine.IsEditorMode() && state != State::Talking && state != State::Board)
+	else if (!engine.GetInput().IsMouseCaptured() && !engine.IsEditorMode() && state != State::Talking && state != State::Board && state != State::Shop && state != State::Menu)
 	{
 		hud::Message(frame, "Click to capture the mouse", 0.8f);
 	}
@@ -2823,6 +2965,8 @@ void UndertimeModule::OnImGui(Engine& engine)
 	hud::End(frame);
 	if (state == State::Talking) DrawConversation(engine);
 	if (state == State::Board) DrawBoard(engine);
+	if (state == State::Shop) DrawShop(engine);
+	if (state == State::Menu) DrawMenu(engine);
 	if (journalOpen && (state == State::Playing || state == State::Talking)) DrawJournal(engine);
 
 	// Editor-only diagnostics in the Game panel.

@@ -109,4 +109,26 @@ namespace meshes
 		AddBox(mesh, { 0.0f, 0.11f, 0.0f }, { 0.04f, 0.006f, 0.006f }, brass);     // handle
 		return mesh;
 	}
+
+	MeshData Hammer()
+	{
+		MeshData mesh;
+		const XMFLOAT4 wood = color::WithAlpha(color::Linear(0x6b4a2b));
+		const XMFLOAT4 iron = color::WithAlpha(color::Linear(0x8a8f96));
+		AddBox(mesh, { 0.0f, 0.0f, 0.0f }, { 0.02f, 0.24f, 0.02f }, wood);
+		AddBox(mesh, { 0.0f, 0.25f, 0.03f }, { 0.035f, 0.035f, 0.08f }, iron);       // head
+		AddBox(mesh, { 0.0f, 0.26f, -0.07f }, { 0.012f, 0.03f, 0.03f }, iron);       // claw
+		return mesh;
+	}
+
+	MeshData Axe()
+	{
+		MeshData mesh;
+		const XMFLOAT4 wood = color::WithAlpha(color::Linear(0x6b4a2b));
+		const XMFLOAT4 iron = color::WithAlpha(color::Linear(0x8a8f96));
+		AddBox(mesh, { 0.0f, 0.0f, 0.0f }, { 0.022f, 0.32f, 0.022f }, wood);
+		AddBox(mesh, { 0.0f, 0.28f, 0.06f }, { 0.012f, 0.05f, 0.06f }, iron);       // the head
+		AddBox(mesh, { 0.0f, 0.28f, 0.13f }, { 0.008f, 0.08f, 0.012f }, iron);      // the edge
+		return mesh;
+	}
 }

@@ -58,7 +58,7 @@ VertexOut VSMain(VertexIn vin, uint instanceId : SV_InstanceID)
 		input.normalW = normalize(vout.normalW);
 		input.viewDirW = normalize(gView.eyePosW - positionW.xyz);
 		input.uv = vin.uv;
-		input.vertexColor = vin.color;
+		input.vertexColor = vin.color * instance.tint;
 		input.screenUV = 0.0;
 		input.time = gFrame.time;
 		input.material = materials[instance.materialIndex];
@@ -71,7 +71,7 @@ VertexOut VSMain(VertexIn vin, uint instanceId : SV_InstanceID)
 	vout.positionH = mul(positionW, gView.viewProj);
 	vout.positionL = vin.position;
 	vout.uv = vin.uv;
-	vout.color = vin.color;
+	vout.color = vin.color * instance.tint;
 	vout.materialIndex = instance.materialIndex;
 	vout.dither = float2(instance.ditherCut, (float)instance.ditherInvert);
 	return vout;

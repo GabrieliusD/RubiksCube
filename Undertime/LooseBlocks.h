@@ -3,6 +3,7 @@
 #include <Core/Engine.h>
 #include <Physics/PhysicsWorld.h>
 #include <DirectXMath.h>
+#include <DirectXCollision.h>
 #include <array>
 #include <functional>
 #include <memory>
@@ -73,8 +74,32 @@ public:
 
 	// The blocks the shovel would take at `point`: nearest first, at most `max`.
 	std::vector<Ref> InReach(Engine& engine, const DirectX::XMFLOAT3& point, float radius, int max) const;
-	// Takes those blocks (they fly into the backpack); adds them per type to `taken`.
-	int Collect(Engine& engine, const std::vector<Ref>& blocks, Counts& taken);
+	// Takes those blocks (they fly into the backpack, or to `to` if given: the barrow); adds
+	// them per type to `taken`.
+	int Collect(Engine& engine, const std::vector<Ref>& blocks, Counts& taken, const DirectX::XMFLOAT3* to = nullptr);
+
+	// The town's stone yard (a box on the ground, world x/z): blocks that settle inside it
+	// become the town's (paid for once, and the shovel leaves them). TakeYardPaid returns the
+	// blocks that became the town's since it was last called.
+	void SetYard(float minX, float minZ, float maxX, float maxZ) { mYard[0] = minX; mYard[1] = minZ; mYard[2] = maxX; mYard[3] = maxZ; }
+	bool InYard(const DirectX::XMFLOAT3& p) const { return p.x >= mYard[0] && p.x <= mYard[2] && p.z >= mYard[1] && p.z <= mYard[3]; }
+	Counts TakeYardPaid();
+	// The town builds with its stone: takes up to `count` of the town's blocks from the yard
+	// (the highest first, so the heap goes down). Returns how many it took.
+	int TakeFromYard(Engine& engine, int count);
+	// Belts: live blocks inside `area` are pushed towards `velocity` (horizontal), and never
+	// settle there.
+	void Push(Engine& engine, const DirectX::BoundingBox& area, const DirectX::XMFLOAT3& velocity);
+	int YardCount() const { return mYardCount; }   // the town's blocks lying in the yard
+	// Puts the town's blocks back in the yard as one settled heap (loading a save): `count`
+	// blocks of `block`, stacked in layers from `groundY` up.
+	void FillYard(Engine& engine, cfg::Block block, int count, float groundY);
+	// A block that comes from somewhere other than the rock (the barrow tipping out), coloured
+	// as the rock at world voxel (cx, cy, cz).
+	void SpawnFree(Engine& engine, cfg::Block block, int cx, int cy, int cz, const DirectX::XMFLOAT3& center, const DirectX::XMFLOAT3& velocity)
+	{
+		Spawn(engine, block, cx, cy, cz, center, { 0, 0, 0, 1 }, velocity, { 0, 0, 0 });
+	}
 	void Outline(Engine& engine, const std::vector<Ref>& blocks, uint32_t color) const;
 
 	bool Owns(BodyId body) const { return mIndex.count(body) != 0 || mPileBodies.count(body) != 0; }
@@ -112,7 +137,10 @@ private:
 		bool pending = false;         // waiting in that pile's queue (still live until the rebuild)
 		float leaving = -1.0f;        // >= 0: seconds into the scoop / crumble animation
 		bool collected = false;       // leaving towards the player (else crumbling where it is)
+		bool town = false;            // the town's: tipped into the yard and paid for
+		bool toPoint = false;         // collected towards `to` (the barrow) instead of the player
 		DirectX::XMFLOAT3 from{ 0, 0, 0 };
+		DirectX::XMFLOAT3 to{ 0, 0, 0 };
 	};
 
 	struct Settled
@@ -121,6 +149,7 @@ private:
 		DirectX::XMFLOAT4 rotation{ 0, 0, 0, 1 };
 		cfg::Block block = cfg::Block::Stone;
 		uint16_t colour = 0;
+		bool town = false;
 	};
 
 	struct Pile
@@ -138,7 +167,9 @@ private:
 	static uint16_t ColourKey(cfg::Block block, int x, int y, int z);
 	MeshHandle MeshFor(Engine& engine, uint16_t colour);
 	void SpawnLive(Engine& engine, cfg::Block block, uint16_t colour, const DirectX::XMFLOAT3& center,
-		const DirectX::XMFLOAT4& rotation, const DirectX::XMFLOAT3& velocity, const DirectX::XMFLOAT3& spin);
+		const DirectX::XMFLOAT4& rotation, const DirectX::XMFLOAT3& velocity, const DirectX::XMFLOAT3& spin, bool town = false);
+	// A block joining a pile: inside the yard it becomes the town's (counted once).
+	Settled MakeSettled(const DirectX::XMFLOAT3& p, const DirectX::XMFLOAT4& r, cfg::Block block, uint16_t colour, bool town);
 	void StartLeaving(Engine& engine, Block& b, bool collected);
 	// Takes a settled block out of its pile into a leaving (animated, bodiless) block.
 	void TakeSettled(Engine& engine, int pile, int index, bool collected);
@@ -175,4 +206,7 @@ private:
 	float mLastPileCollisionMs = 0.0f;
 	int mLastPileBuilds = 0;
 	int mLastPileBlocks = 0;
+	float mYard[4] = { 1e9f, 1e9f, -1e9f, -1e9f };
+	Counts mYardPaid{};
+	int mYardCount = 0;
 };

@@ -6,6 +6,7 @@
 #include <Core/Log.h>
 #include <Voxel/VoxelModel.h>
 #include <algorithm>
+#include <unordered_set>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -105,7 +106,8 @@ namespace
 		int columns = 0, rows = 0;   // terrain chunks across the world
 		// Collision besides the ground, per chunk: tree trunks, and models (outcrops, crags).
 		struct Placed { int model; XMFLOAT4X4 world; };
-		std::vector<std::vector<XMFLOAT3>> trunks;
+		struct Trunk { XMFLOAT3 at; int tree; };
+		std::vector<std::vector<Trunk>> trunks;
 		std::vector<std::vector<Placed>> placed;
 		std::vector<PhysicsBox> modelBoxes[kCollisionModels];
 
@@ -236,7 +238,8 @@ namespace
 	};
 
 	// One chunk's collision: its ground in 0.25 m blocks, tree trunks and outcrops.
-	CollisionResult BuildCollision(const Shared& sh, int chunk)
+	// `skip`: trees whose trunks don't block (felled, or too young).
+	CollisionResult BuildCollision(const Shared& sh, int chunk, const std::unordered_set<int>& skip)
 	{
 		const auto start = SteadyClock::now();
 		CollisionResult result;
@@ -245,8 +248,8 @@ namespace
 		const float block = cfg::kVoxelSize;
 		const TerrainPatch patch = SampleTerrain(*sh.valley, sh.ChunkX(cx), sh.ChunkZ(cz), block, static_cast<int>(std::lround(cfg::kTerrainChunk / block)));
 		result.triangles = MeshTriangles(BuildTerrainMesh(patch, sh.colours, { 0, 0, 0, 0 }, true));
-		for (const XMFLOAT3& trunk : sh.trunks[chunk])
-			AddBoxTriangles(result.triangles, { trunk.x, trunk.y + 1.6f, trunk.z }, { 0.25f, 1.6f, 0.25f }, XMMatrixIdentity());
+		for (const Shared::Trunk& trunk : sh.trunks[chunk])
+			if (!skip.count(trunk.tree)) AddBoxTriangles(result.triangles, { trunk.at.x, trunk.at.y + 1.6f, trunk.at.z }, { 0.25f, 1.6f, 0.25f }, XMMatrixIdentity());
 		for (const Shared::Placed& placed : sh.placed[chunk])
 		{
 			const XMMATRIX world = XMLoadFloat4x4(&placed.world);
@@ -303,8 +306,10 @@ struct ValleyScenery::Lod
 		float x = 0, z = 0;
 		bool isNear = true;
 		float fade = -1.0f;   // crossfade progress 0..1 (< 0: none)
+		bool removed = false; // a felled or young tree: the game shows it (SetTreeGrowth)
 	};
 	std::vector<Model> models;
+	std::unordered_set<int> noTrunk;   // trees without trunk collision (main thread; jobs get a copy)
 
 	struct CollisionChunk { BodyId body = kInvalidBody; };
 	std::unordered_map<int, CollisionChunk> collision;   // chunks wanted (a body once built)
@@ -384,9 +389,9 @@ struct ValleyScenery::Lod
 	}
 	void SubmitCollision(int chunk)
 	{
-		Submit([this, chunk]()
+		Submit([this, chunk, skip = noTrunk]()
 		{
-			CollisionResult result = BuildCollision(shared, chunk);
+			CollisionResult result = BuildCollision(shared, chunk, skip);
 			std::lock_guard lock(mutex);
 			collisionDone.push_back(std::move(result));
 		});
@@ -592,6 +597,7 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 		treeFar[i] = farMesh(kTreeModels[i], 0.25f);   // a quarter full keeps the trunk
 	}
 	int trees = 0;
+	mTrees.clear();
 	for (const TreeSpot& tree : valley.Trees())
 	{
 		if (!treeNear[tree.kind].IsValid()) continue;
@@ -601,8 +607,16 @@ void ValleyScenery::Build(Engine& engine, Scene& scene, const Valley& valley, Ph
 		Transform transform;
 		transform.position = { x, y, z };
 		transform.SetRotationEuler(0.0f, std::floor(tree.yaw / XM_PIDIV2) * XM_PIDIV2, 0.0f);
+		TreePlace place;
+		place.at = { x, y, z };
+		place.kind = tree.kind;
+		place.nearItem = mItems.size();
 		addModel(treeNear[tree.kind], treeFar[tree.kind], lod.plants, transform);
-		sh.trunks[sh.ChunkOf(x, z)].push_back({ x, y, z });
+		place.farItem = treeFar[tree.kind].IsValid() ? place.nearItem + 1 : SIZE_MAX;
+		place.model = treeFar[tree.kind].IsValid() ? lod.models.size() - 1 : SIZE_MAX;
+		place.chunk = sh.ChunkOf(x, z);
+		sh.trunks[place.chunk].push_back({ { x, y, z }, static_cast<int>(mTrees.size()) });
+		mTrees.push_back(place);
 		++trees;
 	}
 
@@ -804,6 +818,7 @@ void ValleyScenery::Update(Engine& engine, Scene& scene, const XMFLOAT3& eye)
 	int modelsFading = 0;
 	for (Lod::Model& model : lod.models)
 	{
+		if (model.removed) continue;
 		const float dx = model.x - eye.x, dz = model.z - eye.z;
 		const float distance = std::sqrt(dx * dx + dz * dz);
 		const bool isNear = model.isNear ? distance < cfg::kModelLodDistance + 8.0f : distance < cfg::kModelLodDistance;
@@ -845,7 +860,7 @@ void ValleyScenery::Update(Engine& engine, Scene& scene, const XMFLOAT3& eye)
 			for (const CollisionResult& waiting : lod.collisionReady)
 				if (waiting.chunk == chunk) return;
 			lod.collision[chunk] = {};
-			lod.collisionReady.push_back(BuildCollision(lod.shared, chunk));
+			lod.collisionReady.push_back(BuildCollision(lod.shared, chunk, lod.noTrunk));
 		});
 		const auto bodiesStart = SteadyClock::now();
 		while (!lod.collisionReady.empty() && (building || MsSince(bodiesStart) < cfg::kCollisionBudgetMs))
@@ -907,6 +922,53 @@ void ValleyScenery::SetSettings(const Settings& settings)
 {
 	if (settings.compact != mSettings.compact) mRebuildAll = true;
 	mSettings = settings;
+}
+
+void ValleyScenery::SetTreeGrowth(Scene& scene, int tree, float scale)
+{
+	if (!mLod || tree < 0 || tree >= static_cast<int>(mTrees.size())) return;
+	TreePlace& place = mTrees[tree];
+	scale = std::clamp(scale, 0.0f, 1.0f);
+	if (place.scale == scale) return;
+	Lod& lod = *mLod;
+	place.scale = scale;
+	Lod::Model* model = place.model != SIZE_MAX ? &lod.models[place.model] : nullptr;
+	const bool grown = scale >= 1.0f;
+	if (model)
+	{
+		model->removed = !grown;
+		model->fade = -1.0f;
+	}
+	// Young trees are their near model, scaled from the ground up; grown ones swap by distance again.
+	for (size_t index : { place.nearItem, place.farItem })
+	{
+		if (index == SIZE_MAX || index >= mItems.size()) continue;
+		Item& item = mItems[index];
+		item.transform.scale = { std::max(scale, 0.01f), std::max(scale, 0.01f), std::max(scale, 0.01f) };
+		const bool isNear = index == place.nearItem;
+		item.shown = scale > 0.0f && (grown ? (model ? (isNear == model->isNear) : isNear) : isNear);
+		item.dither = 1.0f;
+		item.invert = false;
+		if (index < mEntities.size() && scene.IsAlive(mEntities[index]) && scene.Has<Transform>(mEntities[index]))
+			scene.Get<Transform>(mEntities[index]).scale = item.transform.scale;
+		ApplyItem(scene, index);
+	}
+	// The trunk blocks you once it's half grown: the chunk's collision is rebuilt without (or with) it.
+	const bool blocks = scale >= 0.5f;
+	const bool was = lod.noTrunk.count(tree) == 0;
+	if (blocks == was) return;
+	if (blocks) lod.noTrunk.erase(tree);
+	else lod.noTrunk.insert(tree);
+	auto it = lod.collision.find(place.chunk);
+	if (it != lod.collision.end())
+	{
+		if (it->second.body != kInvalidBody && mPhysics) mPhysics->RemoveBody(it->second.body);
+		it->second.body = kInvalidBody;
+		// Its next build (right away, if it's close) uses the new list.
+		lod.collision.erase(it);
+		for (auto r = lod.collisionReady.begin(); r != lod.collisionReady.end();)
+			r = r->chunk == place.chunk ? lod.collisionReady.erase(r) : r + 1;
+	}
 }
 
 void ValleyScenery::ApplyItem(Scene& scene, size_t index)

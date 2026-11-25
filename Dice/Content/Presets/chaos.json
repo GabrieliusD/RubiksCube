@@ -1,0 +1,10 @@
+{
+  "collisionMode": "bump",
+  "density": 1.0,
+  "hoverRadius": 3.0,
+  "rollDistMax": 5.0,
+  "bounceChance": 0.3,
+  "bumpChainLimit": 5,
+  "bumpsPerSecond": 120,
+  "cooldown": 0.3
+}

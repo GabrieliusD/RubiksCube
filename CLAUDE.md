@@ -13,6 +13,7 @@ CherryLaunch.exe ──loads──▶ <Game>.dll ──links──▶ CherryEngi
 - `CherryEngine/`: the engine (DLL).
 - `Rubik/`: the Rubik's cube game. It's the default module.
 - `Undertime/`: UNDERTIME, a first-person voxel mining game. Most active work happens here.
+- `Dice/`: a port of a dice roll feel prototype (Three.js original in `C:\Users\gabri\DiceDemo`). Pure simulation in `DiceSim` (struct of arrays), every die drawn through `Renderer::MeshInstances`; plan, decisions and milestone status in `Dice/Docs/Port.md`.
 - `CherryLaunch/`: the launcher executable.
 
 `README.md` covers the renderer passes, the Rubik controls and how to write a game module.
@@ -91,6 +92,7 @@ The `.github/` folder exists but is empty: there is no CI.
   - **Layers:** `Renderer/` sits on the thin D3D12 layer in `RHI/`. It's bindless (SM 6.6 `ResourceDescriptorHeap`) with two frames in flight and HDR.
   - **Passes:** opaque mesh pass (same mesh + surface shader runs are instanced: the VS reads `instances[gDraw.instanceIndex + SV_InstanceID]`), then ray-marched voxel pass (writes `SV_Depth`), then the sky (`Shaders/SkyPass.hlsl`, only where depth is still clear), then translucent meshes, then debug lines, then bloom (`Shaders/Bloom.hlsl`, compute chain), then ACES tonemap. Before all of it, with `RenderSettings::shadows` on, two sun shadow cascades are drawn depth-only (`Shaders/ShadowPass.hlsl`; casters are gathered whether or not the camera sees them), and `ShadeSurface` darkens the sun through `SunShadow` (`LightingUtil.hlsl`), so meshes and voxels both receive them. Voxel volumes cast shadows too (`Shaders/VoxelShadow.hlsl` ray-marches them along the sunlight into the shadow maps). After the tonemap, FXAA (`Shaders/Fxaa.hlsl`, `RenderSettings::antiAliasing`, on by default) smooths edges.
   - **Mesh formats and fading:** `CreateMesh(data, MeshFormat::Compact)` stores vertices in 28 bytes instead of 48 (normal 8-bit, uv and colour half floats; VertexLayout::MeshCompact); each surface shader gets a compact pipeline variant on first use (like the voxel variant), and the shadow pass has `shadow_compact`. `GetMeshBytes` reports a mesh's GPU memory. `MeshRenderer::dither` / `ditherInvert` fade a mesh screen-door style (a 4×4 pattern in `MeshPass.hlsli`, through `InstanceData::ditherCut`); two meshes at t and 1 - t inverted cover every pixel once, for crossfading levels of detail. Shadows aren't dithered.
+  - **Entity-free instances, orthographic views:** `Renderer::MeshInstances()` is a per-frame list (mesh, material, matrix, `tint`, castShadows) drawn like MeshRenderer entities (culled, instanced, shadows); `InstanceData::tint` multiplies the vertex colour. `Camera::orthographic` / `orthoHalfHeight` give an orthographic view (rays from the near plane, box culling, ortho cascade fit). `ShadowSettings::boundsExtents` (non-zero) fits the shadows to a fixed world box instead of the view. `RenderSettings::toneCurve = false` skips the ACES curve (colours are only clipped).
   - **Resources:** assets are handle-based pools, e.g. `CreateVoxelVolume`, `UpdateVoxelVolume(handle, offset, size, data)` and `DestroyVoxelVolume`.
   - **Uploads:** `rhi::Buffer::Upload`, `Texture::Upload` and `Texture::UploadRegion` (so `CreateMesh`, voxel and light volume updates) go through `Device::ExecuteAsync`: submitted on the direct queue without waiting, so the copy runs before any later frame, and the staging buffer is released once the GPU is done. `ExecuteImmediate` still waits (DDS loading). Before this, every runtime `CreateMesh` stalled about 6 ms waiting for the frame in flight.
   - **Light volumes, clouds, SSAO:**
@@ -188,6 +190,26 @@ The game is first-person mining in a procedurally generated mountain. One world 
   - **Missions** (`Missions.h`, `Content/Missions/*.mission`, format in `Missions.h`; `Board.mission` holds notice-board job templates): offered and finished through conversations (`MissionBook::Topics` via `Conversation::Hooks`, which also carry the backpack effects), states folded from the player log, deadlines in outside days (`Expire`), meet windows (`Arrived`), lost things placed in caverns by the module, the board beside the trading post, the journal on Tab. `Tests/MissionTests.cpp`.
   - **The save game** (`SaveGame.h`): `<project>/Saved/SaveGame.json` (clock, position, backpack, gear, the log; not the mined cave). C on the title screen continues. Development views (`UNDERTIME_DEV_VIEW`, `UNDERTIME_DEV_TALK`) never save.
   - **Puppets** (`NpcWorld`): one `.vox` per part in `Content/Models/Npcs/<id>/` (Head, Torso, Arm, Leg; placeholders written by `UndertimePlaceholders` at `kNpcVoxelSize`), joined from the models' sizes and animated in code. Time-lapse figures while time races use `MeshRenderer::dither` and `castShadows = false`. Play only (not in the editor).
+- **The working loop (Docs/Hauling.md; branch `features/hauling`):** UndertimeModule methods split into their own files.
+  - **Money, shops and the yard:**
+    - `Economy.h` (pure): items (block names or lower-case ids), shops and their offers by era, prices, bench and cooking recipes, town projects.
+    - `Hauling.cpp`: the purse, the shop window (a "Let's trade." topic from `ShopTopics`; `npc::Effect::Kind::Shop`), the stone yard (`LooseBlocks` town blocks: paid once in `TakeYardPaid`, used up by town projects through `TakeFromYard`), and the save (`SaveGame::hauling`, a JSON blob).
+  - **The wheelbarrow:** `Barrow.cpp`.
+  - **Your claim:** `Building.h` (pure): pieces, the grid, support, costs, voxel models. `Claim.cpp`: the hammer, sites, the merged mesh and collision, the tent, crates, the bench, sleeping. Its ground is a pad added in `CreateScenery`.
+  - **Food, wood and farming:** `Food.cpp` (hunger), `Wood.cpp` (the axe; `ValleyScenery::SetTreeGrowth` hides felled trees and rebuilds their trunk collision), `Farm.cpp`.
+  - **Growth:** `Growth.h` (pure): when trees and crops are grown, from the day and the clock.
+  - **Placed things and machines:** `Placeables.cpp` (props hold rock up through `DetachUnsupported`'s `held`; ladders; chutes; torches) and `Machines.cpp` (drills, belts, the steam engine, the stamp mill, rails, the hand cart).
+  - **Own time:** placed things work at `OwnRate(where)`: your outside rate over the rate there.
+  - **Models:** code-made ones come from `ModelKit.h`.
+  - **Keys:**
+    - 3: the hammer (right mouse: pieces; R: turn; X held: take down).
+    - 4: the axe.
+    - F: eat.
+    - E: use (barrow, cart, furniture, doors, plots, machines).
+    - B: what the shovel fills.
+    - R: the pack's stone into the barrow.
+    - Q: tip the barrow or cart.
+  - **Development:** `UNDERTIME_DEV_HAUL="words"` (`Screenshot.ps1 -Haul`; the words are at the bottom of `Hauling.cpp`, e.g. `claim house`, `barrow 120 tip`, `place steam_drill x y z dx dz fast 3`).
 - **The outside clock (`Clock.h`, `DayNight.h`, both pure and tested in `Tests/ClockTests.cpp`):**
   - **Clock and rate:** `OutsideClock` counts outside days since you arrived. `UndertimeModule::UpdateClock` advances it at `OutsideClock::Rate` (the surface rate outside, rising through the entrance passage, then `cfg::kZoneRate` per zone).
   - **Eras and the summary:** the era follows the clock, but only changes while the valley can't be seen (deep in, or inside and facing away from the mouth). Coming out shows how much time passed.
@@ -218,37 +240,20 @@ The game is first-person mining in a procedurally generated mountain. One world 
 
 ## UNDERTIME status and design
 
-- **Design document:** `Undertime/Docs/Design.md` holds every decision so far: the time rule, eras (runs and the reset were dropped on 2026-11-22), story, the valley and town layout, the visual style and the milestone plan. Read it before UNDERTIME feature work, and update it when the user changes a decision.
-- **Built so far:** the cave game (mining, cave-ins, boulders, loose blocks, shovel, backpack) and voxel surface shaders. **Not built yet:** the outside clock, shops and the story (the valley, the town and its first two eras exist).
-- **Current work** (branch `features/voxel-town`): milestones from Design.md §8, in order:
-  1. Voxel model pipeline (`.vox` load and save, mesh and collision baking, a `.vox` asset type). **Done** (the user checked it in the editor and in MagicaVoxel).
-  2. Engine visuals I (sky, shader globals, nearest-8 lights, instancing). **Done.**
-  3. The valley (terrain, river, lake, forest). **Done.**
-  4. Engine visuals II (sun shadows, bloom). **Done.**
-  5. Camp era (with the valley shown in the editor). **Done.**
-  6. Settlement era. **Done.**
-  7. Fixes: voxel shadow casting and anti-aliasing **done**. The loose-block slowdown is **fixed** (big piles never fell asleep: Jolt's sleep threshold is now 0.08 m/s, and `LooseBlocks` puts nearly still blocks to sleep with `PhysicsWorld::Deactivate`; 3k blocks went from 2+ ms of physics to 0.09 ms). `UNDERTIME_DEV_BLOCKS=N` drops N blocks and logs timings.
-
-  8. The outside clock and day/night (time faster underground, HUD watch, eras from the clock). **Done**, not yet tested by the user.
-  9. Light and depth: daylight spreading into the cave (light volume), natural shafts, SSAO, cloud shadows. **Done**, not yet tested by the user.
-  10. The mountain matches its face (ledges and strata on steep terrain). **Done**, not yet tested by the user.
-  11. Houses: interiors, glass windows, indoor light. **Done**, not yet tested by the user.
-  12. Particles (engine): dust in the shaft beams, smoke, sparks, mining dust. **Done**, not yet tested by the user.
-  - After milestone 12: cloud seams fixed (integer hash), clouds drift with outside time (`UndertimeModule::UpdateClock`, `CloudSettings::drift`/`blur`), stronger sun against a weaker sky so cloud and object shadows read. Not committed yet.
-  13. Visual polish II (**done**, not yet tested by the user: light shafts, living foliage, the era colour grade, eye adaptation, flowing water, edge highlights): light shafts (sun and natural shafts), living foliage, a colour grade per era, eye adaptation, flowing water, voxel edge highlights (in that order). Details in Design.md §8, milestone 13. Seasons later.
-
-  14. Visual polish III (**done**, not yet tested by the user): valley haze, mining feel, the cave comes alive, weather. Details in Design.md §8.
-  15. Valley LOD (**done**, not yet tested by the user): 0.25 m blocks everywhere, drawn coarser by distance; streamed collision; crags. Details in Design.md §8.
-  - **NPCs** (branch `features/npcs`, plan in `Docs/NPCs.md` §10): NPC milestones 1 (people in the valley), 2 (talking, friendship, the save game) 3 (missions, the notice board, the journal) and 4 (lives across the eras: the Settlement's people, gatherings, graves, news, letters) **done** (committed in `1f803af`); 3 and 4 not yet tested by the user. Milestone 5's tools (People inspector, Dialog view) **done**, not yet tested; the stories and hand-made models are still to do.
-  Valley life, activities, shops and story come after (ideas in Design.md §9).
+- **Design documents** (in `Undertime/Docs/`):
+  - `Design.md`: decisions and why: the time rule, rewind rules, the loop and progression, eras, story, the valley and town, the visual style, the plan, playtest questions. Items are marked Decided, Proposed or Open. Read it before UNDERTIME feature work, and update it when the user changes a decision.
+  - `Status.md`: what's built, what the user has tested, branches and commits, what's next.
+  - `Changelog.md`: how each milestone was built, measurements, fixes after the user's looks. Add to it when a milestone is done, instead of writing build history into Design.md.
+  - `NPCs.md` and `Hauling.md`: those systems' plans and status.
+- **Current work:** branch `features/hauling` (milestones 1–15, NPC milestones 1–5 and hauling H1–H12 done; most untested by the user; see `Status.md`). The biggest gaps: the mined cave isn't saved, rewinds, the watches and the ending (Design.md §3, §5).
 - **User testing:** milestones 2–7 were tested by the user (2026-11-21).
-- **Commits:** the user commits when they ask. Milestones 1–4 are in `813c198`, 5–6 in `328a135`, 7–12 in `e8bf6d6` (pushed to `origin/features/voxel-town`).
+- **Commits:** the user commits when they ask. The list is in `Status.md`.
 - **Style:** everything is 0.25 m voxels. The cave is real (diggable) voxels; everything outside is voxel models baked to meshes. Placeholder art is generated as `.vox` files; MagicaVoxel is the editor for now, and a built-in voxel designer may replace it later.
 
 ## Working rules for UNDERTIME (from the user)
 
 - **Never invent engine APIs.** Only call functions that exist. If a feature is missing, say so and propose the smallest engine addition or a workaround in game code. Wait for the user's OK before changing anything under `CherryEngine/`.
-  - **Except:** engine additions the agreed visual style needs (Design.md §8: sky, global shader inputs, lights, instancing, shadows, bloom and similar) are pre-approved, and so is the `.vox` voxel model pipeline. Name each engine change in the plan and the report.
+  - **Except:** engine additions the agreed visual style needs (Design.md §8, "Engine additions": sky, global shader inputs, lights, instancing, shadows, bloom and similar) are pre-approved, and so is the `.vox` voxel model pipeline. Name each engine change in the plan and the report.
 - **Work in milestones.** Each one must build and run. Then stop and report what to test and what couldn't be verified.
 - **Tuning numbers** all live in one place: `Config.h`.
 - **Audio** is out of scope for now.

@@ -21,6 +21,7 @@ int NpcTests();      // NpcTests.cpp
 int DialogTests();   // DialogTests.cpp
 int MissionTests();  // MissionTests.cpp
 int LifeTests();     // LifeTests.cpp
+int HaulingTests();  // HaulingTests.cpp
 
 namespace
 {
@@ -499,6 +500,7 @@ int main()
 	gFailures += DialogTests();
 	gFailures += MissionTests();
 	gFailures += LifeTests();
+	gFailures += HaulingTests();
 
 	std::printf("%s (%d failure%s)\n", gFailures == 0 ? "ALL PASSED" : "FAILED", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures == 0 ? 0 : 1;

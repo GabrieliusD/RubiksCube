@@ -42,7 +42,9 @@ namespace
 		registry.Component<Camera>("Camera")
 			.Field("fovY", &Camera::fovY, 0.1f, 3.0f, Field_Angle)
 			.Field("nearZ", &Camera::nearZ, 0.001f, 100.0f).Speed(0.01f)
-			.Field("farZ", &Camera::farZ, 1.0f, 100000.0f).Speed(1.0f);
+			.Field("farZ", &Camera::farZ, 1.0f, 100000.0f).Speed(1.0f)
+			.Field("orthographic", &Camera::orthographic)
+			.Field("orthoHalfHeight", &Camera::orthoHalfHeight, 0.01f, 100000.0f).Speed(0.1f);
 
 		registry.Component<PointLightComponent>("PointLight")
 			.Field("color", &PointLightComponent::color, Field_Color)

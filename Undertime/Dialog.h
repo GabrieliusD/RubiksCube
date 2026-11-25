@@ -53,8 +53,9 @@ namespace npc
 	struct Effect
 	{
 		// Accept and Complete name a mission; Take takes `amount` of item `name` from the
-		// backpack (the game does it, through Conversation::Hooks).
-		enum class Kind { Regard, Flag, Unflag, End, Accept, Complete, Take } kind = Kind::Regard;
+		// backpack; Shop opens the shop `name` once the conversation ends (the game does these,
+		// through Conversation::Hooks; Shop is only made by the game's topics, not in files).
+		enum class Kind { Regard, Flag, Unflag, End, Accept, Complete, Take, Shop } kind = Kind::Regard;
 		float amount = 0.0f;
 		std::string name;
 	};

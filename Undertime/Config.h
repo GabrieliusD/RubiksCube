@@ -7,7 +7,7 @@ namespace cfg
 	// ---- Version ----------------------------------------------------------------
 	// Bump when a change is worth telling apart in play. The HUD also shows when the game
 	// module was built, so a stale build is obvious.
-	constexpr const char* kGameVersion = "0.6 (loose blocks, shovel, backpack)";
+	constexpr const char* kGameVersion = "0.7 (money, the barrow, your claim, food, wood, farming, machines)";
 
 	// ---- World grid ---------------------------------------------------------
 	// Cell (x, y, z) occupies [x, x+1] x [y, y+1] x [z, z+1] in world space.
@@ -226,6 +226,7 @@ namespace cfg
 		{ 67.0f, -170.0f, 24.0f },    // sawmill
 		{ -110.5f, -197.5f, 40.0f },  // homestead
 		{ 234.5f, -27.5f, 10.0f },    // lookout
+		{ 100.0f, -40.0f, 19.0f },    // your claim (kClaimCenter)
 	};
 	// Trails (start x, z, end x, z): the mine to the camp, the camp to the clockmaker.
 	constexpr float kPathSegments[][4] = {
@@ -237,6 +238,8 @@ namespace cfg
 		{ -15.5f, -112.0f, -40.0f, -60.0f }, { -40.0f, -60.0f, -70.5f, -34.0f },
 		{ -5.0f, -145.0f, 30.0f, -160.0f }, { 30.0f, -160.0f, 62.0f, -167.0f },
 		{ 96.8f, -121.0f, 112.3f, -108.6f }, { 121.7f, -114.4f, 150.0f, -104.0f },
+		// A track from the mine mouth to your claim.
+		{ 20.0f, -40.0f, 60.0f, -36.0f }, { 60.0f, -36.0f, 86.0f, -38.0f },
 	};
 	// Footbridges NPCs walk over (start x, z, end x, z: the trail ends either side of the water).
 	constexpr float kBridges[][4] = { { 112.3f, -108.6f, 121.7f, -114.4f } };
@@ -382,6 +385,111 @@ namespace cfg
 	constexpr float kPickSpeed[4] = { 1.5f, 2.6f, 4.2f, 7.0f };
 	constexpr float kLanternRange[4] = { 8.0f, 12.0f, 17.0f, 24.0f };
 	constexpr int kBagCapacity[4] = { 8, 14, 22, 32 };
+
+	// ---- Money, selling and the yard (Docs/Hauling.md, H1) -------------------------
+	// Money is counted in cents (shown as dollars). Ore sells for BlockInfo::basePrice dollars
+	// a block times the era's factor; stone for kStoneCents by era. Index = era - 1 (Camp ..
+	// Gone).
+	constexpr int kStartingCents = 500;
+	constexpr float kOreEraFactor[6] = { 1.0f, 1.1f, 1.3f, 0.9f, 0.6f, 0.0f };
+	constexpr int kStoneCents[6] = { 5, 6, 3, 2, 1, 0 };   // the town builds its foundations in stone, later in brick
+	constexpr float kShopBuyBack = 0.5f;
+	constexpr int kPackCapacity[3] = { 400, 600, 900 };   // blocks, by pack level (replaces kBackpackCapacity)          // what shops pay for goods they sell, of the price
+	// The trading post's stone yard: stone that comes to rest inside it is paid for once and
+	// belongs to the town from then on (the shovel leaves it). A box on the ground (x, z
+	// centre, half sizes), north of the trading post beside the mine trail.
+	constexpr float kYardCenter[2] = { -15.0f, -101.0f };
+	constexpr float kYardHalf[2] = { 3.5f, 3.0f };
+	constexpr float kYardPayDelay = 0.6f;
+	constexpr float kTownStonePerDay = 120.0f;    // the town builds its projects (econ::Projects) with this much yard stone an outside day         // s after blocks start settling before the "+$" toast sums them up
+
+	// ---- The wheelbarrow (H2) -----------------------------------------------------
+	constexpr int kBarrowCapacity = 160;          // blocks
+	constexpr float kBarrowReach = 2.6f;          // m: grab it, and fill it with the shovel, within this
+	constexpr float kBarrowHold = 1.45f;          // m ahead of you while you push it
+	constexpr float kBarrowSlowFull = 0.45f;      // a full barrow slows your walk to this share
+	constexpr float kBarrowTipTime = 0.6f;        // s to tip it out
+	constexpr float kBarrowRescueY = -30.0f;      // below this it's put back at the mine mouth
+
+	// ---- Your claim and building on it (H4) ---------------------------------------
+	// A meadow on the foothills east of the mine, away from town; flattened (a ground pad) and
+	// cleared of trees. Pieces snap to its grid of 1 m cells and levels (Building.h).
+	constexpr float kClaimCenter[2] = { 100.0f, -40.0f };
+	constexpr int kClaimCells = 24;               // cells across (it's square)
+	constexpr int kClaimLevels = 6;
+	constexpr float kHammerReach = 6.0f;          // m
+	constexpr float kHammerPeriod = 0.42f;        // s per swing while the button is held
+	constexpr float kTakeDownTime = 0.8f;         // s holding X on a piece to take it down
+	constexpr float kSourceReach = 4.0f;          // m: building takes from a barrow parked this close
+	constexpr int kSleepUntilHour = 6;            // a night in bed (from 20:00) ends at this hour
+
+	// ---- Things you place outside the claim (H4b): props, ladders, chutes, torches ----
+	constexpr float kPlaceReach = 4.5f;           // m
+	constexpr float kClimbSpeed = 1.6f;           // m/s up a ladder
+	constexpr float kLadderHeight = 3.5f;         // m (shorter if rock is in the way)
+	constexpr float kPropMaxHeight = 4.0f;        // a prop reaches a roof at most this high
+	constexpr double kTorchHours = 2.0;           // a torch burns this long, in its own time
+	constexpr uint32_t kTorchColor = 0xffa860;
+	constexpr float kTorchIntensity = 2.4f;
+	constexpr float kTorchRange = 8.0f;
+
+	// ---- Machines (H8-H11) -------------------------------------------------------------
+	// Every machine works in its own time: the rate of where it stands (OwnRate), so one
+	// shallower than you runs faster than you, and the surface runs fastest. Fuel burns and
+	// wear builds in that time too; a full hopper stops a drill. Rates are per own hour.
+	constexpr float kDrillMetres[3] = { 0.8f, 1.6f, 5.0f };   // hand borer, steam, electric
+	constexpr int kDrillWide = 4, kDrillTall = 6;             // the tunnel, in voxels (1 m x 1.5 m)
+	constexpr int kHopperCapacity = 600;                       // blocks
+	constexpr float kHandBorerReach = 3.0f;                    // the hand borer works while you're this close
+	constexpr float kCoalPerHour = 1.0f;                       // steam drills and engines
+	constexpr float kFuelTank = 24.0f;                         // coal a machine holds
+	constexpr double kWearHours = 120.0;                       // own hours of work until it breaks
+	constexpr int kElectricFromEra = 4;                        // the power line (Industry)
+	constexpr float kBeltRate = 2.0f;                          // blocks per own second along a belt
+	constexpr int kBeltHolds = 30;                             // blocks on one 1 m belt
+	constexpr float kEngineReach = 30.0f;                      // m: belts an engine drives
+	constexpr int kBeltSpawnPerFrame = 6;                      // blocks a belt's end drops each frame at most
+	constexpr float kMillWheel[2] = { 103.95f, -125.6f };      // the water wheel; the stamp mill goes within kMillReach
+	constexpr float kMillReach = 16.0f;
+	constexpr float kMillStonePerHour = 600.0f;
+	constexpr float kMillCopper = 0.04f, kMillSilver = 0.015f;  // ore washed out per stone (silver from the Settlement on)
+	constexpr int kMillBin = 2000;
+	constexpr int kCartCapacity = 400;
+	constexpr float kCartPushSpeed = 2.4f;                     // m/s along the rails
+	constexpr float kCartRollAccel = 2.5f;                     // m/s^2 per unit of slope
+
+	// ---- Hunger and food (H5) ----------------------------------------------------
+	// The meter drains in your own time (real time), the same at any depth: it limits how long
+	// you stay down, not how much outside time passes. Empty, you're weaker until you eat.
+	constexpr float kHungerMinutes = 20.0f;       // a full meter lasts this long
+	constexpr float kHungerWarn = 0.25f;          // "You're getting hungry."
+	constexpr float kHungryStrength = 0.55f;      // pick, hammer and axe at this share when it's empty
+	constexpr float kHungryBarrow = 0.8f;         // ... and pushing the barrow
+	constexpr float kSleepHunger = 0.25f;         // a night's sleep empties this much
+
+	// ---- Wood (H6) -----------------------------------------------------------------
+	// The axe (from the smith, key 4) fells valley trees; a stump grows back from the day it
+	// was felled (outside time), so long dives regrow the forest.
+	constexpr float kAxeReach = 3.2f;             // m
+	constexpr float kAxePeriod = 0.55f;           // s per chop while the button is held
+	constexpr int kAxeChops = 5;                  // chops to fell a tree (more when you're hungry)
+	constexpr int kLogsPerTree[4] = { 1, 2, 4, 3 };   // small, medium, large conifer, broadleaf
+	constexpr double kStumpDays = 40.0;           // a stump before a sapling shows
+	constexpr double kRegrowDays = 3.0 * 365.0;   // felled to full grown
+	// Trees that can't be felled: the big tree (a story place), x, z, radius.
+	constexpr float kUncuttable[][3] = { { 34.5f, -47.5f, 7.0f } };
+
+	// ---- Farming (H7) ---------------------------------------------------------------
+	// Crops grow in outside days from the day they were planted: ripe after `ripe` days, good
+	// for `lasts` more, then gone to seed (the harvest is spoiled). Apple trees fruit every
+	// autumn from their third year.
+	struct Crop { const char* seed; const char* produce; double ripe; double lasts; int yield; };
+	constexpr Crop kCrops[] = {
+		{ "potato_seed", "potato", 3.0, 4.0, 4 },
+		{ "wheat_seed", "wheat", 10.0, 6.0, 6 },
+		{ "pumpkin_seed", "pumpkin", 30.0, 15.0, 2 },
+		{ "apple_sapling", "apple", 3.0 * 365.0, 60.0, 12 },   // then every year (autumn, the yield again)
+	};
 
 	// ---- View models (camera space: +X right, +Y up, +Z forward) -------------
 	constexpr float kPickOffset[3] = { 0.20f, -0.17f, 0.40f };

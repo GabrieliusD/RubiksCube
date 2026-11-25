@@ -68,6 +68,20 @@ public:
 	};
 	Stats GetStats() const;
 
+	// The forest's trees (felling them, Wood.cpp): where each stands and its model kind.
+	struct TreePlace
+	{
+		DirectX::XMFLOAT3 at{ 0, 0, 0 };
+		int kind = 0;
+		size_t nearItem = SIZE_MAX, farItem = SIZE_MAX, model = SIZE_MAX;
+		int chunk = 0;
+		float scale = 1.0f;
+	};
+	const std::vector<TreePlace>& Trees() const { return mTrees; }
+	// A tree's growth: 0 felled (gone; its trunk no longer blocks), up to 1 grown. Young trees
+	// are drawn scaled; their trunks block from half grown.
+	void SetTreeGrowth(Scene& scene, int tree, float scale);
+
 private:
 	struct Item
 	{
@@ -90,6 +104,7 @@ private:
 	std::vector<Entity> mEntities;
 	std::vector<MeshHandle> mOwnedMeshes;   // far trees and crags (the rest belongs to the assets or to mLod)
 	std::vector<BodyId> mBodies;            // the shaft grates (the terrain's own are in mLod)
+	std::vector<TreePlace> mTrees;
 	std::unique_ptr<Lod> mLod;
 	PhysicsWorld* mPhysics = nullptr;
 	MaterialHandle mWaterMaterial;

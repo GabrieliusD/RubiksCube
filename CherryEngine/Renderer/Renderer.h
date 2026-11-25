@@ -98,6 +98,11 @@ public:
 	RenderSettings& Settings();
 	// Particles to draw with the next RenderScene (it empties the list).
 	std::vector<ParticleInstance>& Particles();
+	// Meshes to draw with the next RenderScene without an entity each (it empties the list):
+	// thousands of copies of one mesh, each with its own matrix and colour tint, become one
+	// instanced draw like entities do (culled, sorted, casting shadows). Clear it before
+	// filling it, in case a frame wasn't rendered.
+	std::vector<MeshInstance>& MeshInstances();
 	DebugDraw& Debug();
 	const RenderStats& Stats() const;
 	const std::string& AdapterName() const;

@@ -21,6 +21,7 @@ json SaveGame::ToJson() const
 	j["lanternLevel"] = lanternLevel;
 	j["date"] = date;
 	j["log"] = log.ToJson();
+	if (!hauling.is_null()) j["hauling"] = hauling;
 	return j;
 }
 
@@ -50,6 +51,7 @@ bool SaveGame::FromJson(const json& j, std::string& error)
 		pickLevel = j.value("pickLevel", 0);
 		lanternLevel = j.value("lanternLevel", 0);
 		date = j.value("date", std::string());
+		hauling = j.contains("hauling") ? j["hauling"] : json();
 		return !j.contains("log") || log.FromJson(j["log"], error);
 	}
 	catch (const std::exception& e)
