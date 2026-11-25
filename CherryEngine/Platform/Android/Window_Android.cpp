@@ -6,14 +6,25 @@
 namespace
 {
 	Window::Pump sPump;
+	void* sInitialNative = nullptr;
+	uint32_t sInitialWidth = 0, sInitialHeight = 0;
 }
 
 void Window::SetPump(Pump pump) { sPump = std::move(pump); }
 
+void Window::SetInitialNative(void* native, uint32_t width, uint32_t height)
+{
+	sInitialNative = native;
+	sInitialWidth = width;
+	sInitialHeight = height;
+}
+
 bool Window::Create(const std::wstring&, uint32_t width, uint32_t height)
 {
-	// The size comes from the surface once the platform layer has one (SetNative).
-	if (mWidth == 0) { mWidth = width; mHeight = height; }
+	// The size is the surface's (the requested one only stands in until there is a surface).
+	mNative = sInitialNative;
+	mWidth = sInitialNative ? sInitialWidth : width;
+	mHeight = sInitialNative ? sInitialHeight : height;
 	return true;
 }
 
@@ -34,8 +45,10 @@ bool Window::PumpMessages() { return sPump ? sPump(*this) : false; }
 void Window::SetNative(void* native, uint32_t width, uint32_t height)
 {
 	const bool resized = width != mWidth || height != mHeight;
+	const bool replaced = native != mNative;
 	mNative = native;
 	mWidth = width;
 	mHeight = height;
-	if (resized && native && mResizeHandler) mResizeHandler(width, height);
+	if (replaced && mSurfaceHandler) mSurfaceHandler(native, width, height);
+	else if (resized && native && mResizeHandler) mResizeHandler(width, height);
 }

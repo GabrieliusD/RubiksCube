@@ -1,12 +1,13 @@
 # Android support for CherryEngine, and the Dice game as an APK
 
-Status (2026-11-25): **A0 and A1 done** on branch `features/android`; A2–A5 not started.
+Status (2026-11-25): **A0–A2 done** on branch `features/android`; A3–A5 not started. A2 and A3 were re-scoped (see "Change of approach" below).
 
 | # | Milestone | State |
 |---|---|---|
 | A0 | Engine compiles for Android | Done. `Tools/Android/Build.ps1 [-Config Release] [-Configure]` builds `out/build/android-arm64/CherryLaunch/<Config>/libgame.so` (engine + Dice, arm64). Windows Debug, Release and monolithic build without new warnings; all four test suites pass; Dice still runs (screenshot with the pretend pointer). Not run on a device: nothing is drawn yet and there is no APK. |
 | A1 | Platform layer, APK | Done, on an x86_64 emulator (Android 12, `Cherry_API_32_x64`); no phone yet. `Tools/Android/Package.ps1 -Project Dice/Dice.cherryproject -Abi arm64-v8a,x86_64 [-Install] [-Run]` makes `out/android/DiceGame-Debug.apk` (35.6 MB). On the emulator: the game files unpack on first start (not again after), the project and scene load, Dice deals its board and plays at a paced 60 fps (frames logged every 5 s); Home and back keeps the process; density and font-scale changes don't restart it; when the activity is destroyed the play session stops and the engine exits with 0. The screen is black: nothing is drawn until A3. |
-| A2–A5 | | Not started. |
+| A2 | Vulkan renderer: device, swapchain, ImGui | Done, on the emulator (Vulkan 1.3 through the host's RTX 4070). `Renderer/Vulkan/VulkanRenderer.cpp` draws the Dice HUD and debug panel over the sky colour at 60 fps; Home and back releases and recreates the surface in the same process. No 3D yet. |
+| A3–A5 | | Not started. |
 
 Goal: `Tools/ExportAndroid.ps1 -Project Dice/Dice.cherryproject` produces an installable,
 signed `Dice.apk` that plays the dice game on an arm64 phone. Windows (D3D12, editor, hot
@@ -32,6 +33,32 @@ only has to cover that subset first.**
 
 Toolchain already on this PC: Android SDK (platform 34, build-tools 34), NDK 28.1, JDK 17,
 Android Studio. The SDK's CMake (3.10) is too old; use Visual Studio's CMake + Ninja.
+
+## Change of approach (2026-11-25, during A2)
+
+A2 was "put a backend-neutral RHI under the D3D12 renderer, then add Vulkan under it". Instead
+the mobile renderer is **a second implementation of the same `Renderer` API**
+(`Renderer/Vulkan/VulkanRenderer.cpp`, as `NullRenderer.cpp` is), with its own small HLSL shaders
+in `Shaders/Mobile` (classic descriptor sets, no bindless), covering what the Android games use.
+Why: the D3D12 renderer, and with it Windows, UNDERTIME and Rubik, isn't touched at all (no risk
+to the desktop look), and the phone gets pictures much sooner. The cost: features added to the
+D3D12 renderer don't appear on mobile by themselves. A mobile forward renderer beside a desktop one
+is a common split.
+
+- **A2 (new):** Vulkan device, swapchain (surface loss and recreation), ImGui.
+- **A3 (new):** Dice's 3D: meshes, materials and textures, the instanced mesh pass (`MeshInstances`
+  with tint), sun + ambient lighting, shadows fitted to the board, particles, tonemap, FXAA.
+- Bindless (decision 3 below) is dropped for now; the Windows-side Vulkan step (decision 2) too:
+  the emulator runs Vulkan through the host GPU.
+
+**What A2 built:** `VulkanRenderer.cpp` (Vulkan 1.1 instance, first graphics queue, FIFO
+swapchain in UNORM, two frames in flight, deferred deletion, one-shot uploads); an ImGui renderer
+written for ImGui 1.92's texture protocol (no backend was vendored for Vulkan);
+`Renderer::SetNativeWindow` (the surface replaced or gone; Window's surface handler calls it, the
+D3D12 renderer ignores it); `android_main` waits for the first surface before the engine starts.
+Shaders: `Shaders/Mobile/*.hlsl` compiled to SPIR-V headers at build time by the host DXC
+(`directx-dxc` is now a vcpkg *host* dependency; on Windows host and target are the same triplet).
+Pre-rotation is left to the compositor (Android reports `SUBOPTIMAL`; ignored).
 
 ## Decisions to make (recommendations first)
 

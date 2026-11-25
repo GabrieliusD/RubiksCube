@@ -163,6 +163,7 @@ void Renderer::Shutdown()
 }
 
 void Renderer::OnWindowResized(uint32_t width, uint32_t height) { mImpl->width = width; mImpl->height = height; }
+void Renderer::SetNativeWindow(void*, uint32_t width, uint32_t height) { OnWindowResized(width, height); }
 void Renderer::SetViewSize(uint32_t width, uint32_t height) { mImpl->viewWidth = std::max(width, 1u); mImpl->viewHeight = std::max(height, 1u); }
 uint32_t Renderer::ViewWidth() const { return mImpl->viewWidth; }
 uint32_t Renderer::ViewHeight() const { return mImpl->viewHeight; }

@@ -404,6 +404,8 @@ Renderer::~Renderer()
 	Shutdown();
 }
 
+void Renderer::SetNativeWindow(void*, uint32_t, uint32_t) {}   // a Win32 window keeps its HWND
+
 bool Renderer::Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error)
 {
 	const HWND hwnd = static_cast<HWND>(nativeWindow);

@@ -60,12 +60,15 @@ public:
 	using ResizeHandler = std::function<void(uint32_t width, uint32_t height)>;
 	// Processes pending platform events; returns false once the app should quit.
 	using Pump = std::function<bool(Window& window)>;
+	// The surface appeared, changed or went away (null).
+	using SurfaceHandler = std::function<void(void* native, uint32_t width, uint32_t height)>;
 
 	bool Create(const std::wstring& title, uint32_t width, uint32_t height);
 	void Destroy();
 	bool PumpMessages();
 
 	void SetResizeHandler(ResizeHandler handler) { mResizeHandler = std::move(handler); }
+	void SetSurfaceHandler(SurfaceHandler handler) { mSurfaceHandler = std::move(handler); }
 	// No title bar: the engine's title (fps, frame times) goes to the log every few seconds.
 	void SetTitle(const std::wstring& title);
 	void SetInput(Input* input) { mInput = input; }
@@ -78,6 +81,8 @@ public:
 
 	// ---- Platform-facing ----
 	static void SetPump(Pump pump);
+	// The surface the app has when the engine starts (Create picks it up).
+	static void SetInitialNative(void* native, uint32_t width, uint32_t height);
 	Input* GetInput() const { return mInput; }
 	void SetNative(void* native, uint32_t width, uint32_t height);
 	void SetFocused(bool focused) { mFocused = focused; }
@@ -91,6 +96,7 @@ private:
 	float mDpiScale = 1.0f;
 	Input* mInput = nullptr;
 	ResizeHandler mResizeHandler;
+	SurfaceHandler mSurfaceHandler;
 };
 
 #endif

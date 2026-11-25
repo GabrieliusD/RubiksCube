@@ -201,6 +201,18 @@ void android_main(android_app* app)
 		return !state.quit;
 	});
 
+	// Wait for the first surface, so the renderer starts with one (it follows later changes
+	// through Window's surface handler).
+	while (!app->window && !app->destroyRequested)
+	{
+		int events = 0;
+		android_poll_source* source = nullptr;
+		if (ALooper_pollOnce(-1, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0 && source) source->process(app, source);
+	}
+	if (app->destroyRequested) std::exit(0);
+	Window::SetInitialNative(app->window, static_cast<uint32_t>(ANativeWindow_getWidth(app->window)),
+		static_cast<uint32_t>(ANativeWindow_getHeight(app->window)));
+
 	std::unique_ptr<IGameModule> game(CreateGameModule());
 	Engine engine;
 	const int exitCode = engine.Run(*game);

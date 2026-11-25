@@ -2,7 +2,7 @@
   "name": "rubikscube",
   "version-string": "0.1.0",
   "dependencies": [
-    { "name": "directx-dxc", "platform": "windows" },
+    { "name": "directx-dxc", "host": true },
     { "name": "directxmath", "platform": "android" },
     "joltphysics",
     "nlohmann-json",

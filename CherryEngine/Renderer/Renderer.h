@@ -116,6 +116,9 @@ public:
 	bool Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error);
 	void Shutdown();
 	void OnWindowResized(uint32_t width, uint32_t height);
+	// The window's surface was replaced or taken away (null): Android does this when the app
+	// goes to the background. Windows never calls it.
+	void SetNativeWindow(void* nativeWindow, uint32_t width, uint32_t height);
 	// Size of the offscreen view the scene is rendered into (applied next frame).
 	void SetViewSize(uint32_t width, uint32_t height);
 	uint32_t ViewWidth() const;

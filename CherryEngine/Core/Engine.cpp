@@ -983,6 +983,7 @@ int Engine::Run(const LaunchOptions& options)
 	e.window.SetMessageHandler([&e](UINT msg, WPARAM wParam, LPARAM lParam) { e.input.HandleMessage(msg, wParam, lParam); });
 #else
 	e.window.SetInput(&e.input);
+	e.window.SetSurfaceHandler([&e](void* native, uint32_t width, uint32_t height) { e.renderer.SetNativeWindow(native, width, height); });
 #endif
 	e.window.SetResizeHandler([&e](uint32_t width, uint32_t height) { e.renderer.OnWindowResized(width, height); });
 

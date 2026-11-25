@@ -121,9 +121,12 @@ if(NOT WIN32)
   list(REMOVE_ITEM ENGINE_HEADERS ${_cherry_windows_only})
   list(REMOVE_ITEM ENGINE_SOURCES ${_cherry_windows_only})
   list(APPEND ENGINE_HEADERS Core/NoEditor.h)
-  list(APPEND ENGINE_SOURCES Renderer/NullRenderer.cpp)
   if(ANDROID)
-    list(APPEND ENGINE_SOURCES Platform/Android/Window_Android.cpp)
+    # The mobile renderer: Vulkan, the same Renderer API as the D3D12 one, with the passes
+    # the games on Android need (Dice/Docs/Android.md).
+    list(APPEND ENGINE_SOURCES Platform/Android/Window_Android.cpp Renderer/Vulkan/VulkanRenderer.cpp)
+  else()
+    list(APPEND ENGINE_SOURCES Renderer/NullRenderer.cpp)
   endif()
 endif()
 
@@ -226,6 +229,52 @@ endif()
 endif() # WIN32
 
 # ---------------------------------------------------------------------------
+# Mobile shaders (Android): HLSL in Shaders/Mobile compiled to SPIR-V at build time by the
+# host's DXC (vcpkg host dependency) into headers the Vulkan renderer embeds.
+# ---------------------------------------------------------------------------
+function(cherry_mobile_shaders target)
+  set(_host_triplet "${VCPKG_HOST_TRIPLET}")
+  if(NOT _host_triplet)
+    set(_host_triplet x64-windows)
+  endif()
+  set(_dxc_dir "${VCPKG_INSTALLED_DIR}/${_host_triplet}/tools/directx-dxc")
+  find_program(CHERRY_HOST_DXC NAMES dxc dxc.exe PATHS "${_dxc_dir}" NO_DEFAULT_PATH)
+  if(NOT CHERRY_HOST_DXC)
+    message(FATAL_ERROR "No host DXC in ${_dxc_dir} (vcpkg.json: directx-dxc as a host dependency)")
+  endif()
+  set(_src "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Mobile")
+  set(_out "${CMAKE_CURRENT_BINARY_DIR}/MobileShaders")
+  file(GLOB _includes CONFIGURE_DEPENDS "${_src}/*.hlsli" "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Shared/*.h")
+  # name  file  entry  profile
+  set(_shaders
+    ImGuiVS ImGui.hlsl VSMain vs_6_0
+    ImGuiPS ImGui.hlsl PSMain ps_6_0)
+  set(_headers "")
+  list(LENGTH _shaders _count)
+  math(EXPR _last "${_count} - 1")
+  foreach(_i RANGE 0 ${_last} 4)
+    math(EXPR _f "${_i} + 1")
+    math(EXPR _e "${_i} + 2")
+    math(EXPR _p "${_i} + 3")
+    list(GET _shaders ${_i} _name)
+    list(GET _shaders ${_f} _file)
+    list(GET _shaders ${_e} _entry)
+    list(GET _shaders ${_p} _profile)
+    set(_header "${_out}/${_name}.spv.h")
+    add_custom_command(OUTPUT "${_header}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${_out}"
+      COMMAND "${CHERRY_HOST_DXC}" -spirv -fspv-target-env=vulkan1.1 -T ${_profile} -E ${_entry}
+        -I "${_src}" -I "${CMAKE_CURRENT_SOURCE_DIR}/Shaders" -Fh "${_header}" -Vn kSpirv_${_name} "${_src}/${_file}"
+      DEPENDS "${_src}/${_file}" ${_includes}
+      COMMENT "SPIR-V ${_name}" VERBATIM)
+    list(APPEND _headers "${_header}")
+  endforeach()
+  add_custom_target(${target}MobileShaders DEPENDS ${_headers})
+  add_dependencies(${target} ${target}MobileShaders)
+  target_include_directories(${target} PRIVATE "${_out}")
+endfunction()
+
+# ---------------------------------------------------------------------------
 # Engine target
 # ---------------------------------------------------------------------------
 if(CHERRYENGINE_BUILD_SHARED)
@@ -257,7 +306,8 @@ else()
   find_package(directxmath CONFIG REQUIRED)
   target_link_libraries(CherryEngine PUBLIC Microsoft::DirectXMath)
   if(ANDROID)
-    target_link_libraries(CherryEngine PUBLIC log android)
+    target_link_libraries(CherryEngine PUBLIC log android vulkan)
+    cherry_mobile_shaders(CherryEngine)
   endif()
 endif()
 target_compile_definitions(CherryEngine PUBLIC CHERRY_EDITOR=$<BOOL:${CHERRY_EDITOR}>)
