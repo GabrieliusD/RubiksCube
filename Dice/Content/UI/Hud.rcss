@@ -1,0 +1,140 @@
+/* The prototype's stylesheet (index.html, PROTOTYPE_EXPORT.md Part C), in RmlUi's dialect:
+ *  - dp instead of px for sizes, so they follow the display's DPI as CSS pixels do;
+ *  - RmlUi has no user-agent style sheet: div is inline until told otherwise;
+ *  - rgba()'s alpha is 0..255 or a percentage (CSS's 0.78 would be fully transparent);
+ *  - borders are `width colour` (no style keyword), inset is written out, no CSS variables;
+ *  - text-shadow is a font effect (baked into the glyphs);
+ *  - the font is "system-ui": Segoe UI on Windows, Roboto on Android (DiceHud.cpp loads them). */
+
+* { box-sizing: border-box; }
+div { display: block; }
+
+body
+{
+	width: 100%;
+	height: 100%;
+	font-family: system-ui;
+	font-size: 13dp;
+	line-height: 1.35;
+	color: #d9dde3;
+	/* Only the boxes catch the mouse: the board under the rest stays the game's. */
+	pointer-events: none;
+}
+
+button
+{
+	display: inline-block;
+	background-color: #ffd866;
+	color: #1a1a1a;
+	border-radius: 6dp;
+	padding: 8dp 16dp;
+	font-weight: 700;
+	font-size: 14dp;
+	line-height: 1.2;
+	cursor: pointer;
+}
+
+.lbl
+{
+	font-size: 10dp;
+	color: #8b93a0;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+/* ---- Score, time and Start (top left) ---- */
+#hud
+{
+	position: absolute;
+	top: 12dp;
+	left: 12dp;
+	display: flex;
+	align-items: center;
+	background-color: rgba(20, 22, 26, 78%);
+	padding: 10dp 14dp;
+	border-radius: 10dp;
+	border: 1dp #2c313a;
+	pointer-events: auto;
+}
+#hud .column { margin-right: 14dp; }   /* gap: 14px */
+#hud .big
+{
+	font-size: 26dp;
+	font-weight: 800;
+	min-width: 70dp;
+}
+
+/* ---- FPS (top right) ---- */
+#fps
+{
+	position: absolute;
+	top: 12dp;
+	right: 12dp;
+	background-color: rgba(20, 22, 26, 78%);
+	padding: 6dp 10dp;
+	border-radius: 8dp;
+	border: 1dp #2c313a;
+}
+
+/* ---- End card (centred) ---- */
+#endCard
+{
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+#endCard .card
+{
+	pointer-events: auto;
+	background-color: rgba(28, 31, 37, 95%);
+	border: 1dp #2c313a;
+	padding: 22dp 30dp;
+	border-radius: 14dp;
+	text-align: center;
+	min-width: 240dp;
+}
+#endCard .total
+{
+	font-size: 48dp;
+	font-weight: 900;
+	color: #ffd866;
+	margin: 4dp 0 8dp 0;
+}
+#endCard .sub
+{
+	color: #8b93a0;
+	margin-bottom: 14dp;
+}
+
+/* ---- Score popups: placed and faded every frame by DiceHud.cpp (transform, opacity) ---- */
+#popups
+{
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+}
+.pop
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	font-weight: 800;
+	font-size: 14dp;
+	color: #ffe27a;
+	white-space: nowrap;
+	/* text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,.6) */
+	font-effect: glow(0dp 2dp 0dp 1dp #000), glow(0dp 6dp 0dp 0dp rgba(0, 0, 0, 60%));
+}
+.pop.free { color: #b8c0cc; font-weight: 600; }
+.pop.bump { color: #7fd3ff; }
+.pop.six { font-size: 17dp; color: #fff1a8; }
+.pop.clash { color: #ff8a3d; font-size: 19dp; }
+.pop.stack { color: #b6f08a; }
+.pop.topple { color: #7fe0ff; font-size: 19dp; }

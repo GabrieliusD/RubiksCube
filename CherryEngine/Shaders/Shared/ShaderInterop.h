@@ -349,6 +349,15 @@ struct BlitConstants
 	uint sourceTextureIndex;
 };
 
+// RmlUi geometry (Shaders/Ui.hlsl, Renderer/UiRenderer.cpp).
+struct UiConstants
+{
+	float2 translation;            // pixels, added before the transform
+	uint   textureIndex;           // Texture2D<float4> (premultiplied), or CHERRY_INVALID_INDEX = untextured
+	uint   transformIndex;         // into transformBufferIndex: projection x the element's transform
+	uint   transformBufferIndex;   // StructuredBuffer<float4x4>, this frame's transforms
+};
+
 #ifdef __cplusplus
 	} // namespace gpu
 #endif

@@ -171,8 +171,8 @@ void DiceModule::OnStartup(Engine& engine)
 	else
 		CHERRY_ERROR("Dice: no main camera");
 
-	LoadFonts();
 	BuildBoard(engine);
+	CreateHud(engine);
 	if (const int seconds = EnvInt("DICE_DEV_SESSION", 0); seconds > 0)
 	{
 		mSim.config.sessionSeconds = static_cast<float>(seconds);
@@ -311,9 +311,10 @@ void DiceModule::OnUpdate(Engine& engine, float deltaTime)
 		{
 			const RenderStats& stats = engine.GetRenderer().Stats();
 			const double n = mProfileFrames;
-			CHERRY_LOG("DICE_PROFILE dice %d rolling %d | fps %.1f frame %.2f ms (max %.2f) | sim %.3f ms, instances %.3f ms, rest of the frame %.2f ms | gpu %.2f ms | draws %u, instances %u",
+			CHERRY_LOG("DICE_PROFILE dice %d rolling %d | fps %.1f frame %.2f ms (max %.2f) | sim %.3f ms, instances %.3f ms, rest of the frame %.2f ms | gpu %.2f ms | draws %u, instances %u | hud: %u draws, %u vertices, update %.3f ms, render %.3f ms, gpu %.3f ms",
 				mSim.diceCount, mSim.activeCount, n / mProfileTime, mProfileTime * 1000.0 / n, mProfileFrameMaxMs, mProfileSimMs / n, mProfileWriteMs / n,
-				mProfileTime * 1000.0 / n - (mProfileSimMs + mProfileWriteMs) / n, mProfileGpuMs / n, stats.drawCalls, stats.instancesSubmitted);
+				mProfileTime * 1000.0 / n - (mProfileSimMs + mProfileWriteMs) / n, mProfileGpuMs / n, stats.drawCalls, stats.instancesSubmitted,
+				stats.gameUiDraws, stats.gameUiVertices, engine.GetUi().LastUpdateMs(), stats.gameUiCpuMs, stats.gpuGameUiMs);
 			mProfileTime = mProfileSimMs = mProfileWriteMs = mProfileFrameMaxMs = mProfileGpuMs = 0;
 			mProfileFrames = 0;
 		}
@@ -335,6 +336,7 @@ void DiceModule::OnUpdate(Engine& engine, float deltaTime)
 		mFpsFrames = 0;
 		mFpsTime = 0.0f;
 	}
+	UpdateHud(engine);
 }
 
 // B9 "Rendering": every die's matrix and colour, straight from the arrays.
@@ -480,9 +482,7 @@ void DiceModule::DrawHoverRing(Engine& engine)
 
 void DiceModule::OnImGui(Engine& engine)
 {
-	DrawHoverRing(engine);
-	DrawPopups(engine);
-	DrawHud(engine);
+	DrawHoverRing(engine);   // the HUD itself is an RmlUi document (DiceHud.cpp)
 	// The reference hides the cursor over the board (the ring is the cursor).
 	if (engine.GetInput().HasMouse()) ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 
@@ -582,8 +582,10 @@ void DiceModule::OnShutdown(Engine& engine)
 	renderer.MeshInstances().clear();
 	renderer.Settings().shadows.boundsExtents = { 0, 0, 0 };
 	renderer.Settings().toneCurve = true;
-	ReleaseFonts();
+	mHudModel = {};   // the engine removes the document and the model after OnShutdown
 	mPopups.clear();
+	mPopupSlots.clear();   // its elements go with the document
+	mHudDocument = nullptr;
 	ClearSparks();
 	for (MeshHandle* mesh : { &mDieMesh, &mFeltMesh, &mBaseMesh, &mMarkerMesh })
 		if (mesh->IsValid()) { renderer.DestroyMesh(*mesh); *mesh = {}; }

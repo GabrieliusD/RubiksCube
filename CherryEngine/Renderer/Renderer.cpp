@@ -2,6 +2,7 @@
 #include "Renderer/ResourcePool.h"
 #include "Scene/Scene.h"
 #include "Renderer/ImGuiRenderer.h"
+#include "Renderer/UiRenderer.h"
 #include "Renderer/DdsReader.h"
 #include "RHI/RHI.h"
 #include "RHI/Pipeline.h"
@@ -179,6 +180,7 @@ namespace
 		Mark_VoxelEnd,
 		Mark_DebugEnd,
 		Mark_TonemapEnd,
+		Mark_GameUiEnd,
 		Mark_FrameEnd,
 		Mark_Count
 	};
@@ -219,7 +221,8 @@ namespace
 			stats.gpuVoxelMs = span(Mark_MeshEnd, Mark_VoxelEnd);
 			stats.gpuDebugMs = span(Mark_VoxelEnd, Mark_DebugEnd);        // debug lines + view models
 			stats.gpuTonemapMs = span(Mark_DebugEnd, Mark_TonemapEnd);
-			stats.gpuUiMs = span(Mark_TonemapEnd, Mark_FrameEnd);
+			stats.gpuGameUiMs = span(Mark_TonemapEnd, Mark_GameUiEnd);
+			stats.gpuUiMs = span(Mark_GameUiEnd, Mark_FrameEnd);
 		}
 	};
 }
@@ -230,6 +233,8 @@ struct Renderer::Impl
 	rhi::Device* device = nullptr;
 	rhi::PipelineLibrary pipelines;
 	ImGuiRenderer imgui;
+	UiRenderer ui;
+	bool uiRendered = false;     // RenderUi ran this frame
 #if defined(_WIN32)
 	GraphicsApi api = GraphicsApi::D3D12;
 #else
@@ -914,10 +919,12 @@ void Renderer::Impl::InitImGui()
 	ImGui_ImplWin32_Init(window);
 #endif
 	imgui.Initialize(*device, pipelines);
+	ui.Initialize(*device, pipelines, kLdrFormat);
 }
 
 void Renderer::Impl::ShutdownImGui()
 {
+	ui.Shutdown();
 	imgui.Shutdown();
 #if defined(_WIN32)
 	if (ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_Shutdown();
@@ -1588,6 +1595,7 @@ void Renderer::BeginFrame(float totalTime, float deltaTime)
 
 	r.gpuTimer.Mark(r.device->Cmd(), r.device->FrameIndex(), Mark_FrameBegin);
 	r.viewRendered = false;
+	r.uiRendered = false;
 	r.frameActive = true;
 
 #if defined(_WIN32)
@@ -2431,6 +2439,25 @@ void Renderer::Impl::ClearView(rhi::CommandList& cmd)
 	ldr->Transition(cmd, ResourceState::ShaderResource);
 }
 
+Rml::RenderInterface* Renderer::UiRenderInterface()
+{
+	return mImpl->initialized ? &mImpl->ui : nullptr;
+}
+
+void Renderer::RenderUi(Rml::Context& context)
+{
+	Impl& r = *mImpl;
+	if (!r.frameActive || !r.viewRendered || r.uiRendered || !r.ldr) return;
+	rhi::CommandList& cmd = r.device->Cmd();
+	r.ui.Render(cmd, *r.ldr, context);
+	r.gpuTimer.Mark(cmd, r.device->FrameIndex(), Mark_GameUiEnd);
+	r.uiRendered = true;
+	const UiRenderer::Stats& ui = r.ui.LastStats();
+	r.stats.gameUiDraws = ui.draws;
+	r.stats.gameUiVertices = ui.vertices;
+	r.stats.gameUiCpuMs = static_cast<float>(ui.cpuMs);
+}
+
 void Renderer::EndFrame(bool viewFullscreen)
 {
 	Impl& r = *mImpl;
@@ -2446,6 +2473,12 @@ void Renderer::EndFrame(bool viewFullscreen)
 		{
 			r.gpuTimer.Mark(cmd, frameIndex, mark);
 		}
+	}
+	if (!r.uiRendered)
+	{
+		r.gpuTimer.Mark(cmd, frameIndex, Mark_GameUiEnd);
+		r.stats.gameUiDraws = r.stats.gameUiVertices = 0;
+		r.stats.gameUiCpuMs = 0.0f;
 	}
 
 	cmd.BeginEvent("Present");

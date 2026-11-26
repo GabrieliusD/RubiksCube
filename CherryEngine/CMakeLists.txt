@@ -41,6 +41,8 @@ set(ENGINE_HEADERS
   RHI/D3D12/D3DCommon.h
   RHI/D3D12/DescriptorHeap.h
   Renderer/ImGuiRenderer.h
+  Renderer/UiRenderer.h
+  UI/Ui.h
   Renderer/DdsReader.h
   ShaderSystem/ShaderDesc.h
   ShaderSystem/ShaderCompiler.h
@@ -72,6 +74,8 @@ set(ENGINE_SOURCES
   Scene/SceneSerializer.cpp
   Renderer/Renderer.cpp
   Renderer/ImGuiRenderer.cpp
+  Renderer/UiRenderer.cpp
+  UI/Ui.cpp
   Renderer/DdsReader.cpp
   Renderer/DebugDraw.cpp
   Editor/EditorLayer.cpp
@@ -126,7 +130,7 @@ if(NOT WIN32)
     list(APPEND ENGINE_SOURCES Platform/Android/Window_Android.cpp)
   else()
     # Other platforms: no renderer yet.
-    list(REMOVE_ITEM ENGINE_SOURCES Renderer/Renderer.cpp Renderer/ImGuiRenderer.cpp Renderer/DdsReader.cpp
+    list(REMOVE_ITEM ENGINE_SOURCES Renderer/Renderer.cpp Renderer/ImGuiRenderer.cpp Renderer/UiRenderer.cpp Renderer/DdsReader.cpp
       RHI/RHI.cpp RHI/Pipeline.cpp RHI/Vulkan/VulkanDevice.cpp)
     list(APPEND ENGINE_SOURCES Renderer/NullRenderer.cpp)
   endif()
@@ -280,6 +284,10 @@ target_compile_definitions(CherryEngine PUBLIC CHERRY_EDITOR=$<BOOL:${CHERRY_EDI
 # nlohmann/json (header-only) is public: game modules read and write JSON with it too
 # (UNDERTIME's dialog files and save game).
 target_link_libraries(CherryEngine PUBLIC nlohmann_json::nlohmann_json)
+# RmlUi (the game UI, UI/Ui.h) is public too: games build their documents' data models and
+# event listeners with its API. On Windows it's a DLL shared by the engine and every module.
+find_package(RmlUi CONFIG REQUIRED)
+target_link_libraries(CherryEngine PUBLIC RmlUi::RmlUi)
 
 target_compile_definitions(CherryEngine
   PUBLIC _UNICODE UNICODE NOMINMAX

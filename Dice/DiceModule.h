@@ -3,12 +3,12 @@
 #include <Core/Engine.h>
 #include "DiceSim.h"
 #include "DiceAudio.h"
+#include <RmlUi/Core/DataModelHandle.h>
+namespace Rml { class Element; class ElementDocument; }
 #include <filesystem>
 #include <string>
 #include <vector>
 
-struct ImFont;
-struct ImVec2;
 
 // The dice roll feel prototype (PROTOTYPE_EXPORT.md), ported to CherryEngine. The
 // simulation is DiceSim (struct of arrays, no entities per die); this module owns the
@@ -32,23 +32,19 @@ private:
 	void SetupLighting(Renderer& renderer);
 	void FitCamera(Engine& engine);
 	void WriteInstances(Renderer& renderer);
-	void DrawHud(Engine& engine);
 	void DrawPanel(Engine& engine);
 	void ApplyConfig(Engine& engine, const DiceConfig& config);
 	std::filesystem::path PresetDir(Engine& engine) const;
 	void RefreshPresets(Engine& engine);
 	bool LoadPreset(Engine& engine, const std::string& name);
 	bool SavePreset(Engine& engine, const std::string& name);
-	void DrawEndCard(Engine& engine);
-	void DrawPopups(Engine& engine);
 	void TakePopups();
 	void StartSession();
-	void LoadFonts();
-	void ReleaseFonts();
-	ImFont* FontFor(int weight) const;
+	// The HUD (Content/UI/Hud.rml, RmlUi): the fonts, the "dice" data model and the document.
+	void CreateHud(Engine& engine);
+	// Copies the score, time, FPS, end card and popups into the data model.
+	void UpdateHud(Engine& engine);
 	struct ImDrawList* SceneOverlay(Engine& engine) const;
-	// A point in the reference's coordinates to view pixels (ImGui screen space).
-	bool Project(Engine& engine, double x, double y, double z, ImVec2& screen) const;
 	// B7 step 1: where the mouse ray (or the dev pointer) meets the board plane, in the reference's coordinates.
 	void PointerOnBoard(Engine& engine, bool& onBoard, double& boardX, double& boardZ);
 	void DrawHoverRing(Engine& engine);
@@ -73,10 +69,28 @@ private:
 	bool mPanelPlaced = false;
 
 	dice::Audio mAudio;
-	ImFont* mFontRegular = nullptr;
-	ImFont* mFontSemibold = nullptr;
-	ImFont* mFontBold = nullptr;
-	ImFont* mFontBlack = nullptr;
+
+	// What the HUD document shows (bound in CreateHud).
+	struct HudView
+	{
+		std::string score = "0", time = "30.0", startLabel = "Start", fps = "-- fps", total = "0", summary;
+		bool ended = false;
+	};
+	HudView mHud;
+	// The popups are the reference's pool: 140 elements in #popups, made and moved from code (a
+	// transform given as numbers each frame costs far less than a data binding parsing one).
+	// Each popup keeps its element for its life.
+	struct PopupSlot
+	{
+		Rml::Element* element = nullptr;
+		double shownAt = -1.0;   // the popup it shows (its start time), -1: hidden
+		float opacity = -1.0f;
+	};
+	std::vector<PopupSlot> mPopupSlots;
+	Rml::ElementDocument* mHudDocument = nullptr;   // the document mPopupSlots belong to (a reload makes a new one)
+	int mNextPopupSlot = 0;
+	void MakePopupPool(Engine& engine);
+	Rml::DataModelHandle mHudModel;
 
 	struct ShownPopup
 	{
@@ -84,6 +98,7 @@ private:
 		std::string text;
 		uint8_t style;
 		double t;
+		int slot;   // its element in mPopupSlots
 	};
 	std::vector<ShownPopup> mPopups;
 

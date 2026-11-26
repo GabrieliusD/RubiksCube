@@ -8,6 +8,7 @@
 #include "Core/Project.h"
 #include "Core/Assets.h"
 #include "Particles/ParticleSystem.h"
+#include "UI/Ui.h"
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -165,6 +166,9 @@ public:
 	PhysicsWorld& GetPhysics();
 	// Particles: the scene's ParticleEmitters, and one-off bursts (ParticleSystem::Burst).
 	ParticleSystem& GetParticles();
+	// The game's UI (RmlUi documents over the game view; see UI/Ui.h). Its context exists while
+	// playing: from before OnStartup until after OnShutdown.
+	Ui& GetUi();
 
 	float DeltaTime() const;
 	float TotalTime() const;

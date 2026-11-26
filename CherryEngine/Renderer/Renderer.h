@@ -11,6 +11,7 @@
 #include <string>
 
 class Scene;
+namespace Rml { class Context; class RenderInterface; }
 
 // The graphics API the renderer runs on. Windows has both (Renderer::SetGraphicsApi before
 // Initialize); Android always draws with its own Vulkan renderer.
@@ -36,7 +37,8 @@ struct RenderView
 //   VoxelPass  (ray-marched volumes, writes SV_Depth into the same depth buffer)
 //   DebugDraw  (lines into HDR, depth tested against the world)
 //   ViewModels (depth cleared, then RenderLayer::ViewModel meshes)
-//   Tonemap    (compute: HDR -> gamma-encoded LDR view texture)
+//   Tonemap    (compute: HDR -> gamma-encoded LDR view texture), then FXAA
+//   Game UI    (RmlUi documents drawn over the LDR view: RenderUi)
 //   Present    (LDR blitted full-window in game mode, or shown in the editor
 //               viewport via ImGui; ImGui drawn on top)
 class CHERRY_API Renderer
@@ -148,6 +150,12 @@ public:
 	// Starts the GPU frame and the ImGui frame.
 	void BeginFrame(float totalTime, float deltaTime);
 	void RenderScene(Scene& scene, const RenderView& view);
+	// RmlUi (the engine's Ui): the render interface it draws through, null before Initialize.
+	Rml::RenderInterface* UiRenderInterface();
+	// Draws an RmlUi context over the view: after RenderScene (on top of the tonemapped,
+	// anti-aliased image), before EndFrame. Skipped when no view was rendered this frame.
+	void RenderUi(Rml::Context& context);
+
 	// Composites, renders ImGui and presents. `viewFullscreen` blits the view to
 	// the whole window (game mode); otherwise only ImGui is drawn (editor mode).
 	void EndFrame(bool viewFullscreen);

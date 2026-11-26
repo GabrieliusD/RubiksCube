@@ -1908,6 +1908,10 @@ namespace rhi
 				binding.stride = 20;
 				attributes = { { 0, 0, VK_FORMAT_R32G32_SFLOAT, 0 }, { 1, 0, VK_FORMAT_R32G32_SFLOAT, 8 }, { 2, 0, VK_FORMAT_R8G8B8A8_UNORM, 16 } };
 				break;
+			case VertexLayout::RmlUi:
+				binding.stride = 20;
+				attributes = { { 0, 0, VK_FORMAT_R32G32_SFLOAT, 0 }, { 1, 0, VK_FORMAT_R8G8B8A8_UNORM, 8 }, { 2, 0, VK_FORMAT_R32G32_SFLOAT, 12 } };
+				break;
 			default:
 				break;
 			}
@@ -1946,6 +1950,16 @@ namespace rhi
 			{
 				blend.blendEnable = VK_TRUE;
 				blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+				blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				blend.colorBlendOp = VK_BLEND_OP_ADD;
+				blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+				blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				blend.alphaBlendOp = VK_BLEND_OP_ADD;
+			}
+			else if (desc.premultipliedBlend)
+			{
+				blend.blendEnable = VK_TRUE;
+				blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
 				blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 				blend.colorBlendOp = VK_BLEND_OP_ADD;
 				blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;

@@ -59,18 +59,30 @@ reference code; Part C wins). The port goes milestone by milestone (B14), checki
   (`RenderSettings::toneCurve = false`). Measured against the reference after that (sRGB): tops
   232 vs 232, shaded sides 112 vs 112, felt (56,88,80) vs (48,88,80).
 - **Ground ambient** has one share for all channels, so it's a touch less blue than #4a5262.
-- **UI** is ImGui in Segoe UI (the reference's `system-ui` on Windows), at the CSS pixel sizes
-  times the display's DPI scale. Segoe has no weight 800, so bold (700) stands in for it;
-  semibold covers 600 and Black covers 900. The text shadows are drawn as offset copies. The
-  debug panel keeps the engine's ImGui font.
+- **UI** (the HUD, FPS box, end card and score popups) is an RmlUi document, `Content/UI/Hud.rml`
+  and `Hud.rcss`: the reference's markup and stylesheet ported almost line for line (sizes in
+  `dp`, so they follow the display's DPI as CSS pixels do; RCSS differences are listed at the
+  top of `Hud.rcss`). `DiceHud.cpp` fills its "dice" data model; Start / Restart call its
+  "start" event. The font is Segoe UI (the reference's `system-ui` on Windows; Roboto on
+  Android), registered as `system-ui`. Segoe has no weight 800, so bold (700) stands in for it;
+  semibold covers 600 and Black covers 900. The text shadows are glow font effects. The popups
+  are a fixed pool of 140 elements made and moved from code, as the reference's script does,
+  each popup keeping its element for its life. Binding them through the data model instead
+  (a transform string per popup per frame) cost 1.7-2 ms of RmlUi update a frame with the pool
+  full; setting the transform as numbers (`Rml::Transform::MakeProperty`) brought a full pool
+  to about 0.4 ms in all (Release, frame 2.7 ms -> 1.1 ms; 0.7 ms with no popups). The hover
+  ring stays an ImGui overlay, and the debug panel stays ImGui. `DiceTests` loads the document
+  headless and checks it gives no warnings.
 - **Audio** is XAudio2 in the module (the engine has none). The sounds use the reference's
   WebAudio synthesis, rendered once into buffers; knocks and ticks come in 8 variants at the
   reference's random band-pass frequencies. It starts on the first click or on Start.
 - **Sparks** are engine particles, which are lit like the scene: their colour is scaled down
   and their emissive up (×20), so the light adds under 4%. Like the reference's points they're
   depth-tested and additive, and they're drawn the same 5 px at any zoom.
-- **Overlays** (ring, popups) go on ImGui's background list in the full-window game (over the
-  3D view, under the panel) and on its foreground list in the editor viewport.
+- **The hover ring** goes on ImGui's background list in the full-window game (over the 3D view,
+  under the panel) and on its foreground list in the editor viewport. The RmlUi HUD is drawn
+  into the view itself, so the ring is over it; the mouse over the HUD belongs to the HUD,
+  which hides the ring there.
 - **Capacity** is 80² × 1.3 = 8,320 slots, not the reference's 80² × 1.2 = 7,680. Scatter at
   its minimum spacing 0.7 makes about 8,100 slots on an 80×80 board. The reference silently drops
   the overflow, which leaves a hole where Bridson sampling would have grown last. Found by the M7

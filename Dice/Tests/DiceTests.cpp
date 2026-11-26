@@ -4,8 +4,10 @@
 #include "../DiceVisuals.h"
 #include "../DiceAudio.h"
 #include "../DiceControls.h"
+#include <RmlUi/Core.h>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <algorithm>
 #include <cmath>
@@ -1174,6 +1176,118 @@ namespace
 	}
 }
 
+// ---- The HUD document (Content/UI/Hud.rml, Hud.rcss) loads cleanly -----------------------------
+// RmlUi with a render interface that draws nothing: the document and its style sheet parse
+// without a warning, every binding finds its variable, and the styles come out as meant. The
+// "dice" model here mirrors DiceModule::CreateHud (DiceHud.cpp): keep the two in step.
+namespace
+{
+	class NullUiRenderer final : public Rml::RenderInterface
+	{
+	public:
+		int draws = 0;
+		Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex>, Rml::Span<const int>) override { return 1; }
+		void RenderGeometry(Rml::CompiledGeometryHandle, Rml::Vector2f, Rml::TextureHandle) override { ++draws; }
+		void ReleaseGeometry(Rml::CompiledGeometryHandle) override {}
+		Rml::TextureHandle LoadTexture(Rml::Vector2i&, const Rml::String&) override { return 0; }
+		Rml::TextureHandle GenerateTexture(Rml::Span<const Rml::byte>, Rml::Vector2i) override { return 1; }
+		void ReleaseTexture(Rml::TextureHandle) override {}
+		void EnableScissorRegion(bool) override {}
+		void SetScissorRegion(Rml::Rectanglei) override {}
+	};
+
+	class CollectingSystem final : public Rml::SystemInterface
+	{
+	public:
+		std::vector<std::string> problems;
+		bool LogMessage(Rml::Log::Type type, const Rml::String& message) override
+		{
+			if (type == Rml::Log::LT_ERROR || type == Rml::Log::LT_ASSERT || type == Rml::Log::LT_WARNING) problems.push_back(message);
+			return true;
+		}
+	};
+}
+
+void TestHudDocument()
+{
+	NullUiRenderer renderer;
+	CollectingSystem system;
+	Rml::SetRenderInterface(&renderer);
+	Rml::SetSystemInterface(&system);
+	Check(Rml::Initialise(), "hud: RmlUi starts");
+	const std::string content = DICE_CONTENT_DIR;
+	// As DiceModule::CreateHud registers them: Segoe UI as "system-ui" (the bytes live until Shutdown).
+	std::vector<std::vector<Rml::byte>> fontData;
+	for (auto [file, weight] : { std::pair<const char*, int>{ "segoeui.ttf", 400 }, { "seguisb.ttf", 600 }, { "segoeuib.ttf", 700 }, { "seguibl.ttf", 900 } })
+	{
+		std::ifstream in(std::string("C:/Windows/Fonts/") + file, std::ios::binary);
+		std::vector<Rml::byte>& data = fontData.emplace_back((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+		Rml::LoadFontFace(Rml::Span<const Rml::byte>(data.data(), data.size()), "system-ui", Rml::Style::FontStyle::Normal, static_cast<Rml::Style::FontWeight>(weight));
+	}
+
+	Rml::Context* context = Rml::CreateContext("test", Rml::Vector2i(1280, 720));
+	std::string score = "120", time = "30.0", startLabel = "Start", fps = "60 fps", total = "120", summary = "3 rolls";
+	bool ended = false;
+	Rml::DataModelConstructor model = context->CreateDataModel("dice");
+	model.Bind("score", &score);
+	model.Bind("time", &time);
+	model.Bind("startLabel", &startLabel);
+	model.Bind("fps", &fps);
+	model.Bind("ended", &ended);
+	model.Bind("total", &total);
+	model.Bind("summary", &summary);
+	int starts = 0;
+	model.BindEventCallback("start", [&](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&) { ++starts; });
+	Rml::DataModelHandle handle = model.GetModelHandle();
+
+	Rml::ElementDocument* document = context->LoadDocument(content + "/UI/Hud.rml");
+	Check(document != nullptr, "hud: Hud.rml loads");
+	if (!document) { Rml::Shutdown(); return; }
+	document->Show();
+	// A popup as DiceModule::UpdateHud makes and moves them (the .pop and .six styles, a transform).
+	Rml::Element* popups = document->GetElementById("popups");
+	Rml::Element* popup = nullptr;
+	if (popups)
+	{
+		popup = popups->AppendChild(document->CreateElement("div"));
+		popup->SetClass("pop", true);
+		popup->SetClass("six", true);
+		popup->SetInnerRML("+60");
+		popup->SetProperty(Rml::PropertyId::Transform, Rml::Transform::MakeProperty({ Rml::Transforms::Translate2D(400, 300, Rml::Unit::PX),
+			Rml::Transforms::Translate2D(-50.0f, -50.0f, Rml::Unit::PERCENT), Rml::Transforms::Scale2D(1.1f) }));
+		popup->SetProperty(Rml::PropertyId::Opacity, Rml::Property(0.5f, Rml::Unit::NUMBER));
+	}
+	context->Update();
+	context->Render();
+	ended = true;
+	handle.DirtyVariable("ended");
+	context->Update();
+	context->Render();
+
+	std::string problems;
+	for (const std::string& problem : system.problems) problems += "\n    " + problem;
+	Check(system.problems.empty(), "hud: the document, style sheet and bindings give no warnings" + problems);
+
+	Rml::Element* hud = document->GetElementById("hud");
+	const Rml::Colourb background = hud ? hud->GetComputedValues().background_color() : Rml::Colourb(0, 0, 0, 0);
+	// 78% of 255 = 198.9, which RmlUi rounds down.
+	Check(hud && background.alpha >= 198 && background.alpha <= 199 && background.red == 20,
+		"hud: the score box is #14161a at 78% (rgba() alpha in percent, not 0..1): alpha " + std::to_string(background.alpha));
+	Check(hud && hud->GetBox().GetSize().x > 200 && hud->GetBox().GetSize().y > 40, "hud: the score box has a size (flex layout, fonts found)");
+	Rml::Element* card = document->QuerySelector("#endCard .card");
+	Check(card != nullptr && card->IsVisible(), "hud: the end card appears when the session ends");
+	Check(popup && popup->GetComputedValues().font_size() == 17.0f && popup->GetComputedValues().opacity() == 0.5f && popup->GetComputedValues().has_local_transform(),
+		"hud: a popup takes the .pop.six style (17 px), its opacity and its transform");
+	Rml::ElementList buttons;
+	document->GetElementsByTagName(buttons, "button");
+	for (Rml::Element* button : buttons) button->Click();
+	context->Update();
+	Check(starts == 2, "hud: Start and Restart call the \"start\" event");
+	Check(renderer.draws > 0, "hud: something is drawn");
+
+	Rml::Shutdown();
+}
+
 int main()
 {
 	TestFaceUp();
@@ -1198,6 +1312,7 @@ int main()
 	TestPresets();
 	TestControlsAtRuntime();
 	TestSounds();
+	TestHudDocument();
 	std::printf("%s (%d failure%s)\n", gFailures ? "FAILED" : "OK", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures ? 1 : 0;
 }

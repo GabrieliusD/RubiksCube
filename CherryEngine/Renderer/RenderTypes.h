@@ -119,7 +119,13 @@ struct RenderStats
 	float gpuVoxelMs = 0.0f;
 	float gpuTonemapMs = 0.0f;
 	float gpuDebugMs = 0.0f;
+	float gpuGameUiMs = 0.0f;   // the game's RmlUi documents (Renderer::RenderUi)
 	float gpuUiMs = 0.0f;       // composite + ImGui
+
+	// The game's RmlUi documents, last frame they were drawn.
+	uint32_t gameUiDraws = 0;
+	uint32_t gameUiVertices = 0;    // copied to the GPU that frame
+	float gameUiCpuMs = 0.0f;       // recording the draws (Context::Render)
 };
 
 // A point light (linear colour). Light falls off smoothly to zero at `range`.

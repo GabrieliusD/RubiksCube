@@ -158,8 +158,8 @@ namespace rhi
 	// ---- Pipelines ---------------------------------------------------------------------------
 
 	// Mesh: the engine's Vertex (48 bytes); MeshCompact: MeshFormat::Compact (28 bytes);
-	// ImGui: ImDrawVert (20 bytes).
-	enum class VertexLayout : uint8_t { None, Mesh, MeshCompact, ImGui };
+	// ImGui: ImDrawVert (20 bytes); RmlUi: Rml::Vertex (20 bytes: position, RGBA8 colour, uv).
+	enum class VertexLayout : uint8_t { None, Mesh, MeshCompact, ImGui, RmlUi };
 	enum class Topology : uint8_t { Triangles, Lines };
 	enum class CullMode : uint8_t { None, Front, Back };
 	enum class CompareOp : uint8_t { Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always };
@@ -181,6 +181,7 @@ namespace rhi
 		CullMode cullMode = CullMode::Back;   // front faces wind clockwise on screen (D3D's default)
 		bool alphaBlend = false;
 		bool additiveBlend = false;        // colour x alpha added to what's there (glow, sparks)
+		bool premultipliedBlend = false;   // colour already multiplied by alpha: colour + what's there x (1 - alpha) (RmlUi)
 		// Depth bias (shadow maps): constant in depth-buffer units, plus a slope-scaled part.
 		int depthBias = 0;
 		float slopeScaledDepthBias = 0.0f;

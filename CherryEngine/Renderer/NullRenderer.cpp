@@ -175,6 +175,8 @@ uint32_t Renderer::ViewWidth() const { return mImpl->viewWidth; }
 uint32_t Renderer::ViewHeight() const { return mImpl->viewHeight; }
 unsigned long long Renderer::ViewTextureId() const { return 0; }
 unsigned long long Renderer::RenderPreview(MeshHandle, MaterialHandle, uint32_t, float, float) { return 0; }
+Rml::RenderInterface* Renderer::UiRenderInterface() { return nullptr; }
+void Renderer::RenderUi(Rml::Context&) {}
 
 void Renderer::BeginFrame(float, float deltaTime)
 {

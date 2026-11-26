@@ -75,7 +75,7 @@ int RunRendererTests()
 	{
 		const std::string target = spirv ? " (SPIR-V)" : " (DXIL)";
 		for (const char* file : { "SkyPass.hlsl", "Mesh.hlsl", "ShadowPass.hlsl", "VoxelRaymarch.hlsl", "VoxelShadow.hlsl", "Particles.hlsl",
-			"DebugDraw.hlsl", "Blit.hlsl", "ImGui.hlsl" })
+			"DebugDraw.hlsl", "Blit.hlsl", "ImGui.hlsl", "Ui.hlsl" })
 		{
 			std::string errors;
 			const bool ok = CompileShaderFileOffline(file, CHERRY_TEST_SHADER_DIR, errors, spirv);

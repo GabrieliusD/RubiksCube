@@ -894,6 +894,12 @@ namespace rhi
 				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,   0, 8,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 				{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 			};
+			static const D3D12_INPUT_ELEMENT_DESC kRmlUiLayout[] =
+			{
+				{ "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT,   0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+				{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 8,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,   0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			};
 
 			D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
 			psoDesc.pRootSignature = mRootSignature.Get();
@@ -904,6 +910,7 @@ namespace rhi
 			case VertexLayout::Mesh: psoDesc.InputLayout = { kMeshLayout, _countof(kMeshLayout) }; break;
 			case VertexLayout::MeshCompact: psoDesc.InputLayout = { kMeshCompactLayout, _countof(kMeshCompactLayout) }; break;
 			case VertexLayout::ImGui: psoDesc.InputLayout = { kImGuiLayout, _countof(kImGuiLayout) }; break;
+			case VertexLayout::RmlUi: psoDesc.InputLayout = { kRmlUiLayout, _countof(kRmlUiLayout) }; break;
 			default: break;
 			}
 
@@ -921,6 +928,16 @@ namespace rhi
 			{
 				rt.BlendEnable = TRUE;
 				rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+				rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+				rt.BlendOp = D3D12_BLEND_OP_ADD;
+				rt.SrcBlendAlpha = D3D12_BLEND_ONE;
+				rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+				rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+			}
+			else if (desc.premultipliedBlend)
+			{
+				rt.BlendEnable = TRUE;
+				rt.SrcBlend = D3D12_BLEND_ONE;
 				rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
 				rt.BlendOp = D3D12_BLEND_OP_ADD;
 				rt.SrcBlendAlpha = D3D12_BLEND_ONE;

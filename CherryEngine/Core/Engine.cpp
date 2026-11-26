@@ -11,6 +11,8 @@
 #include "Scene/SceneSerializer.h"
 #include "ShaderSystem/ShaderCompiler.h"
 #include "Game/Script.h"
+#include "UI/Ui.h"
+#include <RmlUi/Core/Context.h>
 #include "imgui.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -77,6 +79,7 @@ struct Engine::Impl
 	Renderer renderer;
 	AssetManager assets;
 	ParticleSystem particles;
+	Ui ui;
 	EditorLayer editor;
 
 	// The scene document
@@ -166,6 +169,7 @@ Scene& Engine::GetEditScene() { return *mImpl->editWorld.scene; }
 AssetManager& Engine::GetAssets() { return mImpl->assets; }
 Renderer& Engine::GetRenderer() { return mImpl->renderer; }
 ParticleSystem& Engine::GetParticles() { return mImpl->particles; }
+Ui& Engine::GetUi() { return mImpl->ui; }
 Input& Engine::GetInput() { return mImpl->input; }
 Window& Engine::GetWindow() { return mImpl->window; }
 PhysicsWorld& Engine::GetPhysics() { return *mImpl->active->physics; }
@@ -836,6 +840,7 @@ void Engine::Impl::StartPlay(Engine& engine)
 	ApplyEnvironment(*playWorld.scene);   // before OnStartup, so the game can override it
 	playState = PlayState::Playing;
 	CHERRY_LOG("Play");
+	ui.BeginSession(project.content, renderer.ViewWidth(), renderer.ViewHeight(), ImGui::GetStyle().FontScaleDpi);
 	try
 	{
 		game->OnStartup(engine);
@@ -864,6 +869,7 @@ void Engine::Impl::StopPlay(Engine& engine)
 	{
 		CHERRY_ERROR("Game OnShutdown threw: %s", ex.what());
 	}
+	ui.EndSession();   // before the module can unload: its data models and listeners go with it
 	input.SetMouseCaptured(false);
 	editor.OnWorldChanging(engine);
 	DestroyWorld(playWorld);
@@ -1143,6 +1149,7 @@ int Engine::Run(const LaunchOptions& options)
 
 		e.assets.Initialize(e.renderer);
 		if (e.project.IsValid()) e.assets.SetContentRoot(e.project.content);
+		e.ui.Initialize(e.renderer.UiRenderInterface());
 		e.editWorld = e.MakeWorld(false);
 		e.active = &e.editWorld;
 		e.editor.LoadSettings(SavedDir() / "EditorCamera.txt");
@@ -1168,6 +1175,7 @@ int Engine::Run(const LaunchOptions& options)
 	}
 
 	if (e.editWorld) e.NotifySystemsUnload();
+	e.ui.Shutdown();
 	e.editor.Shutdown(*this);
 	e.DestroyWorld(e.playWorld);
 	e.active = &e.editWorld;
@@ -1262,6 +1270,9 @@ int Engine::Impl::Loop(Engine& engine)
 			input.SetRouting(!io.WantCaptureMouse, true, gameView.x, gameView.y, gameView.width, gameView.height, io.WantTextInput);
 		}
 		renderer.SetViewSize(static_cast<uint32_t>(gameView.width), static_cast<uint32_t>(gameView.height));
+		// The game's UI gets the mouse before the game does (and keeps it from the game while over it).
+		ui.ProcessInput(input, static_cast<uint32_t>(gameView.width), static_cast<uint32_t>(gameView.height), ImGui::GetStyle().FontScaleDpi);
+		if (playState != PlayState::Edit && ImGui::IsKeyPressed(ImGuiKey_F11, false)) ui.SetDebuggerVisible(!ui.IsDebuggerVisible());
 
 		if (playState == PlayState::Playing && game)
 		{
@@ -1323,11 +1334,13 @@ int Engine::Impl::Loop(Engine& engine)
 		}
 		ResolveAssets(*active->scene);
 		if (playState == PlayState::Edit) ApplyEnvironment(*active->scene);
+		ui.Update(deltaTime);   // after the game's update: its data changes show this frame
 		particles.Update(*active->scene, deltaTime);
 		if (UpdateMainView())
 		{
 			particles.Submit(*active->scene, renderer);
 			renderer.RenderScene(*active->scene, mainView);
+			if (Rml::Context* uiContext = ui.GetContext()) renderer.RenderUi(*uiContext);
 		}
 		renderer.EndFrame(!editorMode);
 

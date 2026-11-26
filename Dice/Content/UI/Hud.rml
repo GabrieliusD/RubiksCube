@@ -1,0 +1,30 @@
+<rml>
+<head>
+	<title>Dice HUD</title>
+	<!-- The prototype's on-screen UI (PROTOTYPE_EXPORT.md B15, index.html's #view): the score,
+	     time and Start box, the FPS box, the end card and the floating score popups. Values come
+	     from the "dice" data model (DiceHud.cpp). -->
+	<link type="text/rcss" href="Hud.rcss"/>
+</head>
+<body data-model="dice">
+	<!-- 140 div.pop, made, placed and faded by DiceHud.cpp, as the reference's script does. -->
+	<div id="popups"></div>
+
+	<div id="hud">
+		<div class="column"><div class="lbl">Score</div><div class="big">{{score}}</div></div>
+		<div class="column"><div class="lbl">Time</div><div class="big">{{time}}</div></div>
+		<button data-event-click="start">{{startLabel}}</button>
+	</div>
+
+	<div id="fps">{{fps}}</div>
+
+	<div id="endCard" data-if="ended">
+		<div class="card">
+			<div class="lbl">Time's up</div>
+			<div class="total">{{total}}</div>
+			<div class="sub">{{summary}}</div>
+			<button data-event-click="start">Restart</button>
+		</div>
+	</div>
+</body>
+</rml>

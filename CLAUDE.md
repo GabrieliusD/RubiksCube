@@ -13,14 +13,14 @@ CherryLaunch.exe ──loads──▶ <Game>.dll ──links──▶ CherryEngi
 - `CherryEngine/`: the engine (DLL).
 - `Rubik/`: the Rubik's cube game. It's the default module.
 - `Undertime/`: UNDERTIME, a first-person voxel mining game. Most active work happens here.
-- `Dice/`: a port of a dice roll feel prototype (Three.js original in `C:\Users\gabri\DiceDemo`). Pure simulation in `DiceSim` (struct of arrays), every die drawn through `Renderer::MeshInstances`; plan, decisions and milestone status in `Dice/Docs/Port.md`.
+- `Dice/`: a port of a dice roll feel prototype (Three.js original in `C:\Users\gabri\DiceDemo`). Pure simulation in `DiceSim` (struct of arrays), every die drawn through `Renderer::MeshInstances`; the HUD is an RmlUi document (`Content/UI/Hud.rml`, filled by `DiceHud.cpp`); plan, decisions and milestone status in `Dice/Docs/Port.md`.
 - `CherryLaunch/`: the launcher executable.
 
 `README.md` covers the renderer passes, the Rubik controls and how to write a game module.
 
 ## Building and running
 
-The build uses Visual Studio 2026 (generator "Visual Studio 18 2026") and vcpkg manifest mode (`vcpkg.json`: DXC, Jolt).
+The build uses Visual Studio 2026 (generator "Visual Studio 18 2026") and vcpkg manifest mode (`vcpkg.json`: DXC, Jolt, RmlUi with FreeType).
 
 - **Which `cmake`:** the `cmake` on PATH may not know the VS 2026 generator. Use the copy that ships with Visual Studio: `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`. `ctest.exe` is in the same folder.
 - **Build directories:**
@@ -126,6 +126,13 @@ The `.github/` folder exists but is empty: there is no CI.
     - The editor is `Editor/ShaderGraphEditor.cpp`, built on imgui-node-editor (vendored in `thirdparty/imgui-node-editor`). Its preview uses `Renderer::RenderPreview`.
     - Generated HLSL is also written to `<project>/Saved/ShaderCache/`.
   - **Voxel palettes:** volumes use 8-bit palette indices. A volume can share another volume's palette (`sharePaletteFrom`).
+- **Game UI (`UI/Ui.h`, `Renderer/UiRenderer.cpp`, `Shaders/Ui.hlsl`):** RmlUi 6.2 (vcpkg `rmlui`, HTML/CSS-like `.rml` documents styled by `.rcss`, data models bind C++ values). `engine.GetUi()`; RmlUi's API is public to modules (`<RmlUi/Core.h>`; on Windows `rmlui.dll` is shared).
+  - **Session:** one context per play session, made before `OnStartup` and removed after `OnShutdown` with every document and data model, so nothing outlives a hot-reloaded DLL. Don't register RmlUi factories from a module (they're global).
+  - **Files:** paths are under Content (`ui.LoadDocument("UI/Hud.rml")`; a leading `/` in a document is Content's root). Saving an `.rcss` restyles open documents in place; saving an `.rml` reloads that document (its `ElementDocument*` changes: keep state in data models).
+  - **Drawing:** after the tonemap and FXAA, into the LDR view (`Renderer::RenderUi`), so it shows in the editor viewport too. Geometry is streamed each frame into upload buffers (RmlUi keeps compiled vertices alive), transforms go through a per-frame structured buffer, blending is premultiplied (`GraphicsPipelineDesc::premultipliedBlend`, `VertexLayout::RmlUi`). Not done yet: clip masks, layers, filters, shaders (box-shadow, blur, gradients draw nothing).
+  - **Input:** `Ui::ProcessInput` runs before the game's update. While the mouse is over an element the game's `Input` reports no mouse (`Input::SuppressMouse`); a full-screen body needs `pointer-events: none`. No keyboard or touch yet. F11 toggles RmlUi's debugger while playing. `cursor: pointer` shows a hand.
+  - **Performance:** data bindings suit values that change now and then. Something moved every frame in numbers (Dice's 140 score popups) is far cheaper set from code: `element->SetProperty(Rml::PropertyId::Transform, Rml::Transform::MakeProperty({...}))` rather than a bound transform string RmlUi has to parse (Dice: 1.7-2 ms -> about 0.4 ms a frame). `Ui::LastUpdateMs()` times RmlUi's update.
+  - **RCSS gotchas:** no user-agent sheet (`div { display: block; }`), `rgba()` alpha is 0..255 or a percentage (0.78 is transparent), borders are `width colour`, `text-shadow` is `font-effect: glow(...)`. Stats: the editor's GPU line ("game ui") and `RenderStats::gameUi*`.
 - **Physics:** `Physics/PhysicsWorld.h` wraps Jolt, whose types never leak out of the engine. Bodies are integer `BodyId`s.
   - **What the API offers:**
     - static meshes and boxes;

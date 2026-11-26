@@ -52,6 +52,8 @@ public:
 	// View rectangle in window client pixels. While captured, the mouse and keyboard
 	// stay routed to the game regardless of the other flags (except text input).
 	void SetRouting(bool mouse, bool keyboard, float viewX, float viewY, float viewWidth, float viewHeight, bool textInputActive);
+	// For the rest of this frame the game gets no mouse (the game's UI has it: Ui::ProcessInput).
+	void SuppressMouse() { mMouseEnabled = false; }
 	void Reset();
 
 private:
