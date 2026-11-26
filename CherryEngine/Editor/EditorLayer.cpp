@@ -425,7 +425,7 @@ void EditorLayer::DrawStats(Engine& engine, float frameMs)
 	RenderSettings& settings = renderer.Settings();
 
 	ImGui::Begin(kStatsWindow);
-	ImGui::Text("%s", renderer.AdapterName().c_str());
+	ImGui::Text("%s  (%s)", renderer.AdapterName().c_str(), GraphicsApiName(renderer.GetGraphicsApi()));
 	ImGui::Text("%.1f fps  (%.2f ms)", 1000.0f / std::max(mFrameMsSmoothed, 0.001f), mFrameMsSmoothed);
 	ImGui::Text("View: %u x %u", stats.viewWidth, stats.viewHeight);
 	ImGui::Text("GPU: %.2f ms", stats.gpuFrameMs);
@@ -440,10 +440,11 @@ void EditorLayer::DrawStats(Engine& engine, float frameMs)
 	ImGui::Text("Entities:         %u", engine.GetScene().GetCoordinator().LivingCount());
 	const PhysicsStats& physics = engine.GetPhysics().Stats();
 	ImGui::Text("Physics:          %u bodies (%u active)  %.2f ms  %u steps", physics.bodies, physics.activeBodies, physics.stepMs, physics.stepsLastFrame);
+	const char* api = GraphicsApiName(renderer.GetGraphicsApi());
 	if (stats.d3dErrors > 0)
-		ImGui::TextColored(ImVec4(1, 0.35f, 0.3f, 1), "D3D12 errors: %u  warnings: %u", stats.d3dErrors, stats.d3dWarnings);
+		ImGui::TextColored(ImVec4(1, 0.35f, 0.3f, 1), "%s errors: %u  warnings: %u", api, stats.d3dErrors, stats.d3dWarnings);
 	else
-		ImGui::Text("D3D12 errors: 0  warnings: %u", stats.d3dWarnings);
+		ImGui::Text("%s errors: 0  warnings: %u", api, stats.d3dWarnings);
 
 	ImGui::SeparatorText("Rendering");
 	ImGui::Checkbox("VSync", &settings.vsync);

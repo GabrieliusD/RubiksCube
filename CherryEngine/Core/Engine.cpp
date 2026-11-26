@@ -262,28 +262,61 @@ void Engine::ExportAndroid(bool release)
 #endif
 }
 
+namespace
+{
+	// Starts this executable again with `arguments`; the caller then quits.
+	bool StartEditorProcess(const std::wstring& arguments)
+	{
+#if defined(_WIN32)
+		// A fresh process is the simplest way to get a clean engine, ImGui layout and module.
+		wchar_t exePath[MAX_PATH];
+		GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+		std::wstring commandLine = L"\"" + std::wstring(exePath) + L"\" " + arguments;
+		STARTUPINFOW startup{ sizeof(startup) };
+		PROCESS_INFORMATION info{};
+		if (!CreateProcessW(exePath, commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &info))
+		{
+			CHERRY_ERROR("Couldn't start the editor again (error %lu)", GetLastError());
+			return false;
+		}
+		CloseHandle(info.hThread);
+		CloseHandle(info.hProcess);
+		return true;
+#else
+		(void)arguments;
+		CHERRY_ERROR("Restarting needs the editor on Windows");
+		return false;
+#endif
+	}
+
+	void SaveGraphicsApiChoice(GraphicsApi api)
+	{
+		std::ofstream out(cherry::EngineUserDir() / "GraphicsApi.txt", std::ios::trunc);
+		out << (api == GraphicsApi::Vulkan ? "vulkan" : "d3d12") << "\n";
+	}
+}
+
 void Engine::OpenProject(const fs::path& projectFile)
 {
 	if (!ConfirmDiscardSceneChanges()) return;
 	mImpl->sceneDirty = false;   // answered: don't ask again on the way out
-#if defined(_WIN32)
-	// A fresh process is the simplest way to get a clean engine, ImGui layout and module.
-	wchar_t exePath[MAX_PATH];
-	GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-	std::wstring commandLine = L"\"" + std::wstring(exePath) + L"\" \"" + fs::absolute(projectFile).wstring() + L"\"";
-	STARTUPINFOW startup{ sizeof(startup) };
-	PROCESS_INFORMATION info{};
-	if (!CreateProcessW(exePath, commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &info))
-	{
-		CHERRY_ERROR("Couldn't start the editor for %s (error %lu)", projectFile.string().c_str(), GetLastError());
-		return;
-	}
-	CloseHandle(info.hThread);
-	CloseHandle(info.hProcess);
-	mImpl->quitRequested = true;
-#else
-	CHERRY_ERROR("Opening another project needs the editor (%s)", projectFile.string().c_str());
-#endif
+	if (StartEditorProcess(L"\"" + fs::absolute(projectFile).wstring() + L"\"")) mImpl->quitRequested = true;
+}
+
+void Engine::SwitchGraphicsApi(GraphicsApi api)
+{
+	Impl& e = *mImpl;
+	if (api == e.renderer.GetGraphicsApi()) return;
+	if (!ConfirmDiscardSceneChanges()) return;
+	e.sceneDirty = false;
+	SaveGraphicsApiChoice(api);
+	e.SaveEditorState();   // the new editor opens this scene
+	std::wstring arguments;
+	if (e.project.IsValid()) arguments = L"\"" + fs::absolute(e.project.file).wstring() + L"\" ";
+	if (e.launch.play) arguments += L"--play ";
+	arguments += api == GraphicsApi::Vulkan ? L"--rhi vulkan" : L"--rhi d3d12";
+	CHERRY_LOG("Restarting on %s", GraphicsApiName(api));
+	if (StartEditorProcess(arguments)) e.quitRequested = true;
 }
 
 void Engine::NewScene() { mImpl->wantNewScene = true; }
@@ -1059,8 +1092,24 @@ int Engine::Run(const LaunchOptions& options)
 	int exitCode = 0;
 	try
 	{
-		e.renderer.SetGraphicsApi(ChooseGraphicsApi(e.launch.graphicsApi));
-		if (!e.renderer.Initialize(e.window.Handle(), e.window.Width(), e.window.Height(), error))
+		const GraphicsApi api = ChooseGraphicsApi(e.launch.graphicsApi);
+		e.renderer.SetGraphicsApi(api);
+		bool initialized = e.renderer.Initialize(e.window.Handle(), e.window.Width(), e.window.Height(), error);
+		if (!initialized && api == GraphicsApi::Vulkan)
+		{
+			// Vulkan didn't start (no driver, an old GPU): D3D12 instead, and from now on.
+			CHERRY_ERROR("Vulkan couldn't start (%s); using D3D12", error.c_str());
+			const std::string vulkanError = error;
+			error.clear();
+			e.renderer.SetGraphicsApi(GraphicsApi::D3D12);
+			initialized = e.renderer.Initialize(e.window.Handle(), e.window.Width(), e.window.Height(), error);
+			if (initialized)
+			{
+				SaveGraphicsApiChoice(GraphicsApi::D3D12);
+				cherry::ShowError("Cherry Engine", ("Vulkan couldn't start, so the editor is using D3D12.\n\n" + vulkanError).c_str(), e.window.Handle());
+			}
+		}
+		if (!initialized)
 		{
 			CHERRY_ERROR("Renderer initialization failed: %s", error.c_str());
 			cherry::ShowError("Cherry Engine", error.c_str(), e.window.Handle());

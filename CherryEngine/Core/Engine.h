@@ -121,6 +121,10 @@ public:
 	void ReloadModule();
 	// Restarts the editor on another project (asks about unsaved scene changes first).
 	void OpenProject(const std::filesystem::path& projectFile);
+	// Remembers `api` (EngineUserDir()/GraphicsApi.txt) and restarts the editor on it, on the same
+	// project and scene (asks about unsaved scene changes first). Nothing happens if it's the
+	// API already running.
+	void SwitchGraphicsApi(GraphicsApi api);
 
 	// ---- Edit scene (the scene document the editor edits) -----------------------
 	// Paths may be absolute or relative to the project root. Scene changes requested while

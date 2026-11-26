@@ -108,6 +108,7 @@ struct RenderStats
 	uint32_t viewWidth = 0;
 	uint32_t viewHeight = 0;
 	uint32_t descriptorsInUse = 0;
+	// Debug layer (D3D12) or validation layer (Vulkan) messages so far.
 	uint32_t d3dErrors = 0;
 	uint32_t d3dWarnings = 0;
 	uint32_t shaderReloads = 0;

@@ -380,7 +380,17 @@ bool Renderer::Initialize(void* nativeWindow, uint32_t width, uint32_t height, s
 	}
 	catch (const std::exception& e)
 	{
+		// Back to where Initialize started, so it can be tried again (on the other API).
 		error = e.what();
+		if (ImGui::GetCurrentContext())
+		{
+			r.imgui.Shutdown();
+			ImGui_ImplWin32_Shutdown();
+			ImGui::DestroyContext();
+		}
+		r.pipelines.Shutdown();
+		r.device = nullptr;
+		r.devicePtr.reset();
 		return false;
 	}
 

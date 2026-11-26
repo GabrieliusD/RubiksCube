@@ -1085,6 +1085,17 @@ void EditorLayer::DrawEditMenu(Engine& engine)
 	ImGui::DragFloat("Move step", &mSnap.translate, 0.01f, 0.01f, 10.0f, "%.2f m");
 	ImGui::DragFloat("Turn step", &mSnap.rotate, 0.5f, 1.0f, 90.0f, "%.0f deg");
 	ImGui::DragFloat("Scale step", &mSnap.scale, 0.01f, 0.01f, 1.0f, "%.2f");
+	ImGui::Separator();
+	if (ImGui::BeginMenu("Graphics API"))
+	{
+		const GraphicsApi current = engine.GetRenderer().GetGraphicsApi();
+		for (GraphicsApi api : { GraphicsApi::D3D12, GraphicsApi::Vulkan })
+		{
+			if (ImGui::MenuItem(GraphicsApiName(api), nullptr, api == current) && api != current) engine.SwitchGraphicsApi(api);
+		}
+		ImGui::SetItemTooltip("Restarts the editor on the same project and scene; remembered for next time");
+		ImGui::EndMenu();
+	}
 	ImGui::EndMenu();
 }
 
