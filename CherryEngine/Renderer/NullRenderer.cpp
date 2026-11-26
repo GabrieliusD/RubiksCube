@@ -140,6 +140,8 @@ void Renderer::ReloadShaders() {}
 const std::string& Renderer::ShaderError() const { return mImpl->shaderError; }
 
 void Renderer::SetGraphicsApi(GraphicsApi) {}
+void Renderer::BuildAllShaderVariants() {}
+bool Renderer::IsCompilingShaders() const { return false; }
 GraphicsApi Renderer::GetGraphicsApi() const { return GraphicsApi::D3D12; }
 const char* GraphicsApiName(GraphicsApi api) { return api == GraphicsApi::Vulkan ? "Vulkan" : "D3D12"; }
 

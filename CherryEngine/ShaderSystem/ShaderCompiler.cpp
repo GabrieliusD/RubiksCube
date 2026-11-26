@@ -1,5 +1,11 @@
 #include "ShaderCompiler.h"
+#include "ShaderCache.h"
+#include "Core/Project.h"
+#include "Core/Log.h"
 #include "RHI/D3D12/D3DCommon.h"
+#include <dxcapi.h>
+#include <atomic>
+#include <mutex>
 
 #include <string>
 #include <cstring>
@@ -30,19 +36,111 @@ namespace
 	}
 }
 
+namespace
+{
+	std::mutex gDirectoryMutex;
+	std::filesystem::path gCookDirectory;
+	std::filesystem::path gCacheDirectory;
+	std::atomic<uint32_t> gCooked{ 0 };
+}
+
+struct ShaderCompiler::Impl
+{
+	ComPtr<IDxcUtils> utils;
+	ComPtr<IDxcCompiler3> compiler;
+	ComPtr<IDxcIncludeHandler> includeHandler;
+	CompiledShader Run(const ShaderDesc& desc);
+};
+
+ShaderCompiler::ShaderCompiler() : mImpl(std::make_unique<Impl>()) {}
+ShaderCompiler::~ShaderCompiler() = default;
+
+void ShaderCompiler::SetCookDirectory(const std::filesystem::path& directory)
+{
+	std::lock_guard lock(gDirectoryMutex);
+	gCookDirectory = directory;
+}
+
+std::filesystem::path ShaderCompiler::CookDirectory()
+{
+	std::lock_guard lock(gDirectoryMutex);
+	return gCookDirectory;
+}
+
+uint32_t ShaderCompiler::CookedCount() { return gCooked.load(); }
+
+void ShaderCompiler::SetCacheDirectory(const std::filesystem::path& directory)
+{
+	std::lock_guard lock(gDirectoryMutex);
+	gCacheDirectory = directory;
+}
+
+std::filesystem::path ShaderCompiler::CacheDirectory()
+{
+	std::lock_guard lock(gDirectoryMutex);
+	return gCacheDirectory.empty() ? cherry::ExecutableDir() / "ShaderCache" : gCacheDirectory;
+}
+
+bool ShaderCompiler::CanCompile() { return true; }
+
 void ShaderCompiler::Initialize()
 {
-	DX_CHECK(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&m_utils)));
-	DX_CHECK(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&m_compiler)));
-	DX_CHECK(m_utils->CreateDefaultIncludeHandler(&m_includeHandler));
+	DX_CHECK(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&mImpl->utils)));
+	DX_CHECK(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&mImpl->compiler)));
+	DX_CHECK(mImpl->utils->CreateDefaultIncludeHandler(&mImpl->includeHandler));
+}
+
+namespace
+{
+	// CHERRY_SHADER_CACHE=<dir>: SPIR-V comes only from cooked shaders, as on Android (for
+	// checking a cook on Windows with --rhi vulkan).
+	const std::filesystem::path& CacheOnlyDirectory()
+	{
+		static const std::filesystem::path directory = []
+		{
+			char* value = nullptr;
+			size_t length = 0;
+			std::filesystem::path result;
+			if (_dupenv_s(&value, &length, "CHERRY_SHADER_CACHE") == 0 && value && *value) result = value;
+			free(value);
+			return result;
+		}();
+		return directory;
+	}
 }
 
 CompiledShader ShaderCompiler::Compile(const ShaderDesc& desc)
 {
-	if (!m_utils || !m_compiler)
+	if (desc.spirv && !CacheOnlyDirectory().empty())
+	{
+		CompiledShader cached;
+		if (shadercache::Read(CacheOnlyDirectory(), shadercache::Key(desc), cached.bytecode)) cached.success = true;
+		else cached.errors = "This shader wasn't cooked: " + shadercache::Describe(desc);
+		return cached;
+	}
+	if (!mImpl->utils || !mImpl->compiler)
 	{
 		Initialize();
 	}
+	CompiledShader output = mImpl->Run(desc);
+	const std::filesystem::path cook = CookDirectory();
+	if (output.success && !cook.empty())
+	{
+		// Cooking: the SPIR-V of this compile goes into the cache too.
+		ShaderDesc spirvDesc = desc;
+		spirvDesc.spirv = true;
+		const CompiledShader spirv = desc.spirv ? output : mImpl->Run(spirvDesc);
+		if (spirv.success && shadercache::Write(cook, shadercache::Key(spirvDesc), spirv.bytecode)) ++gCooked;
+		else if (!spirv.success) CHERRY_ERROR("Cooking %s for Vulkan failed: %s", shadercache::Describe(spirvDesc).c_str(), spirv.errors.c_str());
+	}
+	return output;
+}
+
+CompiledShader ShaderCompiler::Impl::Run(const ShaderDesc& desc)
+{
+	auto& m_utils = utils;
+	auto& m_compiler = compiler;
+	auto& m_includeHandler = includeHandler;
 
 	CompiledShader output;
 	const std::wstring filePath = desc.filePath.wstring();
@@ -91,7 +189,7 @@ CompiledShader ShaderCompiler::Compile(const ShaderDesc& desc)
 
 	if (desc.spirv)
 	{
-		for (const wchar_t* arg : { L"-spirv", L"-fspv-target-env=vulkan1.3", L"-fspv-entrypoint-name=main", L"-fvk-use-dx-layout", L"-fspv-use-unknown-image-format",
+		for (const wchar_t* arg : { L"-spirv", L"-fspv-target-env=vulkan1.1", L"-fspv-entrypoint-name=main", L"-fvk-use-dx-layout", L"-fspv-use-unknown-image-format",
 			L"-fvk-bind-resource-heap", L"0", L"1", L"-fvk-b-shift", L"0", L"0", L"-fvk-s-shift", L"16", L"0", L"-D", L"CHERRY_VULKAN=1" })
 		{
 			args.push_back(arg);

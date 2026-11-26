@@ -44,6 +44,7 @@ set(ENGINE_HEADERS
   Renderer/DdsReader.h
   ShaderSystem/ShaderDesc.h
   ShaderSystem/ShaderCompiler.h
+  ShaderSystem/ShaderCache.h
   ShaderGraph/ShaderGraph.h
   ShaderGraph/NodeLibrary.h
   ShaderGraph/GraphCompiler.h
@@ -88,6 +89,7 @@ set(ENGINE_SOURCES
   RHI/D3D12/D3D12Device.cpp
   RHI/Vulkan/VulkanDevice.cpp
   ShaderSystem/ShaderCompiler.cpp
+  ShaderSystem/ShaderCache.cpp
   ShaderGraph/ShaderGraph.cpp
   ShaderGraph/NodeLibrary.cpp
   ShaderGraph/GraphCompiler.cpp
@@ -115,7 +117,7 @@ if(NOT WIN32)
     Editor/ContentBrowser.cpp Editor/ShaderGraphEditor.h Editor/ShaderGraphEditor.cpp
     RHI/RHI.h RHI/RHI.cpp RHI/Pipeline.h RHI/Pipeline.cpp
     RHI/D3D12/D3DCommon.h RHI/D3D12/DescriptorHeap.h RHI/D3D12/D3DCommon.cpp RHI/D3D12/DescriptorHeap.cpp RHI/D3D12/D3D12Device.cpp RHI/Vulkan/VulkanDevice.cpp
-    ShaderSystem/ShaderCompiler.h ShaderSystem/ShaderCompiler.cpp
+    ShaderSystem/ShaderCompiler.cpp
     DDSTextureLoader.h d3dx12.h)
   list(REMOVE_ITEM ENGINE_HEADERS ${_cherry_windows_only})
   list(REMOVE_ITEM ENGINE_SOURCES ${_cherry_windows_only})
@@ -126,6 +128,9 @@ if(NOT WIN32)
     list(APPEND ENGINE_SOURCES Platform/Android/Window_Android.cpp Renderer/Vulkan/VulkanRenderer.cpp)
   else()
     list(APPEND ENGINE_SOURCES Renderer/NullRenderer.cpp)
+  endif()
+  if(NOT WIN32)
+    list(APPEND ENGINE_SOURCES ShaderSystem/ShaderCompiler_Cooked.cpp)
   endif()
 endif()
 

@@ -114,6 +114,11 @@ public:
 	const RenderStats& Stats() const;
 	const std::string& AdapterName() const;
 	void ReloadShaders();
+	// Builds every pipeline variant of every surface shader now (the voxel ones are otherwise
+	// built when a volume first uses them): shader cooking.
+	void BuildAllShaderVariants();
+	// Surface shader pipelines still compiling in the background.
+	bool IsCompilingShaders() const;
 	const std::string& ShaderError() const;
 
 	// ---- Frame (engine-facing) -----------------------------------------------

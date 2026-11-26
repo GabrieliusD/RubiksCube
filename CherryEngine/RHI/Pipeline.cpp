@@ -163,6 +163,13 @@ namespace rhi
 		mJobReady.notify_one();
 	}
 
+	size_t PipelineLibrary::PendingCount() const
+	{
+		size_t count = 0;
+		for (const auto& [name, entry] : mEntries) if (entry.pending) ++count;
+		return count;
+	}
+
 	bool PipelineLibrary::IsPending(const std::string& name) const
 	{
 		auto it = mEntries.find(name);

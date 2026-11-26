@@ -31,6 +31,10 @@ struct LaunchOptions
 	// The graphics API: "d3d12" or "vulkan" (--rhi). Empty: the CHERRY_RHI environment
 	// variable, else the one picked in the editor (EngineUserDir()/GraphicsApi.txt), else D3D12.
 	std::string graphicsApi;
+	// Cook shaders for Android into this folder (--cook-shaders): plays the project for a few
+	// seconds, loads every surface shader and shader graph in Content, writes the SPIR-V of
+	// everything compiled (ShaderSystem/ShaderCache.h) and quits.
+	std::filesystem::path cookShaders;
 	// Monolithic builds: the game is linked into the executable. Implies `play`;
 	// there's no module to compile or reload.
 	IGameModule* staticGame = nullptr;

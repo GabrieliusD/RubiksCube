@@ -3,6 +3,7 @@
 // Modular build (the editor):
 //   CherryLaunch.exe                          reopen the last project, or show the project picker
 //   CherryLaunch.exe Undertime/Undertime.cherryproject [--play] [--rhi d3d12|vulkan]
+//   CherryLaunch.exe Dice/Dice.cherryproject --cook-shaders <dir>   SPIR-V for Android (Tools/Android/Package.ps1)
 //   CherryLaunch.exe UndertimeGame.dll        legacy: that module's project, playing at once
 // The engine loads (a copy of) the project's game DLL itself, so it can rebuild and reload it.
 //
@@ -44,6 +45,7 @@ int main(int argc, char** argv)
 		const std::string arg = argv[i];
 		if (arg == "--play") options.play = true;
 		else if (arg == "--rhi" && i + 1 < argc) options.graphicsApi = argv[++i];
+		else if (arg == "--cook-shaders" && i + 1 < argc) { options.cookShaders = argv[++i]; options.play = true; }
 		else if (EndsWith(arg, ".dll")) options.moduleName = arg;
 		else options.projectFile = arg;
 	}

@@ -1408,6 +1408,19 @@ const char* GraphicsApiName(GraphicsApi api) { return api == GraphicsApi::Vulkan
 void Renderer::SetGraphicsApi(GraphicsApi api) { if (!mImpl->initialized) mImpl->api = api; }
 GraphicsApi Renderer::GetGraphicsApi() const { return mImpl->api; }
 void Renderer::ReloadShaders() { mImpl->pipelines.ReloadAll(); }
+bool Renderer::IsCompilingShaders() const { return mImpl->pipelines.PendingCount() > 0; }
+void Renderer::BuildAllShaderVariants()
+{
+	Impl& r = *mImpl;
+	for (uint32_t slot = 0; slot < r.surfaceShaders.SlotCount(); ++slot)
+	{
+		if (SurfaceShaderResource* shader = r.surfaceShaders.AtSlot(slot))
+		{
+			r.BuildVoxelVariant(*shader);
+			r.BuildCompactVariant(*shader);
+		}
+	}
+}
 const std::string& Renderer::ShaderError() const { return mImpl->pipelines.LastError(); }
 
 // =============================================================================

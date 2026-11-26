@@ -18,7 +18,7 @@ SurfaceOutput EvaluateSurface(SurfaceInput input)
 #ifdef CHERRY_ERROR_SURFACE
 	int3 cell = int3(floor(input.positionW * 4.0));
 	s.baseColor = 0.0;
-	s.emissive = float3(1.0, 0.0, 1.0) * (((cell.x + cell.y + cell.z) & 1) ? 1.0 : 0.15);
+	s.emissive = float3(1.0, 0.0, 1.0) * lerp(0.15, 1.0, float((cell.x + cell.y + cell.z) & 1));   // not ?: (see Mesh.hlsl)
 #endif
 	return s;
 }

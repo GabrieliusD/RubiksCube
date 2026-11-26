@@ -9,6 +9,7 @@
 #include "Core/NoEditor.h"
 #endif
 #include "Scene/SceneSerializer.h"
+#include "ShaderSystem/ShaderCompiler.h"
 #include "Game/Script.h"
 #include "imgui.h"
 #include <nlohmann/json.hpp>
@@ -1092,6 +1093,11 @@ int Engine::Run(const LaunchOptions& options)
 	int exitCode = 0;
 	try
 	{
+		if (!e.launch.cookShaders.empty())
+		{
+			ShaderCompiler::SetCookDirectory(fs::absolute(e.launch.cookShaders));
+			CHERRY_LOG("Cooking shaders into %s", fs::absolute(e.launch.cookShaders).string().c_str());
+		}
 		const GraphicsApi api = ChooseGraphicsApi(e.launch.graphicsApi);
 		e.renderer.SetGraphicsApi(api);
 		bool initialized = e.renderer.Initialize(e.window.Handle(), e.window.Width(), e.window.Height(), error);
@@ -1167,8 +1173,27 @@ int Engine::Impl::Loop(Engine& engine)
 	uint32_t titleFrames = 0;
 
 	bool previousEditorMode = editorMode;
+	uint32_t cookFrames = 0;
 	while (!quitRequested)
 	{
+		// Shader cooking (--cook-shaders): every shader in Content, then quit once the game has
+		// run a while and nothing is compiling any more.
+		if (!launch.cookShaders.empty())
+		{
+			++cookFrames;
+			if (cookFrames == 5)
+			{
+				for (const char* type : { "shader", "shadergraph" })
+					for (const std::string& path : assets.List(type)) assets.GetSurfaceShader(path);
+			}
+			if (cookFrames == 10) renderer.BuildAllShaderVariants();
+			if (cookFrames > 10 && std::chrono::duration<float>(clock::now() - start).count() > 6.0f && !renderer.IsCompilingShaders())
+			{
+				CHERRY_LOG("Cooked %u shaders into %s", ShaderCompiler::CookedCount(), ShaderCompiler::CookDirectory().string().c_str());
+				quitRequested = true;
+			}
+		}
+
 		input.BeginFrame();
 		if (!window.PumpMessages())
 		{

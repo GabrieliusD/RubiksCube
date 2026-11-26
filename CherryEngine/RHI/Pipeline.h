@@ -39,6 +39,8 @@ namespace rhi
 		void SetGraphicsAsync(const std::string& name, const GraphicsPipelineDesc& desc, std::function<void(bool ok)> done);
 		// A background build of this pipeline hasn't finished yet.
 		bool IsPending(const std::string& name) const;
+		// Background builds that haven't finished.
+		size_t PendingCount() const;
 		// Applies finished background builds; call once per frame on the main thread.
 		void PumpAsync();
 		// Removes a pipeline (its PSO is released once in-flight frames are done with it).
