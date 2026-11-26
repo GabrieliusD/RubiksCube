@@ -8,14 +8,14 @@
 
 #include "Surface.hlsli"
 
-ConstantBuffer<MeshDrawConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<MeshDrawConstants> gDraw : register(b0);
 
 struct VertexIn
 {
-	float3 position : POSITION;
-	float3 normal   : NORMAL;
-	float2 uv       : TEXCOORD;
-	float4 color    : COLOR;
+	CHERRY_LOCATION(0) float3 position : POSITION;
+	CHERRY_LOCATION(1) float3 normal   : NORMAL;
+	CHERRY_LOCATION(2) float2 uv       : TEXCOORD;
+	CHERRY_LOCATION(3) float4 color    : COLOR;
 };
 
 struct VertexOut

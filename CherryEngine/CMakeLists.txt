@@ -36,13 +36,12 @@ set(ENGINE_HEADERS
   Editor/ShaderGraphEditor.h
   Physics/PhysicsWorld.h
   Voxel/VoxelModel.h
-  RHI/D3DCommon.h
-  RHI/DescriptorHeap.h
-  RHI/Device.h
-  RHI/Resources.h
-  RHI/SwapChain.h
-  RHI/UploadRing.h
+  RHI/RHI.h
   RHI/Pipeline.h
+  RHI/D3D12/D3DCommon.h
+  RHI/D3D12/DescriptorHeap.h
+  Renderer/ImGuiRenderer.h
+  Renderer/DdsReader.h
   ShaderSystem/ShaderDesc.h
   ShaderSystem/ShaderCompiler.h
   ShaderGraph/ShaderGraph.h
@@ -71,6 +70,8 @@ set(ENGINE_SOURCES
   Scene/Reflection.cpp
   Scene/SceneSerializer.cpp
   Renderer/Renderer.cpp
+  Renderer/ImGuiRenderer.cpp
+  Renderer/DdsReader.cpp
   Renderer/DebugDraw.cpp
   Editor/EditorLayer.cpp
   Editor/ScenePanels.cpp
@@ -80,18 +81,15 @@ set(ENGINE_SOURCES
   Physics/PhysicsWorld.cpp
   Voxel/VoxelModel.cpp
   Particles/ParticleSystem.cpp
-  RHI/D3DCommon.cpp
-  RHI/DescriptorHeap.cpp
-  RHI/Device.cpp
-  RHI/Resources.cpp
-  RHI/SwapChain.cpp
-  RHI/UploadRing.cpp
+  RHI/RHI.cpp
   RHI/Pipeline.cpp
+  RHI/D3D12/D3DCommon.cpp
+  RHI/D3D12/DescriptorHeap.cpp
+  RHI/D3D12/D3D12Device.cpp
   ShaderSystem/ShaderCompiler.cpp
   ShaderGraph/ShaderGraph.cpp
   ShaderGraph/NodeLibrary.cpp
   ShaderGraph/GraphCompiler.cpp
-  DDSTextureLoader.cpp
   GeometryGenerator.cpp
   MathHelper.cpp
 )
@@ -111,13 +109,13 @@ if(NOT WIN32)
   set(_cherry_windows_only
     Core/ModuleHost.h Core/ModuleHost.cpp Core/BuildProcess.h Core/BuildProcess.cpp
     Core/Window.cpp
-    Renderer/Renderer.cpp
+    Renderer/Renderer.cpp Renderer/ImGuiRenderer.h Renderer/ImGuiRenderer.cpp Renderer/DdsReader.h Renderer/DdsReader.cpp
     Editor/EditorLayer.h Editor/EditorLayer.cpp Editor/ScenePanels.cpp Editor/Gizmo.h Editor/Gizmo.cpp
     Editor/ContentBrowser.cpp Editor/ShaderGraphEditor.h Editor/ShaderGraphEditor.cpp
-    RHI/D3DCommon.h RHI/DescriptorHeap.h RHI/Device.h RHI/Resources.h RHI/SwapChain.h RHI/UploadRing.h RHI/Pipeline.h
-    RHI/D3DCommon.cpp RHI/DescriptorHeap.cpp RHI/Device.cpp RHI/Resources.cpp RHI/SwapChain.cpp RHI/UploadRing.cpp RHI/Pipeline.cpp
+    RHI/RHI.h RHI/RHI.cpp RHI/Pipeline.h RHI/Pipeline.cpp
+    RHI/D3D12/D3DCommon.h RHI/D3D12/DescriptorHeap.h RHI/D3D12/D3DCommon.cpp RHI/D3D12/DescriptorHeap.cpp RHI/D3D12/D3D12Device.cpp
     ShaderSystem/ShaderCompiler.h ShaderSystem/ShaderCompiler.cpp
-    DDSTextureLoader.h DDSTextureLoader.cpp d3dx12.h)
+    DDSTextureLoader.h d3dx12.h)
   list(REMOVE_ITEM ENGINE_HEADERS ${_cherry_windows_only})
   list(REMOVE_ITEM ENGINE_SOURCES ${_cherry_windows_only})
   list(APPEND ENGINE_HEADERS Core/NoEditor.h)
@@ -147,7 +145,7 @@ set(IMGUI_SOURCES
   ${IMGUI_DIR}/imgui_widgets.cpp
 )
 if(WIN32)
-  list(APPEND IMGUI_SOURCES ${IMGUI_DIR}/imgui_impl_dx12.cpp ${IMGUI_DIR}/imgui_impl_win32.cpp)
+  list(APPEND IMGUI_SOURCES ${IMGUI_DIR}/imgui_impl_win32.cpp)
 endif()
 # imgui-node-editor (the shader graph editor), compiled into the engine with ImGui.
 set(NODE_EDITOR_DIR thirdparty/imgui-node-editor)

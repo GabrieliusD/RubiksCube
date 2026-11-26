@@ -9,13 +9,11 @@
 #include <string>
 #include <stdexcept>
 #include "d3dx12.h"
+#include "RHI/RHI.h"
 
 namespace rhi
 {
 	using Microsoft::WRL::ComPtr;
-
-	constexpr uint32_t kFramesInFlight = 2;
-	constexpr uint32_t kInvalidIndex = 0xFFFFFFFFu;
 
 	// Thrown for unrecoverable D3D failures. The message includes the call site.
 	class DxError : public std::runtime_error

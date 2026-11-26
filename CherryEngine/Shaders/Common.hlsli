@@ -3,7 +3,14 @@
 
 #include "Shared/ShaderInterop.h"
 
-// Global bindless root signature (see RHI/Pipeline.h).
+// The global binding model (see RHI/RHI.h). On Vulkan (SPIR-V), b0 is a push constant block.
+#if defined(__spirv__)
+#define CHERRY_PUSH_CONSTANTS [[vk::push_constant]]
+#define CHERRY_LOCATION(n) [[vk::location(n)]]
+#else
+#define CHERRY_PUSH_CONSTANTS
+#define CHERRY_LOCATION(n)
+#endif
 ConstantBuffer<ViewConstants>  gView  : register(b1);
 ConstantBuffer<FrameConstants> gFrame : register(b2);
 

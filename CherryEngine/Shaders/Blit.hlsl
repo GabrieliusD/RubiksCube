@@ -1,7 +1,7 @@
 // Fullscreen-triangle copy of an already gamma-encoded texture to the back buffer.
 #include "Common.hlsli"
 
-ConstantBuffer<BlitConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<BlitConstants> gDraw : register(b0);
 
 struct VertexOut
 {

@@ -4,7 +4,7 @@
 // every ray is parallel) and writes the depth of the first solid voxel.
 #include "Common.hlsli"
 
-ConstantBuffer<VoxelDrawConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<VoxelDrawConstants> gDraw : register(b0);
 
 // The volume's box, outward faces wound counter-clockwise (see VoxelPass.hlsli).
 static const uint kCubeIndices[36] =

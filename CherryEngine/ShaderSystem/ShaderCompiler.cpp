@@ -1,5 +1,5 @@
 #include "ShaderCompiler.h"
-#include "RHI/D3DCommon.h"
+#include "RHI/D3D12/D3DCommon.h"
 
 #include <string>
 #include <cstring>
@@ -89,10 +89,21 @@ CompiledShader ShaderCompiler::Compile(const ShaderDesc& desc)
 		args.push_back(ToWString(define));
 	}
 
+	if (desc.spirv)
+	{
+		for (const wchar_t* arg : { L"-spirv", L"-fspv-target-env=vulkan1.3", L"-fvk-use-dx-layout", L"-fspv-use-unknown-image-format",
+			L"-fvk-bind-resource-heap", L"0", L"1", L"-fvk-b-shift", L"0", L"0", L"-fvk-s-shift", L"16", L"0", L"-D", L"CHERRY_VULKAN=1" })
+		{
+			args.push_back(arg);
+		}
+	}
 #if defined(_DEBUG)
-	args.push_back(L"-Zi");
 	args.push_back(L"-Od");
-	args.push_back(L"-Qembed_debug");
+	if (!desc.spirv)
+	{
+		args.push_back(L"-Zi");
+		args.push_back(L"-Qembed_debug");
+	}
 #else
 	args.push_back(L"-O3");
 #endif

@@ -3,7 +3,7 @@
 // by ImGui or blitted to the back buffer without further conversion.
 #include "Common.hlsli"
 
-ConstantBuffer<TonemapConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<TonemapConstants> gDraw : register(b0);
 
 // Krzysztof Narkowicz's ACES filmic fit.
 float3 ACESFilm(float3 x)

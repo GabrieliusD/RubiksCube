@@ -5,7 +5,7 @@
 // writes the view.
 #include "Common.hlsli"
 
-ConstantBuffer<FxaaConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<FxaaConstants> gDraw : register(b0);
 
 float Luma(float3 c) { return dot(c, float3(0.299, 0.587, 0.114)); }
 

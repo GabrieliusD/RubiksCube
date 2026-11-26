@@ -7,7 +7,7 @@
 #include "Common.hlsli"
 #include "LightingUtil.hlsl"
 
-ConstantBuffer<MeshDrawConstants> gDraw : register(b0);   // instanceIndex: the first particle
+CHERRY_PUSH_CONSTANTS ConstantBuffer<MeshDrawConstants> gDraw : register(b0);   // instanceIndex: the first particle
 
 struct VertexOut
 {

@@ -9,7 +9,7 @@
 // The tonemap brightens the world by the result (Tonemap.hlsl).
 #include "Common.hlsli"
 
-ConstantBuffer<SsaoConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<SsaoConstants> gDraw : register(b0);
 
 float ViewZ(float depth)
 {

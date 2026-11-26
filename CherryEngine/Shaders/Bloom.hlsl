@@ -7,7 +7,7 @@
 // Advanced Warfare", 2014.)
 #include "Common.hlsli"
 
-ConstantBuffer<BloomConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<BloomConstants> gDraw : register(b0);
 
 float Brightness(float3 c) { return max(c.r, max(c.g, c.b)); }
 

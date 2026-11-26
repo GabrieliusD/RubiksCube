@@ -20,4 +20,7 @@ struct ShaderDesc
 	std::string profile;                       // empty = default 6.6 profile for `type`
 	std::vector<std::string> defines;          // "NAME" or "NAME=VALUE"
 	std::vector<std::filesystem::path> includeDirs;
+	// SPIR-V for the Vulkan backend instead of DXIL: the bindless heap at set 1 binding 0, b1/b2 at
+	// set 0 bindings 1/2, samplers at set 0 from binding 16 (see RHI/Vulkan).
+	bool spirv = false;
 };

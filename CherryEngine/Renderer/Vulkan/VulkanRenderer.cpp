@@ -1691,6 +1691,10 @@ const std::string& Renderer::AdapterName() const { return mImpl->adapterName; }
 void Renderer::ReloadShaders() {}
 const std::string& Renderer::ShaderError() const { return mImpl->shaderError; }
 
+void Renderer::SetGraphicsApi(GraphicsApi) {}
+GraphicsApi Renderer::GetGraphicsApi() const { return GraphicsApi::Vulkan; }
+const char* GraphicsApiName(GraphicsApi api) { return api == GraphicsApi::Vulkan ? "Vulkan" : "D3D12"; }
+
 bool Renderer::Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error)
 {
 	Impl& r = *mImpl;

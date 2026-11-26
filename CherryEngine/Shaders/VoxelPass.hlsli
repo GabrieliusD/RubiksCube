@@ -17,7 +17,7 @@
 
 #include "Surface.hlsli"
 
-ConstantBuffer<VoxelDrawConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<VoxelDrawConstants> gDraw : register(b0);
 
 // Outward faces are wound counter-clockwise as seen from outside; the pipeline
 // culls back faces so only the far side of the box is rasterized (one ray per pixel).

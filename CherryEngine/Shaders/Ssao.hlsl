@@ -7,7 +7,7 @@
 // The tonemap multiplies the world by the result (Tonemap.hlsl).
 #include "Common.hlsli"
 
-ConstantBuffer<SsaoConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<SsaoConstants> gDraw : register(b0);
 
 static const uint kSamples = 12;
 // Points in the unit hemisphere around +z, more of them near the centre.

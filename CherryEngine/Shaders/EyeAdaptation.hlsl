@@ -8,7 +8,7 @@
 // The tonemap multiplies by the stored exposure (Tonemap.hlsl). Nothing is read back.
 #include "Common.hlsli"
 
-ConstantBuffer<EyeAdaptationConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<EyeAdaptationConstants> gDraw : register(b0);
 
 groupshared float2 gShared[256];
 

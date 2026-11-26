@@ -12,6 +12,11 @@
 
 class Scene;
 
+// The graphics API the renderer runs on. Windows has both (Renderer::SetGraphicsApi before
+// Initialize); Android always draws with its own Vulkan renderer.
+enum class GraphicsApi { D3D12, Vulkan };
+CHERRY_API const char* GraphicsApiName(GraphicsApi api);
+
 // Camera data for one rendered view.
 struct RenderView
 {
@@ -112,6 +117,9 @@ public:
 	const std::string& ShaderError() const;
 
 	// ---- Frame (engine-facing) -----------------------------------------------
+	// Picks the API Initialize starts (ignored once initialized).
+	void SetGraphicsApi(GraphicsApi api);
+	GraphicsApi GetGraphicsApi() const;
 	// `nativeWindow`: the HWND on Windows, the ANativeWindow* on Android.
 	bool Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error);
 	void Shutdown();

@@ -9,7 +9,7 @@
 // The tonemap adds the result to the world (Tonemap.hlsl).
 #include "LightingUtil.hlsl"
 
-ConstantBuffer<LightShaftConstants> gDraw : register(b0);
+CHERRY_PUSH_CONSTANTS ConstantBuffer<LightShaftConstants> gDraw : register(b0);
 
 // One bilinear shadow-map comparison (cheaper than SunShadow's 3x3: the march averages).
 float ShaftShadow(float3 p, float t)
