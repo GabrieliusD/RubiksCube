@@ -1,6 +1,6 @@
 # Android support for CherryEngine, and the Dice game as an APK
 
-Status (2026-11-25): **A0–A5 done** on branch `features/android`, checked on an Android 12 emulator; not yet on a phone. A2 and A3 were re-scoped (see "Change of approach" below).
+Status (2026-11-25): **A0–A5 done** on branch `features/android`, checked on an Android 12 emulator, and the user tested it on a phone on 2026-11-26: it works. A2 and A3 were re-scoped (see "Change of approach" below).
 
 | # | Milestone | State |
 |---|---|---|
@@ -105,8 +105,6 @@ stream's disconnect callback (headphones), a mobile shadow-map size, and checks 
 
 ## What's next (not started)
 
-- Try it on a phone (any Android 10+ arm64 phone with Vulkan): `Package.ps1 -Project
-  Dice/Dice.cherryproject -Install -Run` with the phone on USB debugging.
 - Vulkan pre-rotation, immersive mode, drawing under the cutout, the audio disconnect callback.
 - A release keystore for store builds, and an `.aab` for the Play Store.
 - More of the renderer on Vulkan (surface shaders, point lights, fog, sky, voxels) before Rubik or
