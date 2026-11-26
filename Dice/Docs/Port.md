@@ -72,7 +72,8 @@ reference code; Part C wins). The port goes milestone by milestone (B14), checki
   full; setting the transform as numbers (`Rml::Transform::MakeProperty`) brought a full pool
   to about 0.4 ms in all (Release, frame 2.7 ms -> 1.1 ms; 0.7 ms with no popups). The hover
   ring stays an ImGui overlay, and the debug panel stays ImGui. `DiceTests` loads the document
-  headless and checks it gives no warnings.
+  headless and checks it gives no warnings. `DICE_DEV_GALLERY=1` (`Screenshot.ps1 -Gallery`)
+  adds `Content/UI/Gallery.rml`, a tile of each UI effect the engine draws, to check them.
 - **Audio** is XAudio2 in the module (the engine has none). The sounds use the reference's
   WebAudio synthesis, rendered once into buffers; knocks and ticks come in 8 variants at the
   reference's random band-pass frequencies. It starts on the first click or on Start.

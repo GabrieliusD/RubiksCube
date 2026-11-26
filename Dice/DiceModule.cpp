@@ -30,6 +30,7 @@ namespace
 	//   DICE_DEV_LAYOUT=L    0 square, 1 hex, 2 scatter;  DICE_DEV_SHAPE=S  0 full, 1 circle, 2 ring, 3 islands
 	//   DICE_DEV_PRESET=name load Content/Presets/<name>.json first (the switches above then apply on top)
 	//   DICE_DEV_STORM=P     launch P% of the dice per second at random (profiling load)
+	//   DICE_DEV_GALLERY=1   show Content/UI/Gallery.rml, a tile of each UI effect (DiceHud.cpp)
 	//   DICE_DEV_PROFILE=1   vsync off; log "DICE_PROFILE ..." timings every 2 s
 	//   DICE_DEV_POINTER="px py [px2 py2 seconds]"  a pretend mouse at view pixels (moving to the
 	//                        second point and back over `seconds`), for hover checks without a person
@@ -311,10 +312,10 @@ void DiceModule::OnUpdate(Engine& engine, float deltaTime)
 		{
 			const RenderStats& stats = engine.GetRenderer().Stats();
 			const double n = mProfileFrames;
-			CHERRY_LOG("DICE_PROFILE dice %d rolling %d | fps %.1f frame %.2f ms (max %.2f) | sim %.3f ms, instances %.3f ms, rest of the frame %.2f ms | gpu %.2f ms | draws %u, instances %u | hud: %u draws, %u vertices, update %.3f ms, render %.3f ms, gpu %.3f ms",
+			CHERRY_LOG("DICE_PROFILE dice %d rolling %d | fps %.1f frame %.2f ms (max %.2f) | sim %.3f ms, instances %.3f ms, rest of the frame %.2f ms | gpu %.2f ms | draws %u, instances %u | hud: %u draws, %u passes, %u vertices, update %.3f ms, render %.3f ms, gpu %.3f ms",
 				mSim.diceCount, mSim.activeCount, n / mProfileTime, mProfileTime * 1000.0 / n, mProfileFrameMaxMs, mProfileSimMs / n, mProfileWriteMs / n,
 				mProfileTime * 1000.0 / n - (mProfileSimMs + mProfileWriteMs) / n, mProfileGpuMs / n, stats.drawCalls, stats.instancesSubmitted,
-				stats.gameUiDraws, stats.gameUiVertices, engine.GetUi().LastUpdateMs(), stats.gameUiCpuMs, stats.gpuGameUiMs);
+				stats.gameUiDraws, stats.gameUiPasses, stats.gameUiVertices, engine.GetUi().LastUpdateMs(), stats.gameUiCpuMs, stats.gpuGameUiMs);
 			mProfileTime = mProfileSimMs = mProfileWriteMs = mProfileFrameMaxMs = mProfileGpuMs = 0;
 			mProfileFrames = 0;
 		}

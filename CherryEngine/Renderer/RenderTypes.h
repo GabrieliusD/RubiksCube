@@ -125,6 +125,7 @@ struct RenderStats
 	// The game's RmlUi documents, last frame they were drawn.
 	uint32_t gameUiDraws = 0;
 	uint32_t gameUiVertices = 0;    // copied to the GPU that frame
+	uint32_t gameUiPasses = 0;      // render target switches: layers, filters, clip masks (1 = none)
 	float gameUiCpuMs = 0.0f;       // recording the draws (Context::Render)
 };
 

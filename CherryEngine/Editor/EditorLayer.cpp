@@ -432,7 +432,7 @@ void EditorLayer::DrawStats(Engine& engine, float frameMs)
 	ImGui::TextDisabled("  mesh %.2f  voxel %.2f  tonemap %.2f", stats.gpuMeshMs, stats.gpuVoxelMs, stats.gpuTonemapMs);
 	ImGui::TextDisabled("  debug %.2f  game ui %.2f  ui %.2f", stats.gpuDebugMs, stats.gpuGameUiMs, stats.gpuUiMs);
 	if (stats.gameUiDraws > 0)
-		ImGui::TextDisabled("  game ui: %u draws, %u vertices, %.2f ms CPU", stats.gameUiDraws, stats.gameUiVertices, stats.gameUiCpuMs);
+		ImGui::TextDisabled("  game ui: %u draws, %u passes, %u vertices, %.2f ms CPU", stats.gameUiDraws, stats.gameUiPasses, stats.gameUiVertices, stats.gameUiCpuMs);
 	ImGui::Separator();
 	ImGui::Text("Draw calls:       %u", stats.drawCalls);
 	ImGui::Text("Instances:        %u  (culled %u)", stats.instancesSubmitted, stats.instancesCulled);

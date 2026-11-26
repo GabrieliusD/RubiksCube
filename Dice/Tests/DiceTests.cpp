@@ -1194,6 +1194,14 @@ namespace
 		void ReleaseTexture(Rml::TextureHandle) override {}
 		void EnableScissorRegion(bool) override {}
 		void SetScissorRegion(Rml::Rectanglei) override {}
+		// Effects: handles that work (the real renderer is UiRenderer.cpp).
+		Rml::CompiledFilterHandle CompileFilter(const Rml::String&, const Rml::Dictionary&) override { return 1; }
+		void ReleaseFilter(Rml::CompiledFilterHandle) override {}
+		Rml::CompiledShaderHandle CompileShader(const Rml::String&, const Rml::Dictionary&) override { return 1; }
+		void ReleaseShader(Rml::CompiledShaderHandle) override {}
+		Rml::LayerHandle PushLayer() override { return 1; }
+		Rml::TextureHandle SaveLayerAsTexture() override { return 1; }
+		Rml::CompiledFilterHandle SaveLayerAsMaskImage() override { return 1; }
 	};
 
 	class CollectingSystem final : public Rml::SystemInterface
@@ -1284,6 +1292,16 @@ void TestHudDocument()
 	context->Update();
 	Check(starts == 2, "hud: Start and Restart call the \"start\" event");
 	Check(renderer.draws > 0, "hud: something is drawn");
+
+	// The effects gallery (DICE_DEV_GALLERY) parses too: every effect's syntax is RmlUi's.
+	system.problems.clear();
+	Rml::ElementDocument* gallery = context->LoadDocument(content + "/UI/Gallery.rml");
+	if (gallery) gallery->Show();
+	context->Update();
+	context->Render();
+	problems.clear();
+	for (const std::string& problem : system.problems) problems += "\n    " + problem;
+	Check(gallery && system.problems.empty(), "hud: the effects gallery loads without warnings" + problems);
 
 	Rml::Shutdown();
 }

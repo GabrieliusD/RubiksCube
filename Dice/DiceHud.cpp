@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdlib>
 #include <string>
 
 using namespace DirectX;
@@ -68,6 +69,8 @@ void DiceModule::CreateHud(Engine& engine)
 	mHudModel = model.GetModelHandle();
 	ui.LoadDocument(kHudDocument);
 	MakePopupPool(engine);
+	// DICE_DEV_GALLERY=1: a tile of each UI effect the engine draws, over the board (a check).
+	if (const char* gallery = std::getenv("DICE_DEV_GALLERY"); gallery && std::atoi(gallery) != 0) ui.LoadDocument("UI/Gallery.rml");
 }
 
 // The 140 popup elements, in the document's #popups (again after the document is reloaded).

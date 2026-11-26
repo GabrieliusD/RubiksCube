@@ -349,13 +349,19 @@ struct BlitConstants
 	uint sourceTextureIndex;
 };
 
-// RmlUi geometry (Shaders/Ui.hlsl, Renderer/UiRenderer.cpp).
+// RmlUi's rendering (Shaders/Ui.hlsl, Renderer/UiRenderer.cpp). 64 bytes.
 struct UiConstants
 {
-	float2 translation;            // pixels, added before the transform
-	uint   textureIndex;           // Texture2D<float4> (premultiplied), or CHERRY_INVALID_INDEX = untextured
-	uint   transformIndex;         // into transformBufferIndex: projection x the element's transform
-	uint   transformBufferIndex;   // StructuredBuffer<float4x4>, this frame's transforms
+	float2 translation;       // geometry: pixels, added before the transform
+	uint   textureIndex;      // geometry: Texture2D (premultiplied) or CHERRY_INVALID_INDEX; passes: the source
+	uint   dataIndex;         // StructuredBuffer<float4>: this frame's transforms and effect parameters
+	uint   transformOffset;   // geometry: the four columns of projection x transform, in dataIndex
+	uint   paramOffset;       // gradient, colour matrix, blur, drop shadow: their parameters in dataIndex; blend mask: its texture
+	uint   clipMaskIndex;     // Texture2D<float> clip mask counts, or CHERRY_INVALID_INDEX (no clipping)
+	float  clipRequired;      // the count a pixel needs to be drawn
+	float4 color;             // passes: a multiplier (opacity) or the shadow colour; mask writes: the value
+	float2 uvScale;           // passes: source uv = viewport uv x uvScale + uvOffset
+	float2 uvOffset;          // (blur: the step between taps)
 };
 
 #ifdef __cplusplus

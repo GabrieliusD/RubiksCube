@@ -2455,6 +2455,7 @@ void Renderer::RenderUi(Rml::Context& context)
 	const UiRenderer::Stats& ui = r.ui.LastStats();
 	r.stats.gameUiDraws = ui.draws;
 	r.stats.gameUiVertices = ui.vertices;
+	r.stats.gameUiPasses = ui.passes;
 	r.stats.gameUiCpuMs = static_cast<float>(ui.cpuMs);
 }
 
@@ -2477,7 +2478,7 @@ void Renderer::EndFrame(bool viewFullscreen)
 	if (!r.uiRendered)
 	{
 		r.gpuTimer.Mark(cmd, frameIndex, Mark_GameUiEnd);
-		r.stats.gameUiDraws = r.stats.gameUiVertices = 0;
+		r.stats.gameUiDraws = r.stats.gameUiVertices = r.stats.gameUiPasses = 0;
 		r.stats.gameUiCpuMs = 0.0f;
 	}
 

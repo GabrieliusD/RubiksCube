@@ -1,0 +1,60 @@
+<rml>
+<head>
+	<title>UI effects gallery</title>
+	<!-- A check of the engine's RmlUi rendering (DICE_DEV_GALLERY=1): one tile per effect, over the
+	     board. Not part of the game. -->
+	<style>
+		* { box-sizing: border-box; }
+		div { display: block; }
+		body { width: 100%; height: 100%; font-family: system-ui; font-size: 11dp; color: #e8ebf0; pointer-events: none; }
+		#gallery { position: absolute; left: 20dp; top: 84dp; width: 500dp; }
+		.tile
+		{
+			display: inline-block; width: 108dp; height: 66dp; margin: 0 14dp 16dp 0; padding: 8dp;
+			border-radius: 10dp; background-color: #2a2f38; vertical-align: top;
+		}
+		.name { font-size: 9dp; color: #ffd866; text-transform: uppercase; letter-spacing: 0.06em; }
+		.big { font-size: 20dp; font-weight: 900; }
+
+		/* box-shadow clips its shape to outside the box before blurring (RmlUi's way): offset it,
+		   or use filter: drop-shadow for a glow all round. */
+		.shadow { background-color: #e8ebf0; box-shadow: #000e 8dp 10dp 10dp 0dp; }
+		.shadow .name { color: #1a1a1a; }
+		.glow { filter: drop-shadow(#ffd866 0dp 0dp 8dp); }
+		.blurred { filter: blur(3dp); }
+		.frosted { background-color: rgba(255, 255, 255, 12%); backdrop-filter: blur(8dp); border: 1dp #ffffff40; }
+		.linear { decorator: linear-gradient(120deg, #ff8a3d, #ffd866 50%, #7fd3ff); color: #1a1a1a; }
+		.radial { decorator: radial-gradient(circle at 30% 30%, #fff1a8, #ff8a3d 45%, #3a1020); }
+		.conic { decorator: conic-gradient(#ff8a3d, #ffd866, #b6f08a, #7fd3ff, #ff8a3d); color: #1a1a1a; }
+		.stripes { decorator: repeating-linear-gradient(45deg, #2a2f38 0dp, #2a2f38 8dp, #3a404c 8dp, #3a404c 16dp); }
+		.dropped { filter: drop-shadow(#ff3d7a 3dp 3dp 2dp); background-color: transparent; }
+		.gray { filter: grayscale(1); decorator: linear-gradient(90deg, #ff8a3d, #7fd3ff); }
+		.hue { filter: hue-rotate(140deg) saturate(1.6); decorator: linear-gradient(90deg, #ff8a3d, #ffd866); color: #1a1a1a; }
+		.faded { filter: opacity(0.45); background-color: #7fd3ff; color: #1a1a1a; }
+		.clip { overflow: hidden; padding: 0; border-radius: 33dp; }
+		.clip .inner { width: 140dp; height: 90dp; decorator: linear-gradient(0deg, #b6f08a, #3d7aff); }
+		.turned { transform: rotate(-8deg); overflow: hidden; padding: 0; }
+		.turned .inner { width: 140dp; height: 90dp; decorator: repeating-linear-gradient(90deg, #ff8a3d 0dp, #ff8a3d 6dp, #ffd866 6dp, #ffd866 12dp); }
+		.masked { mask-image: radial-gradient(circle, #000 35%, #0000 70%); background-color: #ff8a3d; }
+	</style>
+</head>
+<body>
+	<div id="gallery">
+		<div class="tile shadow"><div class="name">box-shadow</div></div>
+		<div class="tile glow"><div class="name">glow</div></div>
+		<div class="tile blurred"><div class="name">filter: blur</div><div class="big">Blur</div></div>
+		<div class="tile frosted"><div class="name">backdrop blur</div><div class="big">Frost</div></div>
+		<div class="tile linear"><div class="name">linear</div></div>
+		<div class="tile radial"><div class="name">radial</div></div>
+		<div class="tile conic"><div class="name">conic</div></div>
+		<div class="tile stripes"><div class="name">repeating</div></div>
+		<div class="tile dropped"><div class="big">Shadow</div></div>
+		<div class="tile gray"><div class="name">grayscale</div></div>
+		<div class="tile hue"><div class="name">hue-rotate</div></div>
+		<div class="tile faded"><div class="name">opacity</div><div class="big">Group</div></div>
+		<div class="tile clip"><div class="inner"></div></div>
+		<div class="tile turned"><div class="inner"></div></div>
+		<div class="tile masked"><div class="name">mask-image</div></div>
+	</div>
+</body>
+</rml>
