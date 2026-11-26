@@ -1,8 +1,11 @@
 # Exports a CherryEngine project as an Android APK:
 #   Tools/Android/Package.ps1 -Project Dice/Dice.cherryproject [-Config Debug|Release]
-#       [-Abi arm64-v8a,x86_64] [-Install] [-Run] [-SkipNative]
+#       [-Abi arm64-v8a,x86_64] [-Install] [-Run] [-SkipNative] [-CookExe <CherryLaunch.exe>]
 # 1. builds libgame.so for each ABI (Build.ps1; only games that build for Android: $AndroidGames),
-# 2. stages the project file and its Content/ as the APK's assets, with files.txt (a build stamp,
+# 2. cooks the shaders: the Windows editor build (-CookExe, else out/build/x64-debug's Release or
+#    Debug CherryLaunch.exe) plays the project briefly with --cook-shaders and writes the SPIR-V of
+#    every shader it compiles (phones have no shader compiler; ShaderSystem/ShaderCache.h),
+#    stages the project file, its Content/ and that ShaderCache/ as the APK's assets, with files.txt (a build stamp,
 #    then every path) for the app to unpack on first start (CherryLaunch/AndroidMain.cpp), and the
 #    launcher icon,
 # 3. runs Gradle on the template in Android/ with the project's "android" settings,
@@ -19,7 +22,8 @@ param(
     [string[]] $Abi = @('arm64-v8a'),
     [switch] $Install,
     [switch] $Run,
-    [switch] $SkipNative
+    [switch] $SkipNative,
+    [string] $CookExe = ''
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/Common.ps1"
@@ -67,6 +71,20 @@ New-Item -ItemType Directory -Force $assets | Out-Null
 Copy-Item $projectFile $assets
 $contentName = if ($desc.PSObject.Properties['content']) { $desc.content } else { 'Content' }
 Copy-Item (Join-Path $projectDir $contentName) (Join-Path $assets $contentName) -Recurse
+
+# Shaders, cooked by the Windows build of the engine.
+if (-not $CookExe) {
+    foreach ($cookConfig in @('Release', 'Debug')) {
+        $candidate = Join-Path $tools.Root "out/build/x64-debug/bin/$cookConfig/CherryLaunch.exe"
+        if (Test-Path $candidate) { $CookExe = $candidate; break }
+    }
+}
+if (-not $CookExe -or -not (Test-Path $CookExe)) { throw 'No Windows CherryLaunch.exe to cook the shaders with: build x64-debug first, or pass -CookExe.' }
+$cache = Join-Path $assets 'ShaderCache'
+Write-Host "Cooking shaders with $CookExe"
+$cook = Start-Process -FilePath $CookExe -ArgumentList "`"$projectFile`" --cook-shaders `"$cache`"" -WorkingDirectory (Split-Path $CookExe) -PassThru -Wait
+if ($cook.ExitCode -ne 0 -or -not (Test-Path $cache) -or -not (Get-ChildItem $cache -Filter *.spv)) { throw "Cooking shaders failed (exit $($cook.ExitCode))" }
+Write-Host "Cooked $((Get-ChildItem $cache -Filter *.spv).Count) shaders"
 $files = Get-ChildItem $assets -Recurse -File | ForEach-Object { $_.FullName.Substring($assets.Length + 1).Replace('\', '/') }
 $stamp = "$versionName-$(Get-Date -Format 'yyyyMMddHHmmss')"
 Set-Content -Path (Join-Path $assets 'files.txt') -Value (@($stamp) + $files) -Encoding ascii

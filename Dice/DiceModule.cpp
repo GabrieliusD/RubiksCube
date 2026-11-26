@@ -1,6 +1,7 @@
 #include "DiceModule.h"
 #include "DiceVisuals.h"
 #include "DiceControls.h"
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <Core/Log.h>
@@ -76,7 +77,7 @@ void DiceModule::OnStartup(Engine& engine)
 	{
 		if (const std::string value = GetEnv("DICE_DEV_PRESET"); !value.empty())
 		{
-			std::ifstream file(engine.ContentPath(L"Presets/" + std::wstring(value.begin(), value.end()) + L".json"));
+			std::ifstream file(std::filesystem::path(engine.ContentPath(L"Presets/" + std::wstring(value.begin(), value.end()) + L".json")));
 			std::stringstream text;
 			text << file.rdbuf();
 			std::vector<std::string> problems;

@@ -8,7 +8,8 @@
 //                        like D3D12's ResourceDescriptorHeap
 //   push constants       b0, 64 bytes
 // Clip space matches D3D through a negative viewport height. Rendering is dynamic rendering;
-// barriers are synchronization2. Frames and uploads each have a timeline semaphore.
+// barriers are synchronization2 (or render passes and Vulkan 1.0 barriers where those are
+// missing, as on many phones). Frames and uploads finish on fences.
 #include "RHI/RHI.h"
 #include "Core/Log.h"
 
@@ -184,7 +185,7 @@ namespace rhi
 				return { VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 					VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
 			case ResourceState::DepthWrite:
-				return { VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+				return { VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
 					VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
 			case ResourceState::ShaderResource:
 				return { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, kShaders, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT };
@@ -218,6 +219,86 @@ namespace rhi
 
 		class VulkanDevice;
 
+		// What the device offers (set once when it's made): without synchronization2, barriers,
+		// submits and timestamps go through the Vulkan 1.0 calls; without dynamic rendering,
+		// through render passes and framebuffers.
+		bool gSync2 = true;
+
+		VkPipelineStageFlags LegacyStages(VkPipelineStageFlags2 stages, bool source)
+		{
+			if (stages == VK_PIPELINE_STAGE_2_NONE) return source ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+			return static_cast<VkPipelineStageFlags>(stages & 0xffffffffull);
+		}
+
+		VkAccessFlags LegacyAccess(VkAccessFlags2 access)
+		{
+			VkAccessFlags result = static_cast<VkAccessFlags>(access & 0xffffffffull);
+			if (access & (VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT)) result |= VK_ACCESS_SHADER_READ_BIT;
+			if (access & VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT) result |= VK_ACCESS_SHADER_WRITE_BIT;
+			return result;
+		}
+
+		void PipelineBarrier(VkCommandBuffer cmd, const VkDependencyInfo& dependency)
+		{
+			if (gSync2)
+			{
+				vkCmdPipelineBarrier2(cmd, &dependency);
+				return;
+			}
+			VkPipelineStageFlags src = 0, dst = 0;
+			std::vector<VkMemoryBarrier> memory;
+			std::vector<VkImageMemoryBarrier> images;
+			for (uint32_t i = 0; i < dependency.memoryBarrierCount; ++i)
+			{
+				const VkMemoryBarrier2& b = dependency.pMemoryBarriers[i];
+				src |= LegacyStages(b.srcStageMask, true);
+				dst |= LegacyStages(b.dstStageMask, false);
+				memory.push_back({ VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, LegacyAccess(b.srcAccessMask), LegacyAccess(b.dstAccessMask) });
+			}
+			for (uint32_t i = 0; i < dependency.imageMemoryBarrierCount; ++i)
+			{
+				const VkImageMemoryBarrier2& b = dependency.pImageMemoryBarriers[i];
+				src |= LegacyStages(b.srcStageMask, true);
+				dst |= LegacyStages(b.dstStageMask, false);
+				VkImageMemoryBarrier image{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				image.srcAccessMask = LegacyAccess(b.srcAccessMask);
+				image.dstAccessMask = LegacyAccess(b.dstAccessMask);
+				image.oldLayout = b.oldLayout;
+				image.newLayout = b.newLayout;
+				image.srcQueueFamilyIndex = b.srcQueueFamilyIndex;
+				image.dstQueueFamilyIndex = b.dstQueueFamilyIndex;
+				image.image = b.image;
+				image.subresourceRange = b.subresourceRange;
+				images.push_back(image);
+			}
+			vkCmdPipelineBarrier(cmd, src ? src : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, dst ? dst : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
+				static_cast<uint32_t>(memory.size()), memory.data(), 0, nullptr, static_cast<uint32_t>(images.size()), images.data());
+		}
+
+		VkResult QueueSubmit(VkQueue queue, const VkSubmitInfo2& submit, VkFence fence)
+		{
+			if (gSync2) return vkQueueSubmit2(queue, 1, &submit, fence);
+			std::vector<VkSemaphore> waits, signals;
+			std::vector<VkPipelineStageFlags> waitStages;
+			std::vector<VkCommandBuffer> buffers;
+			for (uint32_t i = 0; i < submit.waitSemaphoreInfoCount; ++i)
+			{
+				waits.push_back(submit.pWaitSemaphoreInfos[i].semaphore);
+				waitStages.push_back(LegacyStages(submit.pWaitSemaphoreInfos[i].stageMask, false));
+			}
+			for (uint32_t i = 0; i < submit.signalSemaphoreInfoCount; ++i) signals.push_back(submit.pSignalSemaphoreInfos[i].semaphore);
+			for (uint32_t i = 0; i < submit.commandBufferInfoCount; ++i) buffers.push_back(submit.pCommandBufferInfos[i].commandBuffer);
+			VkSubmitInfo legacy{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+			legacy.waitSemaphoreCount = static_cast<uint32_t>(waits.size());
+			legacy.pWaitSemaphores = waits.data();
+			legacy.pWaitDstStageMask = waitStages.data();
+			legacy.commandBufferCount = static_cast<uint32_t>(buffers.size());
+			legacy.pCommandBuffers = buffers.data();
+			legacy.signalSemaphoreCount = static_cast<uint32_t>(signals.size());
+			legacy.pSignalSemaphores = signals.data();
+			return vkQueueSubmit(queue, 1, &legacy, fence);
+		}
+
 		void ImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspect, const StateInfo& from, const StateInfo& to, bool discard = false)
 		{
 			VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -233,7 +314,7 @@ namespace rhi
 			VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 			dependency.imageMemoryBarrierCount = 1;
 			dependency.pImageMemoryBarriers = &barrier;
-			vkCmdPipelineBarrier2(cmd, &dependency);
+			PipelineBarrier(cmd, dependency);
 		}
 
 		class VulkanPipeline final : public Pipeline
@@ -292,7 +373,7 @@ namespace rhi
 			VkCommandBuffer cmd = VK_NULL_HANDLE;
 
 			void BeginRendering(const RenderPassDesc& pass) override;
-			void EndRendering() override { vkCmdEndRendering(cmd); }
+			void EndRendering() override;
 			void SetViewport(float x, float y, float width, float height) override
 			{
 				// Negative height: D3D's clip space (y up) maps onto the image as on D3D.
@@ -405,6 +486,13 @@ namespace rhi
 				std::lock_guard lock(mReleaseMutex);
 				mReleases.push_back({ std::move(object), {}, mFrameNumber + 1 });
 			}
+			bool DynamicRendering() const { return mDynamicRendering; }
+			// Without dynamic rendering: a render pass for these attachments (UNDEFINED: none) and
+			// load ops; pipelines are made against the one that loads (any matching pass works).
+			VkRenderPass RenderPass(VkFormat color, VkFormat depth, bool clearColor, bool clearDepth);
+			VkFramebuffer Framebuffer(VkRenderPass pass, VkImageView color, VkImageView depth, uint32_t width, uint32_t height);
+			// The framebuffers that use `view` go (call when the view is destroyed).
+			void ForgetView(VkImageView view);
 			// Runs `destroy` once the GPU has finished every frame that may use what it destroys.
 			void Defer(std::function<void()> destroy)
 			{
@@ -456,7 +544,8 @@ namespace rhi
 			struct AsyncContext
 			{
 				VkCommandBuffer cmd = VK_NULL_HANDLE;
-				uint64_t value = 0;
+				VkFence fence = VK_NULL_HANDLE;
+				bool busy = false;
 				VkBuffer staging = VK_NULL_HANDLE;
 				VmaAllocation stagingMemory = nullptr;
 			};
@@ -485,6 +574,7 @@ namespace rhi
 			uint32_t mInstanceVersion = 0;
 			uint32_t mApi = 0;                     // the device's Vulkan version (up to 1.3)
 			bool mMutable = true;                  // mutable descriptors; else three typed arrays
+			bool mDynamicRendering = true;         // else render passes and framebuffers
 			bool mTimestamps = true;
 			bool mAnisotropy = true;
 			uint32_t mHeapCapacity = 0;
@@ -498,15 +588,15 @@ namespace rhi
 			std::array<VkCommandPool, kFramesInFlight> mPools{};
 			std::array<VkCommandBuffer, kFramesInFlight> mCmdBuffers{};
 			std::array<uint64_t, kFramesInFlight> mFrameValues{};
-			VkSemaphore mFrameTimeline = VK_NULL_HANDLE;    // value n: frame n - 1 is done
+			std::array<VkFence, kFramesInFlight> mFrameFences{};
+			uint64_t mCompletedFrameValue = 0;             // value n: frame n - 1 is done
 			uint32_t mFrameIndex = 0;
 			uint64_t mFrameNumber = 0;
 
 			// Uploads.
 			std::mutex mAsyncMutex;
 			VkCommandPool mAsyncPool = VK_NULL_HANDLE;
-			VkSemaphore mAsyncTimeline = VK_NULL_HANDLE;
-			uint64_t mAsyncValue = 0;
+
 			std::vector<AsyncContext> mAsync;
 
 			// Descriptors.
@@ -550,6 +640,17 @@ namespace rhi
 
 			std::mutex mReleaseMutex;
 			std::vector<Release> mReleases;
+
+			struct FramebufferKey
+			{
+				VkRenderPass pass;
+				VkImageView color, depth;
+				uint32_t width, height;
+				bool operator==(const FramebufferKey& o) const { return pass == o.pass && color == o.color && depth == o.depth && width == o.width && height == o.height; }
+			};
+			std::mutex mPassMutex;
+			std::unordered_map<uint64_t, VkRenderPass> mRenderPasses;
+			std::vector<std::pair<FramebufferKey, VkFramebuffer>> mFramebuffers;
 
 			DeviceCaps mCaps;
 			uint32_t mDebugErrors = 0, mDebugWarnings = 0;
@@ -844,9 +945,6 @@ namespace rhi
 				if (!f.Has(VK_KHR_SWAPCHAIN_EXTENSION_NAME)) { reject("no swap chain"); continue; }
 				std::string missing;
 				if (!f.Bindless()) missing += " descriptor-indexing";
-				if (!f.Timeline()) missing += " timeline-semaphores";
-				if (!f.DynamicRendering()) missing += " dynamic-rendering";
-				if (!f.Sync2()) missing += " synchronization2";
 				if (!f.Scalar()) missing += " scalar-block-layout";
 				if (!f.features.features.shaderStorageImageWriteWithoutFormat) missing += " storage-image-write-without-format";
 				if (!missing.empty()) { reject("missing" + missing); continue; }
@@ -893,6 +991,11 @@ namespace rhi
 			QueryFeatures(mPhysical, f);
 			mApi = f.api;
 			mMutable = f.Mutable();
+			mDynamicRendering = f.DynamicRendering();
+			gSync2 = f.Sync2();
+			// CHERRY_VK_LEGACY=1: render passes and Vulkan 1.0 barriers on a GPU that has the newer
+			// ways too (to check the paths phones without them take).
+			if (EnvFlag("CHERRY_VK_LEGACY")) mDynamicRendering = gSync2 = false;
 			if (EnvFlag("CHERRY_VK_NO_MUTABLE")) mMutable = false;   // to check the typed-array path on a desktop GPU
 			f.Select();
 			if (!mMutable && f.mutableExtension)
@@ -918,8 +1021,6 @@ namespace rhi
 			if (!vkCmdPipelineBarrier2) vkCmdPipelineBarrier2 = vkCmdPipelineBarrier2KHR;
 			if (!vkQueueSubmit2) vkQueueSubmit2 = vkQueueSubmit2KHR;
 			if (!vkCmdWriteTimestamp2) vkCmdWriteTimestamp2 = vkCmdWriteTimestamp2KHR;
-			if (!vkWaitSemaphores) vkWaitSemaphores = vkWaitSemaphoresKHR;
-			if (!vkGetSemaphoreCounterValue) vkGetSemaphoreCounterValue = vkGetSemaphoreCounterValueKHR;
 			vkGetDeviceQueue(mDevice, mQueueFamily, 0, &mQueue);
 
 			VkPhysicalDeviceProperties props;
@@ -1098,11 +1199,9 @@ namespace rhi
 			CreateLogicalDevice();
 			CreateDescriptors();
 
-			VkSemaphoreTypeCreateInfo timeline{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
-			timeline.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-			VkSemaphoreCreateInfo semaphore{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, &timeline };
-			VK_CHECK(vkCreateSemaphore(mDevice, &semaphore, nullptr, &mFrameTimeline));
-			VK_CHECK(vkCreateSemaphore(mDevice, &semaphore, nullptr, &mAsyncTimeline));
+			VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+			fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+			for (VkFence& fence : mFrameFences) VK_CHECK(vkCreateFence(mDevice, &fenceInfo, nullptr, &fence));
 			VkSemaphoreCreateInfo binary{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 			for (auto& ready : mImageReady) VK_CHECK(vkCreateSemaphore(mDevice, &binary, nullptr, &ready));
 
@@ -1137,17 +1236,11 @@ namespace rhi
 			mTimestampsMapped = static_cast<uint64_t*>(readbackInfo.pMappedData);
 			std::memset(mTimestampsMapped, 0, readback.size);
 
-			// The sink: the back buffer's stand-in while the window can't present.
-			TextureDesc sink;
-			sink.format = Format::RGBA8Unorm;
-			sink.usage = TextureUsage_RenderTarget;
-			sink.name = "SwapChainSink";
-			mSink = std::make_unique<VulkanTexture>(*this, sink);
-
 			if (mSurface) CreateSwapChain(true);
 			mInitialized = true;
-			CHERRY_LOG("GPU: %s | Vulkan %u.%u | bindless heap %u (%s) | swap chain %ux%u", mCaps.adapterName.c_str(),
-				VK_API_VERSION_MAJOR(mApi), VK_API_VERSION_MINOR(mApi), mHeapCapacity, mMutable ? "mutable descriptors" : "typed arrays", mSwapWidth, mSwapHeight);
+			CHERRY_LOG("GPU: %s | Vulkan %u.%u | bindless heap %u (%s) | %s | %s | swap chain %ux%u", mCaps.adapterName.c_str(),
+				VK_API_VERSION_MAJOR(mApi), VK_API_VERSION_MINOR(mApi), mHeapCapacity, mMutable ? "mutable descriptors" : "typed arrays",
+				mDynamicRendering ? "dynamic rendering" : "render passes", gSync2 ? "synchronization2" : "Vulkan 1.0 barriers", mSwapWidth, mSwapHeight);
 			return true;
 		}
 
@@ -1241,7 +1334,7 @@ namespace rhi
 			VK_CHECK(vkCreateSwapchainKHR(mDevice, &info, nullptr, &mSwapChain));
 			if (old)
 			{
-				for (VkImageView view : mSwapViews) vkDestroyImageView(mDevice, view, nullptr);
+				for (VkImageView view : mSwapViews) { ForgetView(view); vkDestroyImageView(mDevice, view, nullptr); }
 				for (VkSemaphore done : mRenderDone) vkDestroySemaphore(mDevice, done, nullptr);
 				vkDestroySwapchainKHR(mDevice, old, nullptr);
 			}
@@ -1272,9 +1365,93 @@ namespace rhi
 			CHERRY_LOG("Vulkan swap chain %ux%u, %u images (transform %u)", extent.width, extent.height, imageCount, static_cast<unsigned>(caps.currentTransform));
 		}
 
+		VkRenderPass VulkanDevice::RenderPass(VkFormat color, VkFormat depth, bool clearColor, bool clearDepth)
+		{
+			const uint64_t key = static_cast<uint64_t>(color) | (static_cast<uint64_t>(depth) << 24) | (uint64_t(clearColor) << 48) | (uint64_t(clearDepth) << 49);
+			std::lock_guard lock(mPassMutex);
+			if (auto it = mRenderPasses.find(key); it != mRenderPasses.end()) return it->second;
+			std::vector<VkAttachmentDescription> attachments;
+			VkAttachmentReference colorRef{ VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+			VkAttachmentReference depthRef{ VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+			// The attachments stay in their attachment layouts: the renderer's own barriers move
+			// them in and out.
+			if (color != VK_FORMAT_UNDEFINED)
+			{
+				colorRef.attachment = static_cast<uint32_t>(attachments.size());
+				attachments.push_back({ 0, color, VK_SAMPLE_COUNT_1_BIT, clearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE,
+					VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL });
+			}
+			if (depth != VK_FORMAT_UNDEFINED)
+			{
+				depthRef.attachment = static_cast<uint32_t>(attachments.size());
+				attachments.push_back({ 0, depth, VK_SAMPLE_COUNT_1_BIT, clearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE,
+					VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL });
+			}
+			VkSubpassDescription subpass{};
+			subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			subpass.colorAttachmentCount = color != VK_FORMAT_UNDEFINED ? 1 : 0;
+			subpass.pColorAttachments = color != VK_FORMAT_UNDEFINED ? &colorRef : nullptr;
+			subpass.pDepthStencilAttachment = depth != VK_FORMAT_UNDEFINED ? &depthRef : nullptr;
+			const VkSubpassDependency dependencies[2] = {
+				{ VK_SUBPASS_EXTERNAL, 0, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+					VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, 0 },
+				{ 0, VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+					VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, 0 },
+			};
+			VkRenderPassCreateInfo info{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+			info.attachmentCount = static_cast<uint32_t>(attachments.size());
+			info.pAttachments = attachments.data();
+			info.subpassCount = 1;
+			info.pSubpasses = &subpass;
+			info.dependencyCount = 2;
+			info.pDependencies = dependencies;
+			VkRenderPass pass = VK_NULL_HANDLE;
+			VK_CHECK(vkCreateRenderPass(mDevice, &info, nullptr, &pass));
+			mRenderPasses[key] = pass;
+			return pass;
+		}
+
+		VkFramebuffer VulkanDevice::Framebuffer(VkRenderPass pass, VkImageView color, VkImageView depth, uint32_t width, uint32_t height)
+		{
+			const FramebufferKey key{ pass, color, depth, width, height };
+			std::lock_guard lock(mPassMutex);
+			for (const auto& [k, framebuffer] : mFramebuffers)
+				if (k == key) return framebuffer;
+			VkImageView views[2];
+			uint32_t count = 0;
+			if (color) views[count++] = color;
+			if (depth) views[count++] = depth;
+			VkFramebufferCreateInfo info{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+			info.renderPass = pass;
+			info.attachmentCount = count;
+			info.pAttachments = views;
+			info.width = width;
+			info.height = height;
+			info.layers = 1;
+			VkFramebuffer framebuffer = VK_NULL_HANDLE;
+			VK_CHECK(vkCreateFramebuffer(mDevice, &info, nullptr, &framebuffer));
+			mFramebuffers.push_back({ key, framebuffer });
+			return framebuffer;
+		}
+
+		void VulkanDevice::ForgetView(VkImageView view)
+		{
+			if (!view) return;
+			std::lock_guard lock(mPassMutex);
+			for (auto it = mFramebuffers.begin(); it != mFramebuffers.end(); )
+			{
+				if (it->first.color == view || it->first.depth == view)
+				{
+					vkDestroyFramebuffer(mDevice, it->second, nullptr);
+					it = mFramebuffers.erase(it);
+				}
+				else ++it;
+			}
+		}
+
 		void VulkanDevice::DestroySwapChain()
 		{
-			for (VkImageView view : mSwapViews) vkDestroyImageView(mDevice, view, nullptr);
+			for (VkImageView view : mSwapViews) { ForgetView(view); vkDestroyImageView(mDevice, view, nullptr); }
 			for (VkSemaphore done : mRenderDone) vkDestroySemaphore(mDevice, done, nullptr);
 			mSwapViews.clear();
 			mRenderDone.clear();
@@ -1306,10 +1483,13 @@ namespace rhi
 			if (mConstants) vmaDestroyBuffer(mAllocator, mConstants, mConstantsMemory);
 			if (mAsyncPool) vkDestroyCommandPool(mDevice, mAsyncPool, nullptr);
 			for (VkCommandPool pool : mPools) if (pool) vkDestroyCommandPool(mDevice, pool, nullptr);
-			if (mFrameTimeline) vkDestroySemaphore(mDevice, mFrameTimeline, nullptr);
-			if (mAsyncTimeline) vkDestroySemaphore(mDevice, mAsyncTimeline, nullptr);
+			for (VkFence fence : mFrameFences) if (fence) vkDestroyFence(mDevice, fence, nullptr);
 			if (mDescriptorPool) vkDestroyDescriptorPool(mDevice, mDescriptorPool, nullptr);
 			if (mHeapPool) vkDestroyDescriptorPool(mDevice, mHeapPool, nullptr);
+			for (auto& [key, framebuffer] : mFramebuffers) vkDestroyFramebuffer(mDevice, framebuffer, nullptr);
+			mFramebuffers.clear();
+			for (auto& [key, pass] : mRenderPasses) vkDestroyRenderPass(mDevice, pass, nullptr);
+			mRenderPasses.clear();
 			if (mPipelineLayout) vkDestroyPipelineLayout(mDevice, mPipelineLayout, nullptr);
 			if (mSet0Layout) vkDestroyDescriptorSetLayout(mDevice, mSet0Layout, nullptr);
 			if (mSet1Layout) vkDestroyDescriptorSetLayout(mDevice, mSet1Layout, nullptr);
@@ -1338,18 +1518,11 @@ namespace rhi
 		void VulkanDevice::BeginFrame()
 		{
 			// The frame that last used this slot.
-			const uint64_t wait = mFrameValues[mFrameIndex];
-			if (wait)
-			{
-				VkSemaphoreWaitInfo info{ VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-				info.semaphoreCount = 1;
-				info.pSemaphores = &mFrameTimeline;
-				info.pValues = &wait;
-				VK_CHECK(vkWaitSemaphores(mDevice, &info, UINT64_MAX));
-			}
-			uint64_t completed = 0;
-			vkGetSemaphoreCounterValue(mDevice, mFrameTimeline, &completed);
-			ProcessReleases(completed);
+			VK_CHECK(vkWaitForFences(mDevice, 1, &mFrameFences[mFrameIndex], VK_TRUE, UINT64_MAX));
+			// Frames finish in order: the newest frame whose fence is signalled, and all before it.
+			for (uint32_t i = 0; i < kFramesInFlight; ++i)
+				if (vkGetFenceStatus(mDevice, mFrameFences[i]) == VK_SUCCESS) mCompletedFrameValue = std::max(mCompletedFrameValue, mFrameValues[i]);
+			ProcessReleases(mCompletedFrameValue);
 			ProcessAsync();
 
 			VK_CHECK(vkResetCommandPool(mDevice, mPools[mFrameIndex], 0));
@@ -1425,7 +1598,6 @@ namespace rhi
 				waits[waitCount++] = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, mImageReady[mFrameIndex], 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0 };
 				signals[signalCount++] = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, mRenderDone[mImageIndex], 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
 			}
-			signals[signalCount++] = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, mFrameTimeline, signalValue, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
 			VkCommandBufferSubmitInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, mCmd.cmd, 0 };
 			VkSubmitInfo2 submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
 			submit.waitSemaphoreInfoCount = waitCount;
@@ -1436,7 +1608,8 @@ namespace rhi
 			submit.pSignalSemaphoreInfos = signals;
 			{
 				std::lock_guard lock(mAsyncMutex);   // the queue is shared with uploads
-				VK_CHECK(vkQueueSubmit2(mQueue, 1, &submit, VK_NULL_HANDLE));
+				VK_CHECK(vkResetFences(mDevice, 1, &mFrameFences[mFrameIndex]));
+				VK_CHECK(QueueSubmit(mQueue, submit, mFrameFences[mFrameIndex]));
 				if (present)
 				{
 					VkPresentInfoKHR info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
@@ -1469,9 +1642,8 @@ namespace rhi
 		{
 			if (!mDevice) return;
 			vkDeviceWaitIdle(mDevice);
-			uint64_t completed = 0;
-			vkGetSemaphoreCounterValue(mDevice, mFrameTimeline, &completed);
-			ProcessReleases(completed);
+			mCompletedFrameValue = mFrameNumber;   // every submitted frame is done
+			ProcessReleases(mCompletedFrameValue);
 			ProcessAsync();
 		}
 
@@ -1563,34 +1735,32 @@ namespace rhi
 		{
 			std::lock_guard lock(mAsyncMutex);
 			// A command buffer the GPU has finished with, or a new one.
-			uint64_t completed = 0;
-			vkGetSemaphoreCounterValue(mDevice, mAsyncTimeline, &completed);
 			AsyncContext* context = nullptr;
 			for (AsyncContext& c : mAsync)
 			{
-				if (c.value <= completed)
+				if (c.busy && vkGetFenceStatus(mDevice, c.fence) == VK_SUCCESS)
 				{
 					if (c.staging) vmaDestroyBuffer(mAllocator, c.staging, c.stagingMemory);
 					c.staging = VK_NULL_HANDLE;
-					if (!context) context = &c;
+					c.busy = false;
 				}
+				if (!c.busy && !context) context = &c;
 			}
 			if (!context && mAsync.size() >= 64)
 			{
-				AsyncContext* oldest = &mAsync.front();
-				for (AsyncContext& c : mAsync) if (c.value < oldest->value) oldest = &c;
-				VkSemaphoreWaitInfo wait{ VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-				wait.semaphoreCount = 1;
-				wait.pSemaphores = &mAsyncTimeline;
-				wait.pValues = &oldest->value;
-				VK_CHECK(vkWaitSemaphores(mDevice, &wait, UINT64_MAX));
-				if (oldest->staging) vmaDestroyBuffer(mAllocator, oldest->staging, oldest->stagingMemory);
-				oldest->staging = VK_NULL_HANDLE;
-				context = oldest;
+				// Many uploads in flight at once (a burst of mesh rebuilds): wait for one.
+				AsyncContext& first = mAsync.front();
+				VK_CHECK(vkWaitForFences(mDevice, 1, &first.fence, VK_TRUE, UINT64_MAX));
+				if (first.staging) vmaDestroyBuffer(mAllocator, first.staging, first.stagingMemory);
+				first.staging = VK_NULL_HANDLE;
+				first.busy = false;
+				context = &first;
 			}
 			if (!context)
 			{
 				AsyncContext c;
+				VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+				VK_CHECK(vkCreateFence(mDevice, &fenceInfo, nullptr, &c.fence));
 				VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 				allocate.commandPool = mAsyncPool;
 				allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -1613,38 +1783,39 @@ namespace rhi
 			VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
 			dependency.memoryBarrierCount = 1;
 			dependency.pMemoryBarriers = &visible;
-			vkCmdPipelineBarrier2(context->cmd, &dependency);
+			PipelineBarrier(context->cmd, dependency);
 			VK_CHECK(vkEndCommandBuffer(context->cmd));
 
-			context->value = ++mAsyncValue;
 			context->staging = staging;
 			context->stagingMemory = stagingMemory;
-			VkSemaphoreSubmitInfo signal{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, mAsyncTimeline, context->value, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0 };
+			context->busy = true;
 			VkCommandBufferSubmitInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, context->cmd, 0 };
 			VkSubmitInfo2 submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
 			submit.commandBufferInfoCount = 1;
 			submit.pCommandBufferInfos = &cmdInfo;
-			submit.signalSemaphoreInfoCount = 1;
-			submit.pSignalSemaphoreInfos = &signal;
-			VK_CHECK(vkQueueSubmit2(mQueue, 1, &submit, VK_NULL_HANDLE));
+			VK_CHECK(vkResetFences(mDevice, 1, &context->fence));
+			VK_CHECK(QueueSubmit(mQueue, submit, context->fence));
 		}
 
 		void VulkanDevice::ProcessAsync(bool all)
 		{
 			std::lock_guard lock(mAsyncMutex);
-			uint64_t completed = 0;
-			vkGetSemaphoreCounterValue(mDevice, mAsyncTimeline, &completed);
 			for (AsyncContext& c : mAsync)
 			{
-				if ((all || c.value <= completed) && c.staging)
+				if (c.busy && (all || vkGetFenceStatus(mDevice, c.fence) == VK_SUCCESS))
 				{
-					vmaDestroyBuffer(mAllocator, c.staging, c.stagingMemory);
+					if (c.staging) vmaDestroyBuffer(mAllocator, c.staging, c.stagingMemory);
 					c.staging = VK_NULL_HANDLE;
+					c.busy = false;
 				}
 			}
 			if (all)
 			{
-				for (AsyncContext& c : mAsync) vkFreeCommandBuffers(mDevice, mAsyncPool, 1, &c.cmd);
+				for (AsyncContext& c : mAsync)
+				{
+					vkFreeCommandBuffers(mDevice, mAsyncPool, 1, &c.cmd);
+					vkDestroyFence(mDevice, c.fence, nullptr);
+				}
 				mAsync.clear();
 			}
 		}
@@ -1807,7 +1978,9 @@ namespace rhi
 			rendering.pColorAttachmentFormats = colorFormats.data();
 			rendering.depthAttachmentFormat = ToVk(desc.depthFormat);
 
-			VkGraphicsPipelineCreateInfo info{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &rendering };
+			VkGraphicsPipelineCreateInfo info{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, mDynamicRendering ? &rendering : nullptr };
+			if (!mDynamicRendering)
+				info.renderPass = RenderPass(colorFormats.empty() ? VK_FORMAT_UNDEFINED : colorFormats[0], ToVk(desc.depthFormat), false, false);
 			info.stageCount = psModule ? 2 : 1;
 			info.pStages = stages;
 			info.pVertexInputState = &vertexInput;
@@ -1882,7 +2055,7 @@ namespace rhi
 			if (pass.depth)
 			{
 				depth.imageView = static_cast<VulkanTexture*>(pass.depth)->TargetView();
-				depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+				depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 				depth.loadOp = pass.clearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 				depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 				depth.clearValue.depthStencil.depth = pass.depthValue;
@@ -1891,6 +2064,25 @@ namespace rhi
 					width = pass.depth->Width();
 					height = pass.depth->Height();
 				}
+			}
+			if (!mDevice.DynamicRendering())
+			{
+				const VkFormat colorFormat = !hasColor ? VK_FORMAT_UNDEFINED : pass.backBuffer ? ToVk(mDevice.SwapChainFormat()) : ToVk(pass.color->Desc().format);
+				const VkFormat depthFormat = pass.depth ? ToVk(pass.depth->Desc().format) : VK_FORMAT_UNDEFINED;
+				VkRenderPassBeginInfo begin{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+				begin.renderPass = mDevice.RenderPass(colorFormat, depthFormat, hasColor && pass.clearColor, pass.depth && pass.clearDepth);
+				begin.framebuffer = mDevice.Framebuffer(begin.renderPass, hasColor ? color.imageView : VK_NULL_HANDLE, pass.depth ? depth.imageView : VK_NULL_HANDLE, width, height);
+				begin.renderArea = { { 0, 0 }, { width, height } };
+				VkClearValue clears[2]{};
+				uint32_t clearCount = 0;
+				if (hasColor) clears[clearCount++] = color.clearValue;
+				if (pass.depth) clears[clearCount++] = depth.clearValue;
+				begin.clearValueCount = clearCount;
+				begin.pClearValues = clears;
+				vkCmdBeginRenderPass(cmd, &begin, VK_SUBPASS_CONTENTS_INLINE);
+				SetViewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
+				SetScissor(0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height));
+				return;
 			}
 			VkRenderingInfo info{ VK_STRUCTURE_TYPE_RENDERING_INFO };
 			info.renderArea = { { 0, 0 }, { width, height } };
@@ -1903,9 +2095,17 @@ namespace rhi
 			SetScissor(0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height));
 		}
 
+		void VulkanCommandList::EndRendering()
+		{
+			if (mDevice.DynamicRendering()) vkCmdEndRendering(cmd);
+			else vkCmdEndRenderPass(cmd);
+		}
+
 		void VulkanCommandList::Timestamp(uint32_t index)
 		{
-			if (mDevice.HasTimestamps()) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, mDevice.QueryPool(), index);
+			if (!mDevice.HasTimestamps()) return;
+			if (gSync2) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, mDevice.QueryPool(), index);
+			else vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, mDevice.QueryPool(), index);
 		}
 
 		void VulkanCommandList::ResolveTimestamps(uint32_t first, uint32_t count)
@@ -2070,6 +2270,7 @@ namespace rhi
 			mDevice.Defer([&device, image, allocation, sampled, target]()
 			{
 				if (sampled) vkDestroyImageView(device.Handle(), sampled, nullptr);
+				device.ForgetView(target);
 				if (target) vkDestroyImageView(device.Handle(), target, nullptr);
 				vmaDestroyImage(device.Allocator(), image, allocation);
 			});

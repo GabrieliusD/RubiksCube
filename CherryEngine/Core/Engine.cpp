@@ -246,6 +246,20 @@ void Engine::ReloadModule() { mImpl->wantReload = true; }
 
 bool Engine::IsExportingAndroid() const { return mImpl->androidExport.IsRunning(); }
 
+namespace
+{
+	fs::path ExecutablePath()
+	{
+#if defined(_WIN32)
+		wchar_t buffer[MAX_PATH];
+		GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+		return fs::path(buffer);
+#else
+		return {};
+#endif
+	}
+}
+
 void Engine::ExportAndroid(bool release)
 {
 	Impl& e = *mImpl;
@@ -253,7 +267,8 @@ void Engine::ExportAndroid(bool release)
 #if CHERRY_EDITOR && defined(CHERRY_SOURCE_DIR)
 	const std::wstring script = (fs::path(CHERRY_SOURCE_DIR) / "Tools" / "Android" / "Package.ps1").wstring();
 	const std::wstring command = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + script + L"\" -Project \""
-		+ e.project.file.wstring() + L"\" -Config " + (release ? L"Release" : L"Debug") + L" -Abi arm64-v8a";
+		+ e.project.file.wstring() + L"\" -Config " + (release ? L"Release" : L"Debug") + L" -Abi arm64-v8a"
+		+ L" -CookExe \"" + ExecutablePath().wstring() + L"\"";   // this editor cooks the shaders
 	CHERRY_LOG("[build] Android export: %s", fs::path(command).string().c_str());
 	std::string error;
 	if (!e.androidExport.Start(command, error)) CHERRY_ERROR("[build] Android export: %s", error.c_str());
@@ -458,7 +473,7 @@ void Engine::Impl::LoadEditorState()
 
 void Engine::Impl::SaveEditorState()
 {
-	if (!project.IsValid() || staticGame) return;
+	if (!project.IsValid() || staticGame || !launch.cookShaders.empty()) return;
 	nlohmann::json json = nlohmann::json::object();
 	json["scene"] = scenePath.empty() ? std::string() : scenePath.lexically_relative(project.root).generic_string();
 	std::ofstream out(SavedDirFor(project) / "EditorState.json", std::ios::trunc);
@@ -1124,7 +1139,7 @@ int Engine::Run(const LaunchOptions& options)
 		}
 		// Each project keeps its own window layout. ImGui reads the file on the first frame.
 		e.imguiIniPath = (SavedDir() / "imgui.ini").string();
-		ImGui::GetIO().IniFilename = e.imguiIniPath.c_str();
+		ImGui::GetIO().IniFilename = e.launch.cookShaders.empty() ? e.imguiIniPath.c_str() : nullptr;   // a cook leaves the layout alone
 
 		e.assets.Initialize(e.renderer);
 		if (e.project.IsValid()) e.assets.SetContentRoot(e.project.content);

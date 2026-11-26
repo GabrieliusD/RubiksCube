@@ -1,5 +1,10 @@
 # Android support for CherryEngine, and the Dice game as an APK
 
+**2026-11-26: Android now runs the engine's shared renderer** (the D3D12 renderer's passes on the
+Vulkan backend, shaders cooked on Windows; `CherryEngine/Docs/Vulkan.md`, milestones S1-S3). The
+mobile renderer described below (A2-A4: `Renderer/Vulkan/VulkanRenderer.cpp`, `Shaders/Mobile`) was
+deleted then; the rest of this document is the history of how the port got there.
+
 Status (2026-11-25): **A0–A5 done** on branch `features/android`, checked on an Android 12 emulator, and the user tested it on a phone on 2026-11-26: it works. A2 and A3 were re-scoped (see "Change of approach" below).
 
 | # | Milestone | State |

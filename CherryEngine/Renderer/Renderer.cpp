@@ -8,8 +8,13 @@
 #include "Shaders/Shared/ShaderInterop.h"
 #include "Core/Log.h"
 
+#include "Core/Project.h"
 #include "imgui.h"
+#if defined(_WIN32)
 #include "imgui_impl_win32.h"
+#else
+#include <cstdlib>
+#endif
 
 #include <filesystem>
 #include <algorithm>
@@ -28,11 +33,17 @@ namespace
 	constexpr rhi::Format kDepthFormat = rhi::Format::D32Float;
 	using rhi::ResourceState;
 
-	std::filesystem::path ExecutableDir()
+	std::filesystem::path ExecutableDir() { return cherry::ExecutableDir(); }
+
+	bool EnvFlag(const char* name)
 	{
-		wchar_t buffer[MAX_PATH];
-		GetModuleFileNameW(nullptr, buffer, MAX_PATH);
-		return std::filesystem::path(buffer).parent_path();
+#if defined(_WIN32)
+		char value[8] = {};
+		return GetEnvironmentVariableA(name, value, sizeof(value)) > 0 && value[0] == '1';
+#else
+		const char* value = std::getenv(name);
+		return value && value[0] == '1';
+#endif
 	}
 
 	std::filesystem::path FindShaderRoot()
@@ -219,8 +230,13 @@ struct Renderer::Impl
 	rhi::Device* device = nullptr;
 	rhi::PipelineLibrary pipelines;
 	ImGuiRenderer imgui;
+#if defined(_WIN32)
 	GraphicsApi api = GraphicsApi::D3D12;
-	HWND hwnd = nullptr;
+#else
+	GraphicsApi api = GraphicsApi::Vulkan;
+#endif
+	void* window = nullptr;      // HWND or ANativeWindow*
+	bool imguiOwned = false;     // the renderer made the ImGui context (Android's android_main makes its own)
 	bool initialized = false;
 
 	ResourcePool<MeshResource, MeshHandle> meshes;
@@ -357,17 +373,15 @@ void Renderer::SetNativeWindow(void* nativeWindow, uint32_t width, uint32_t heig
 
 bool Renderer::Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error)
 {
-	const HWND hwnd = static_cast<HWND>(nativeWindow);
 	Impl& r = *mImpl;
-	r.hwnd = hwnd;
+	r.window = nativeWindow;
 
 	rhi::DeviceOptions options;
 #if defined(_DEBUG)
 	options.debugLayer = true;
-	char gbv[8] = {};
-	options.gpuBasedValidation = GetEnvironmentVariableA("CHERRY_GPU_VALIDATION", gbv, sizeof(gbv)) > 0 && gbv[0] == '1';
+	options.gpuBasedValidation = EnvFlag("CHERRY_GPU_VALIDATION");
 #endif
-	r.devicePtr = rhi::Device::Create(r.api == GraphicsApi::Vulkan ? rhi::Backend::Vulkan : rhi::Backend::D3D12, options, hwnd, width, height, error);
+	r.devicePtr = rhi::Device::Create(r.api == GraphicsApi::Vulkan ? rhi::Backend::Vulkan : rhi::Backend::D3D12, options, nativeWindow, width, height, error);
 	if (!r.devicePtr)
 	{
 		return false;
@@ -385,12 +399,7 @@ bool Renderer::Initialize(void* nativeWindow, uint32_t width, uint32_t height, s
 	{
 		// Back to where Initialize started, so it can be tried again (on the other API).
 		error = e.what();
-		if (ImGui::GetCurrentContext())
-		{
-			r.imgui.Shutdown();
-			ImGui_ImplWin32_Shutdown();
-			ImGui::DestroyContext();
-		}
+		if (ImGui::GetCurrentContext()) r.ShutdownImGui();
 		r.pipelines.Shutdown();
 		r.device = nullptr;
 		r.devicePtr.reset();
@@ -887,28 +896,34 @@ void Renderer::Impl::BuildMaterialScratch()
 void Renderer::Impl::InitImGui()
 {
 	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
+	// Android's android_main makes the context itself, scaled to the screen's density.
+	imguiOwned = ImGui::GetCurrentContext() == nullptr;
+	if (imguiOwned) ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
 	imguiIniPath = (ExecutableDir() / "imgui.ini").string();
 	io.IniFilename = imguiIniPath.c_str();
 	ImGui::StyleColorsDark();
 
+#if defined(_WIN32)
 	// Match the UI to the monitor's DPI (the process is per-monitor DPI aware).
-	const float dpiScale = GetDpiForWindow(hwnd) / 96.0f;
+	const float dpiScale = GetDpiForWindow(static_cast<HWND>(window)) / 96.0f;
 	ImGuiStyle& style = ImGui::GetStyle();
 	style.ScaleAllSizes(dpiScale);
 	style.FontScaleDpi = dpiScale;
-
-	ImGui_ImplWin32_Init(hwnd);
+	ImGui_ImplWin32_Init(window);
+#endif
 	imgui.Initialize(*device, pipelines);
 }
 
 void Renderer::Impl::ShutdownImGui()
 {
 	imgui.Shutdown();
-	ImGui_ImplWin32_Shutdown();
-	ImGui::DestroyContext();
+#if defined(_WIN32)
+	if (ImGui::GetIO().BackendPlatformUserData) ImGui_ImplWin32_Shutdown();
+#endif
+	if (imguiOwned) ImGui::DestroyContext();
+	imguiOwned = false;
 }
 
 void Renderer::Shutdown()
@@ -1408,7 +1423,14 @@ DebugDraw& Renderer::Debug() { return mImpl->debugDraw; }
 const RenderStats& Renderer::Stats() const { return mImpl->stats; }
 const std::string& Renderer::AdapterName() const { return mImpl->device ? mImpl->device->Caps().adapterName : mImpl->emptyString; }
 const char* GraphicsApiName(GraphicsApi api) { return api == GraphicsApi::Vulkan ? "Vulkan" : "D3D12"; }
-void Renderer::SetGraphicsApi(GraphicsApi api) { if (!mImpl->initialized) mImpl->api = api; }
+void Renderer::SetGraphicsApi(GraphicsApi api)
+{
+#if defined(_WIN32)
+	if (!mImpl->initialized) mImpl->api = api;
+#else
+	(void)api;   // Vulkan is the only API here
+#endif
+}
 GraphicsApi Renderer::GetGraphicsApi() const { return mImpl->api; }
 void Renderer::ReloadShaders() { mImpl->pipelines.ReloadAll(); }
 bool Renderer::IsCompilingShaders() const { return mImpl->pipelines.PendingCount() > 0; }
@@ -1568,7 +1590,14 @@ void Renderer::BeginFrame(float totalTime, float deltaTime)
 	r.viewRendered = false;
 	r.frameActive = true;
 
+#if defined(_WIN32)
 	ImGui_ImplWin32_NewFrame();
+#else
+	// The window's size and the frame time (Windows' backend fills these from the window).
+	ImGuiIO& io = ImGui::GetIO();
+	io.DisplaySize = ImVec2(static_cast<float>(r.device->SwapChainWidth()), static_cast<float>(r.device->SwapChainHeight()));
+	io.DeltaTime = deltaTime > 0.0f ? deltaTime : 1.0f / 60.0f;
+#endif
 	ImGui::NewFrame();
 }
 

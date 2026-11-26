@@ -112,21 +112,22 @@ if(NOT WIN32)
   set(_cherry_windows_only
     Core/ModuleHost.h Core/ModuleHost.cpp Core/BuildProcess.h Core/BuildProcess.cpp
     Core/Window.cpp
-    Renderer/Renderer.cpp Renderer/ImGuiRenderer.h Renderer/ImGuiRenderer.cpp Renderer/DdsReader.h Renderer/DdsReader.cpp
     Editor/EditorLayer.h Editor/EditorLayer.cpp Editor/ScenePanels.cpp Editor/Gizmo.h Editor/Gizmo.cpp
     Editor/ContentBrowser.cpp Editor/ShaderGraphEditor.h Editor/ShaderGraphEditor.cpp
-    RHI/RHI.h RHI/RHI.cpp RHI/Pipeline.h RHI/Pipeline.cpp
-    RHI/D3D12/D3DCommon.h RHI/D3D12/DescriptorHeap.h RHI/D3D12/D3DCommon.cpp RHI/D3D12/DescriptorHeap.cpp RHI/D3D12/D3D12Device.cpp RHI/Vulkan/VulkanDevice.cpp
+    RHI/D3D12/D3DCommon.h RHI/D3D12/DescriptorHeap.h RHI/D3D12/D3DCommon.cpp RHI/D3D12/DescriptorHeap.cpp RHI/D3D12/D3D12Device.cpp
     ShaderSystem/ShaderCompiler.cpp
     DDSTextureLoader.h d3dx12.h)
   list(REMOVE_ITEM ENGINE_HEADERS ${_cherry_windows_only})
   list(REMOVE_ITEM ENGINE_SOURCES ${_cherry_windows_only})
   list(APPEND ENGINE_HEADERS Core/NoEditor.h)
   if(ANDROID)
-    # The mobile renderer: Vulkan, the same Renderer API as the D3D12 one, with the passes
-    # the games on Android need (Dice/Docs/Android.md).
-    list(APPEND ENGINE_SOURCES Platform/Android/Window_Android.cpp Renderer/Vulkan/VulkanRenderer.cpp)
+    # The shared renderer on its Vulkan backend, with shaders cooked on Windows
+    # (ShaderSystem/ShaderCache.h; CherryEngine/Docs/Vulkan.md).
+    list(APPEND ENGINE_SOURCES Platform/Android/Window_Android.cpp)
   else()
+    # Other platforms: no renderer yet.
+    list(REMOVE_ITEM ENGINE_SOURCES Renderer/Renderer.cpp Renderer/ImGuiRenderer.cpp Renderer/DdsReader.cpp
+      RHI/RHI.cpp RHI/Pipeline.cpp RHI/Vulkan/VulkanDevice.cpp)
     list(APPEND ENGINE_SOURCES Renderer/NullRenderer.cpp)
   endif()
   if(NOT WIN32)
@@ -233,67 +234,6 @@ endif()
 endif() # WIN32
 
 # ---------------------------------------------------------------------------
-# Mobile shaders (Android): HLSL in Shaders/Mobile compiled to SPIR-V at build time by the
-# host's DXC (vcpkg host dependency) into headers the Vulkan renderer embeds.
-# ---------------------------------------------------------------------------
-function(cherry_mobile_shaders target)
-  set(_host_triplet "${VCPKG_HOST_TRIPLET}")
-  if(NOT _host_triplet)
-    set(_host_triplet x64-windows)
-  endif()
-  set(_dxc_dir "${VCPKG_INSTALLED_DIR}/${_host_triplet}/tools/directx-dxc")
-  find_program(CHERRY_HOST_DXC NAMES dxc dxc.exe PATHS "${_dxc_dir}" NO_DEFAULT_PATH)
-  if(NOT CHERRY_HOST_DXC)
-    message(FATAL_ERROR "No host DXC in ${_dxc_dir} (vcpkg.json: directx-dxc as a host dependency)")
-  endif()
-  set(_src "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Mobile")
-  set(_out "${CMAKE_CURRENT_BINARY_DIR}/MobileShaders")
-  file(GLOB _includes CONFIGURE_DEPENDS "${_src}/*.hlsli" "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Shared/*.h")
-  # name  file  entry  profile
-  set(_shaders
-    ImGuiVS ImGui.hlsl VSMain vs_6_0
-    ImGuiPS ImGui.hlsl PSMain ps_6_0
-    MeshVS Mesh.hlsl VSMain vs_6_0
-    MeshPS Mesh.hlsl PSMain ps_6_0
-    ShadowVS Shadow.hlsl VSMain vs_6_0
-    ParticlesVS Particles.hlsl VSMain vs_6_0
-    ParticlesPS Particles.hlsl PSMain ps_6_0
-    PostVS Post.hlsl VSMain vs_6_0
-    TonemapPS Post.hlsl TonemapPS ps_6_0
-    CopyPS Post.hlsl CopyPS ps_6_0
-    FxaaPS Post.hlsl FxaaPS ps_6_0)
-  set(_headers "")
-  list(LENGTH _shaders _count)
-  math(EXPR _last "${_count} - 1")
-  foreach(_i RANGE 0 ${_last} 4)
-    math(EXPR _f "${_i} + 1")
-    math(EXPR _e "${_i} + 2")
-    math(EXPR _p "${_i} + 3")
-    list(GET _shaders ${_i} _name)
-    list(GET _shaders ${_f} _file)
-    list(GET _shaders ${_e} _entry)
-    list(GET _shaders ${_p} _profile)
-    set(_header "${_out}/${_name}.spv.h")
-    # Scene and post vertex shaders keep D3D's clip space (y up), like the engine's shaders;
-    # ImGui's works in Vulkan's directly.
-    set(_flip "")
-    if(_profile MATCHES "^vs_" AND NOT _file STREQUAL "ImGui.hlsl")
-      set(_flip -fvk-invert-y)
-    endif()
-    add_custom_command(OUTPUT "${_header}"
-      COMMAND "${CMAKE_COMMAND}" -E make_directory "${_out}"
-      COMMAND "${CHERRY_HOST_DXC}" -spirv -fspv-target-env=vulkan1.1 ${_flip} -T ${_profile} -E ${_entry}
-        -I "${_src}" -I "${CMAKE_CURRENT_SOURCE_DIR}/Shaders" -Fh "${_header}" -Vn kSpirv_${_name} "${_src}/${_file}"
-      DEPENDS "${_src}/${_file}" ${_includes}
-      COMMENT "SPIR-V ${_name}" VERBATIM)
-    list(APPEND _headers "${_header}")
-  endforeach()
-  add_custom_target(${target}MobileShaders DEPENDS ${_headers})
-  add_dependencies(${target} ${target}MobileShaders)
-  target_include_directories(${target} PRIVATE "${_out}")
-endfunction()
-
-# ---------------------------------------------------------------------------
 # Engine target
 # ---------------------------------------------------------------------------
 if(CHERRYENGINE_BUILD_SHARED)
@@ -317,22 +257,23 @@ find_path(CHERRY_CGLTF_INCLUDE_DIR "cgltf.h" REQUIRED)
 find_path(CHERRY_STB_INCLUDE_DIR "stb_image.h" REQUIRED)
 target_include_directories(CherryEngine PRIVATE "${CHERRY_CGLTF_INCLUDE_DIR}" "${CHERRY_STB_INCLUDE_DIR}")
 target_include_directories(CherryEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${NODE_EDITOR_DIR}")
-if(WIN32)
-  target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt)
+if(WIN32 OR ANDROID)
   # The Vulkan backend (RHI/Vulkan): volk loads Vulkan at run time (no SDK needed to build or
   # run; the validation layers come with the Vulkan SDK), VMA allocates its memory.
   find_package(volk CONFIG REQUIRED)
   find_package(VulkanMemoryAllocator CONFIG REQUIRED)
   target_link_libraries(CherryEngine PRIVATE volk::volk volk::volk_headers GPUOpen::VulkanMemoryAllocator)
   target_compile_definitions(CherryEngine PRIVATE CHERRY_RHI_VULKAN=1)
+endif()
+if(WIN32)
+  target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt)
 else()
   target_link_libraries(CherryEngine PRIVATE Jolt::Jolt)
   # DirectXMath (header-only) is part of the Windows SDK; elsewhere it comes from vcpkg.
   find_package(directxmath CONFIG REQUIRED)
   target_link_libraries(CherryEngine PUBLIC Microsoft::DirectXMath)
   if(ANDROID)
-    target_link_libraries(CherryEngine PUBLIC log android vulkan)
-    cherry_mobile_shaders(CherryEngine)
+    target_link_libraries(CherryEngine PUBLIC log android)
   endif()
 endif()
 target_compile_definitions(CherryEngine PUBLIC CHERRY_EDITOR=$<BOOL:${CHERRY_EDITOR}>)
