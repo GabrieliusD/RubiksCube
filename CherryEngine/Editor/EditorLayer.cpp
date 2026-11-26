@@ -107,6 +107,7 @@ void EditorLayer::Draw(Engine& engine, IGameModule* game, bool editorMode, bool 
 	DrawViewport(engine);
 	DrawHierarchy(engine);
 	DrawInspector(engine);
+	DrawUiInspector(engine);   // after the viewport: picking takes the game view's mouse
 	DrawStats(engine, frameMs);
 	DrawOutput();
 	DrawContentBrowser(engine);
@@ -383,6 +384,7 @@ void EditorLayer::DrawDockspace()
 			ImGui::DockBuilderDockWindow("Hierarchy", left);
 			ImGui::DockBuilderDockWindow(kStatsWindow, rightTop);
 			ImGui::DockBuilderDockWindow("Inspector", rightTop);
+			ImGui::DockBuilderDockWindow("UI", rightTop);
 			ImGui::DockBuilderDockWindow(kGameWindow, rightBottom);
 			ImGui::DockBuilderFinish(dockspace);
 		}

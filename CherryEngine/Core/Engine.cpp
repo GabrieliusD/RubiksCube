@@ -1094,6 +1094,8 @@ int Engine::Run(const LaunchOptions& options)
 	EngineConfig config = e.game ? e.game->GetConfig() : EngineConfig{};
 	if (!e.game) config.windowTitle = e.project.IsValid() ? Widen(e.project.name) : L"Cherry Editor";
 	e.editorMode = e.gameSession ? config.startInEditor : true;
+	// CHERRY_DEV_EDITOR=1: a game session shows the editor around the game (screenshots of editor panels).
+	if (const char* devEditor = std::getenv("CHERRY_DEV_EDITOR"); devEditor && std::atoi(devEditor) != 0) e.editorMode = true;
 	e.baseTitle = config.windowTitle;
 	e.gameUiOverlayWindow = config.gameUiOverlayWindow;
 

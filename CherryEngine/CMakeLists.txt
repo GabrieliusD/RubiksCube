@@ -83,6 +83,7 @@ set(ENGINE_SOURCES
   Editor/Gizmo.cpp
   Editor/ContentBrowser.cpp
   Editor/ShaderGraphEditor.cpp
+  Editor/UiInspector.cpp
   Physics/PhysicsWorld.cpp
   Voxel/VoxelModel.cpp
   Particles/ParticleSystem.cpp
@@ -117,7 +118,7 @@ if(NOT WIN32)
     Core/ModuleHost.h Core/ModuleHost.cpp Core/BuildProcess.h Core/BuildProcess.cpp
     Core/Window.cpp
     Editor/EditorLayer.h Editor/EditorLayer.cpp Editor/ScenePanels.cpp Editor/Gizmo.h Editor/Gizmo.cpp
-    Editor/ContentBrowser.cpp Editor/ShaderGraphEditor.h Editor/ShaderGraphEditor.cpp
+    Editor/ContentBrowser.cpp Editor/ShaderGraphEditor.h Editor/ShaderGraphEditor.cpp Editor/UiInspector.cpp
     RHI/D3D12/D3DCommon.h RHI/D3D12/DescriptorHeap.h RHI/D3D12/D3DCommon.cpp RHI/D3D12/DescriptorHeap.cpp RHI/D3D12/D3D12Device.cpp
     ShaderSystem/ShaderCompiler.cpp
     DDSTextureLoader.h d3dx12.h)

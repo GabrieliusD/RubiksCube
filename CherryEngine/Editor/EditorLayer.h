@@ -13,6 +13,7 @@
 
 class Engine;
 class IGameModule;
+namespace Rml { class Element; }
 class Scene;
 struct ComponentInfo;
 struct FieldInfo;
@@ -20,8 +21,8 @@ struct Transform;
 struct Camera;
 
 // The engine's ImGui UI. In editor mode: a menu bar (project, scene, play controls)
-// and a dockspace with the Viewport, Hierarchy, Inspector, Stats, Output and Game
-// panels (the module's OnImGui). In game mode: the game's UI as a small overlay.
+// and a dockspace with the Viewport, Hierarchy, Inspector, UI (the game's RmlUi documents),
+// Stats, Output and Game panels (the module's OnImGui). In game mode: the game's UI as a small overlay.
 // Also owns the editor fly camera, the selection, engine debug tools (voxel test)
 // and the project picker shown when no project is open.
 class EditorLayer
@@ -88,6 +89,10 @@ private:
 	void Redo(Engine& engine);
 	void RestoreSnapshot(Engine& engine, const std::string& json);
 	void DrawEditMenu(Engine& engine);
+
+	// The game UI's inspector (UiInspector.cpp): RmlUi documents, picking, properties
+	void DrawUiInspector(Engine& engine);
+	void DrawUiTreeNode(Rml::Element* element, Rml::Element* selected, Rml::Element*& hovered);
 
 	// Content browser and asset inspector (ContentBrowser.cpp)
 	void DrawContentBrowser(Engine& engine);
@@ -160,6 +165,15 @@ private:
 	char mNewScriptName[64] = "";
 	bool mNewScriptOpenSource = true;
 	std::string mNewScriptError;
+
+	// UI inspector
+	bool mUiPicking = false;                  // the next click in the game view selects an element
+	bool mUiReveal = false;                   // open the tree down to the selection (once)
+	Rml::Element* mUiSelected = nullptr;      // checked to still be in the documents every frame
+	char mUiNewClass[64] = "";
+	char mUiNewProperty[64] = "";
+	char mUiNewValue[128] = "";
+	std::string mUiError;
 
 	// Output panel
 	std::deque<cherry::LogEntry> mLog;
