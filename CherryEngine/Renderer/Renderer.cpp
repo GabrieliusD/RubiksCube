@@ -350,7 +350,10 @@ Renderer::~Renderer()
 	Shutdown();
 }
 
-void Renderer::SetNativeWindow(void*, uint32_t, uint32_t) {}   // a Win32 window keeps its HWND
+void Renderer::SetNativeWindow(void* nativeWindow, uint32_t width, uint32_t height)
+{
+	if (mImpl->device) mImpl->device->SetWindow(nativeWindow, width, height);
+}
 
 bool Renderer::Initialize(void* nativeWindow, uint32_t width, uint32_t height, std::string& error)
 {

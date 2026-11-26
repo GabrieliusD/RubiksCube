@@ -12,8 +12,13 @@
 #include "RHI/RHI.h"
 #include "Core/Log.h"
 
+#if defined(_WIN32)
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <windows.h>
+#else
+#define VK_USE_PLATFORM_ANDROID_KHR
+#include <android/native_window.h>
+#endif
 #include <volk.h>
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -25,15 +30,77 @@
 #include <functional>
 #include <mutex>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 namespace rhi
 {
 	namespace
 	{
-		constexpr uint32_t kHeapCapacity = 65536;
 		constexpr uint64_t kConstantBytesPerFrame = 4 * 1024 * 1024;
-		constexpr uint64_t kConstantRange = 65536;   // what one dynamic uniform buffer descriptor covers
+#if defined(_WIN32)
+		constexpr const char* kSurfaceExtension = VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
+#else
+		constexpr const char* kSurfaceExtension = VK_KHR_ANDROID_SURFACE_EXTENSION_NAME;
+#endif
+
+		bool EnvFlag(const char* name)
+		{
+#if defined(_MSC_VER)
+			char* value = nullptr;
+			size_t length = 0;
+			const bool set = _dupenv_s(&value, &length, name) == 0 && value && value[0] == '1';
+			free(value);
+			return set;
+#else
+			const char* value = std::getenv(name);
+			return value && value[0] == '1';
+#endif
+		}
+
+		// Without mutable descriptors the heap is three typed arrays (bindings 0, 1, 2 of set 1).
+		// DXC puts every ResourceDescriptorHeap variable at set 1 binding 0; this moves each to the
+		// binding of its type: sampled images 0, storage images 1, storage buffers 2.
+		std::vector<uint32_t> SplitHeapBindings(const std::vector<uint32_t>& code)
+		{
+			std::vector<uint32_t> words = code;
+			if (words.size() < 5) return words;
+			constexpr uint32_t OpTypeImage = 25, OpTypeRuntimeArray = 29, OpTypeStruct = 30, OpTypePointer = 32, OpVariable = 59, OpDecorate = 71;
+			constexpr uint32_t DecorationBinding = 33, DecorationDescriptorSet = 34;
+			std::unordered_map<uint32_t, uint32_t> imageSampled, arrayElement, pointee, variableType;
+			std::unordered_map<uint32_t, bool> isStruct, inSet1;
+			std::vector<size_t> bindingWords;   // the operand of each Binding decoration
+			std::vector<uint32_t> bindingTargets;
+			for (size_t i = 5; i < words.size(); )
+			{
+				const uint32_t op = words[i] & 0xffff, count = words[i] >> 16;
+				if (count == 0 || i + count > words.size()) break;
+				if (op == OpTypeImage && count >= 9) imageSampled[words[i + 1]] = words[i + 7];
+				else if (op == OpTypeRuntimeArray && count >= 3) arrayElement[words[i + 1]] = words[i + 2];
+				else if (op == OpTypeStruct) isStruct[words[i + 1]] = true;
+				else if (op == OpTypePointer && count >= 4) pointee[words[i + 1]] = words[i + 3];
+				else if (op == OpVariable && count >= 4) variableType[words[i + 2]] = words[i + 1];
+				else if (op == OpDecorate && count >= 4)
+				{
+					if (words[i + 2] == DecorationDescriptorSet && words[i + 3] == 1) inSet1[words[i + 1]] = true;
+					if (words[i + 2] == DecorationBinding) { bindingWords.push_back(i + 3); bindingTargets.push_back(words[i + 1]); }
+				}
+				i += count;
+			}
+			for (size_t b = 0; b < bindingWords.size(); ++b)
+			{
+				const uint32_t variable = bindingTargets[b];
+				if (!inSet1[variable]) continue;
+				const uint32_t array = pointee[variableType[variable]];
+				const auto element = arrayElement.find(array);
+				const uint32_t type = element != arrayElement.end() ? element->second : array;
+				uint32_t binding = 2;   // storage buffers (structs)
+				if (const auto image = imageSampled.find(type); image != imageSampled.end()) binding = image->second == 2 ? 1 : 0;
+				else if (!isStruct[type]) continue;
+				words[bindingWords[b]] = binding;
+			}
+			return words;
+		}
 		constexpr uint32_t kTimestampCount = kFramesInFlight * kTimestampsPerFrame;
 		constexpr uint32_t kSamplerBinding = 16;
 
@@ -300,7 +367,8 @@ namespace rhi
 		{
 		public:
 			~VulkanDevice() override { Shutdown(); }
-			bool Initialize(const DeviceOptions& options, HWND hwnd, uint32_t width, uint32_t height, std::string& error);
+			bool Initialize(const DeviceOptions& options, void* window, uint32_t width, uint32_t height, std::string& error);
+			void SetWindow(void* window, uint32_t width, uint32_t height) override;
 			void Shutdown();
 
 			Backend GetBackend() const override { return Backend::Vulkan; }
@@ -358,6 +426,7 @@ namespace rhi
 			VkDescriptorSet Set1() const { return mSet1; }
 			VkQueryPool QueryPool() const { return mQueryPool; }
 			VkBuffer TimestampBuffer() const { return mTimestampBuffer; }
+			bool HasTimestamps() const { return mTimestamps; }
 			uint64_t CurrentFrameValue() const { return mFrameNumber + 1; }
 
 			// Bindless heap slots: a slot freed now is reused once the frames that may use it are done.
@@ -393,6 +462,7 @@ namespace rhi
 			};
 
 			bool CreateInstance(const DeviceOptions& options, std::string& error);
+			bool CreateSurface(void* window, std::string& error);
 			bool PickPhysicalDevice(std::string& error);
 			void CreateLogicalDevice();
 			void CreateDescriptors();
@@ -411,7 +481,16 @@ namespace rhi
 			uint32_t mQueueFamily = 0;
 			VkQueue mQueue = VK_NULL_HANDLE;
 			VmaAllocator mAllocator = nullptr;
-			HWND mHwnd = nullptr;
+			void* mWindow = nullptr;
+			uint32_t mInstanceVersion = 0;
+			uint32_t mApi = 0;                     // the device's Vulkan version (up to 1.3)
+			bool mMutable = true;                  // mutable descriptors; else three typed arrays
+			bool mTimestamps = true;
+			bool mAnisotropy = true;
+			uint32_t mHeapCapacity = 0;
+			uint64_t mConstantRange = 65536;       // what one dynamic uniform buffer descriptor covers
+			VkPhysicalDeviceLimits mLimits{};
+			VkPhysicalDeviceDescriptorIndexingProperties mDescriptorIndexingProps{};
 			bool mDebugUtils = false;
 			bool mOldValidationLayer = false;
 
@@ -463,6 +542,7 @@ namespace rhi
 			Format mSwapFormat = Format::BGRA8Unorm;
 			uint32_t mSwapWidth = 0, mSwapHeight = 0;
 			bool mSwapChainDirty = false;
+			bool mSwapChainMade = false;
 			bool mVsync = true;
 			uint32_t mImageIndex = UINT32_MAX;          // acquired this frame
 			bool mUsingSink = false;
@@ -505,14 +585,16 @@ namespace rhi
 		{
 			if (volkInitialize() != VK_SUCCESS)
 			{
-				error = "No Vulkan driver was found (vulkan-1.dll is missing).";
+				error = "No Vulkan driver was found.";
 				return false;
 			}
-			if (volkGetInstanceVersion() < VK_API_VERSION_1_3)
+			const uint32_t instanceVersion = volkGetInstanceVersion();
+			if (instanceVersion < VK_API_VERSION_1_1)
 			{
-				error = "The Vulkan driver is older than Vulkan 1.3.";
+				error = "The Vulkan driver is older than Vulkan 1.1.";
 				return false;
 			}
+			mInstanceVersion = std::min(instanceVersion, static_cast<uint32_t>(VK_API_VERSION_1_3));
 
 			uint32_t layerCount = 0;
 			vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -526,7 +608,7 @@ namespace rhi
 			auto hasExtension = [&](const char* name) { return std::any_of(extensions.begin(), extensions.end(), [&](const VkExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; }); };
 
 			std::vector<const char*> enabledLayers;
-			std::vector<const char*> enabledExtensions = { VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME };
+			std::vector<const char*> enabledExtensions = { VK_KHR_SURFACE_EXTENSION_NAME, kSurfaceExtension };
 			mDebugUtils = hasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 			if (mDebugUtils) enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 			if (options.debugLayer)
@@ -548,7 +630,7 @@ namespace rhi
 			VkApplicationInfo app{ VK_STRUCTURE_TYPE_APPLICATION_INFO };
 			app.pApplicationName = "CherryEngine";
 			app.pEngineName = "CherryEngine";
-			app.apiVersion = VK_API_VERSION_1_3;
+			app.apiVersion = mInstanceVersion;
 			VkInstanceCreateInfo info{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 			info.pApplicationInfo = &app;
 			info.enabledLayerCount = static_cast<uint32_t>(enabledLayers.size());
@@ -573,19 +655,175 @@ namespace rhi
 				vkCreateDebugUtilsMessengerEXT(mInstance, &messenger, nullptr, &mMessenger);
 				CHERRY_LOG("Vulkan validation layers enabled");
 			}
+			return mWindow ? CreateSurface(mWindow, error) : true;
+		}
 
-			VkWin32SurfaceCreateInfoKHR surface{ VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
-			surface.hinstance = GetModuleHandleW(nullptr);
-			surface.hwnd = mHwnd;
-			// Looked up here: vcpkg's volk is built without the Win32 platform functions.
-			auto createSurface = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(vkGetInstanceProcAddr(mInstance, "vkCreateWin32SurfaceKHR"));
-			if (!createSurface)
+		bool VulkanDevice::CreateSurface(void* window, std::string& error)
+		{
+#if defined(_WIN32)
+			// Looked up here: vcpkg's volk is built without the platform functions.
+			auto create = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(vkGetInstanceProcAddr(mInstance, "vkCreateWin32SurfaceKHR"));
+			VkWin32SurfaceCreateInfoKHR info{ VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
+			info.hinstance = GetModuleHandleW(nullptr);
+			info.hwnd = static_cast<HWND>(window);
+#else
+			auto create = reinterpret_cast<PFN_vkCreateAndroidSurfaceKHR>(vkGetInstanceProcAddr(mInstance, "vkCreateAndroidSurfaceKHR"));
+			VkAndroidSurfaceCreateInfoKHR info{ VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR };
+			info.window = static_cast<ANativeWindow*>(window);
+#endif
+			if (!create)
 			{
-				error = "The Vulkan driver can't draw into a window (no VK_KHR_win32_surface).";
+				error = "The Vulkan driver can't draw into a window (no surface extension).";
 				return false;
 			}
-			VK_CHECK(createSurface(mInstance, &surface, nullptr, &mSurface));
+			const VkResult result = create(mInstance, &info, nullptr, &mSurface);
+			if (result != VK_SUCCESS)
+			{
+				error = "Creating the window surface failed: " + VkResultName(result);
+				return false;
+			}
 			return true;
+		}
+
+		namespace
+		{
+			// What a device offers of what the backend uses, whether in the core version it
+			// reports or as extensions (phones are often Vulkan 1.1 with extensions).
+			struct DeviceFeatures
+			{
+				uint32_t api = 0;
+				std::vector<VkExtensionProperties> extensions;
+				bool Has(const char* name) const
+				{
+					return std::any_of(extensions.begin(), extensions.end(), [&](const VkExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
+				}
+
+				// Filled by Query.
+				VkPhysicalDeviceFeatures2 features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+				VkPhysicalDeviceVulkan12Features v12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+				VkPhysicalDeviceVulkan13Features v13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+				VkPhysicalDeviceDescriptorIndexingFeatures indexing{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+				VkPhysicalDeviceTimelineSemaphoreFeatures timeline{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
+				VkPhysicalDeviceScalarBlockLayoutFeatures scalar{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES };
+				VkPhysicalDeviceDynamicRenderingFeatures dynamicRendering{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES };
+				VkPhysicalDeviceSynchronization2Features sync2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES };
+				VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutableType{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT };
+				bool mutableExtension = false;
+				std::vector<const char*> enable;   // the device extensions to enable
+
+				// Chains the structs this device can answer for into `features`.
+				void Chain()
+				{
+					void** next = &features.pNext;
+					auto link = [&](auto& s) { *next = &s; next = &s.pNext; s.pNext = nullptr; };
+					enable = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+					if (api >= VK_API_VERSION_1_2) link(v12);
+					else
+					{
+						if (Has(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME)) { link(indexing); enable.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME); enable.push_back(VK_KHR_MAINTENANCE_3_EXTENSION_NAME); }
+						if (Has(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME)) { link(timeline); enable.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME); }
+						if (Has(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME)) { link(scalar); enable.push_back(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME); }
+					}
+					if (api >= VK_API_VERSION_1_3) link(v13);
+					else
+					{
+						if (Has(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME))
+						{
+							link(dynamicRendering);
+							enable.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+							if (api < VK_API_VERSION_1_2) { enable.push_back(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME); enable.push_back(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME); }
+						}
+						if (Has(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME)) { link(sync2); enable.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME); }
+					}
+					mutableExtension = Has(VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME);
+					if (mutableExtension) { link(mutableType); enable.push_back(VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME); }
+				}
+
+				// The features the backend needs, wherever they live.
+				bool DynamicRendering() const { return api >= VK_API_VERSION_1_3 ? v13.dynamicRendering : dynamicRendering.dynamicRendering; }
+				bool Sync2() const { return api >= VK_API_VERSION_1_3 ? v13.synchronization2 : sync2.synchronization2; }
+				bool Timeline() const { return api >= VK_API_VERSION_1_2 ? v12.timelineSemaphore : timeline.timelineSemaphore; }
+				bool Scalar() const { return api >= VK_API_VERSION_1_2 ? v12.scalarBlockLayout : scalar.scalarBlockLayout; }
+				bool Bindless() const
+				{
+					auto ok = [](const auto& f) { return f.runtimeDescriptorArray && f.descriptorBindingPartiallyBound && f.descriptorBindingSampledImageUpdateAfterBind
+						&& f.descriptorBindingStorageImageUpdateAfterBind && f.descriptorBindingStorageBufferUpdateAfterBind; };
+					return api >= VK_API_VERSION_1_2 ? (v12.descriptorIndexing && ok(v12)) : ok(indexing);
+				}
+				bool Mutable() const { return mutableExtension && mutableType.mutableDescriptorType; }
+
+				// Keeps only what the backend turns on (everything it reads stays as the device said).
+				void Select()
+				{
+					const VkPhysicalDeviceFeatures supported = features.features;
+					features.features = {};
+					features.features.samplerAnisotropy = supported.samplerAnisotropy;
+					features.features.shaderStorageImageReadWithoutFormat = supported.shaderStorageImageReadWithoutFormat;
+					features.features.shaderStorageImageWriteWithoutFormat = supported.shaderStorageImageWriteWithoutFormat;
+					features.features.shaderStorageImageExtendedFormats = supported.shaderStorageImageExtendedFormats;
+					features.features.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
+					features.features.depthBiasClamp = supported.depthBiasClamp;
+					features.features.shaderImageGatherExtended = supported.shaderImageGatherExtended;
+					auto bindless = [](auto& f)
+					{
+						auto s = f;
+						f = {};
+						f.sType = s.sType;
+						f.runtimeDescriptorArray = s.runtimeDescriptorArray;
+						f.descriptorBindingPartiallyBound = s.descriptorBindingPartiallyBound;
+						f.descriptorBindingUpdateUnusedWhilePending = s.descriptorBindingUpdateUnusedWhilePending;
+						f.descriptorBindingSampledImageUpdateAfterBind = s.descriptorBindingSampledImageUpdateAfterBind;
+						f.descriptorBindingStorageImageUpdateAfterBind = s.descriptorBindingStorageImageUpdateAfterBind;
+						f.descriptorBindingStorageBufferUpdateAfterBind = s.descriptorBindingStorageBufferUpdateAfterBind;
+						f.shaderSampledImageArrayNonUniformIndexing = s.shaderSampledImageArrayNonUniformIndexing;
+						f.shaderStorageImageArrayNonUniformIndexing = s.shaderStorageImageArrayNonUniformIndexing;
+						f.shaderStorageBufferArrayNonUniformIndexing = s.shaderStorageBufferArrayNonUniformIndexing;
+					};
+					if (api >= VK_API_VERSION_1_2)
+					{
+						const VkPhysicalDeviceVulkan12Features s = v12;
+						bindless(v12);
+						v12.descriptorIndexing = s.descriptorIndexing;
+						v12.timelineSemaphore = s.timelineSemaphore;
+						v12.scalarBlockLayout = s.scalarBlockLayout;
+						v12.uniformBufferStandardLayout = s.uniformBufferStandardLayout;
+					}
+					else
+					{
+						bindless(indexing);
+						timeline = { timeline.sType, nullptr, timeline.timelineSemaphore };
+						scalar = { scalar.sType, nullptr, scalar.scalarBlockLayout };
+					}
+					if (api >= VK_API_VERSION_1_3)
+					{
+						const VkPhysicalDeviceVulkan13Features s = v13;
+						v13 = { v13.sType };
+						v13.dynamicRendering = s.dynamicRendering;
+						v13.synchronization2 = s.synchronization2;
+						v13.shaderDemoteToHelperInvocation = s.shaderDemoteToHelperInvocation;
+					}
+					else
+					{
+						dynamicRendering = { dynamicRendering.sType, nullptr, dynamicRendering.dynamicRendering };
+						sync2 = { sync2.sType, nullptr, sync2.synchronization2 };
+					}
+					mutableType = { mutableType.sType, nullptr, mutableType.mutableDescriptorType };
+					Chain();   // relink the cleared structs
+				}
+			};
+
+			void QueryFeatures(VkPhysicalDevice device, DeviceFeatures& f)
+			{
+				VkPhysicalDeviceProperties props;
+				vkGetPhysicalDeviceProperties(device, &props);
+				f.api = std::min(props.apiVersion, static_cast<uint32_t>(VK_API_VERSION_1_3));
+				uint32_t count = 0;
+				vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
+				f.extensions.resize(count);
+				vkEnumerateDeviceExtensionProperties(device, nullptr, &count, f.extensions.data());
+				f.Chain();
+				vkGetPhysicalDeviceFeatures2(device, &f.features);
+			}
 		}
 
 		bool VulkanDevice::PickPhysicalDevice(std::string& error)
@@ -600,30 +838,18 @@ namespace rhi
 			{
 				VkPhysicalDeviceProperties props;
 				vkGetPhysicalDeviceProperties(device, &props);
-				auto reject = [&](const char* why) { reasons += std::string("\n  ") + props.deviceName + ": " + why; };
-				if (props.apiVersion < VK_API_VERSION_1_3) { reject("no Vulkan 1.3"); continue; }
-
-				uint32_t extensionCount = 0;
-				vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
-				std::vector<VkExtensionProperties> extensions(extensionCount);
-				vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data());
-				auto has = [&](const char* name) { return std::any_of(extensions.begin(), extensions.end(), [&](const VkExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; }); };
-				if (!has(VK_KHR_SWAPCHAIN_EXTENSION_NAME)) { reject("no swap chain"); continue; }
-				if (!has(VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME) && !has("VK_VALVE_mutable_descriptor_type")) { reject("no VK_EXT_mutable_descriptor_type (bindless)"); continue; }
-
-				VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutableFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT };
-				VkPhysicalDeviceVulkan13Features f13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, &mutableFeatures };
-				VkPhysicalDeviceVulkan12Features f12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &f13 };
-				VkPhysicalDeviceFeatures2 features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f12 };
-				vkGetPhysicalDeviceFeatures2(device, &features);
-				if (!mutableFeatures.mutableDescriptorType) { reject("no mutable descriptors"); continue; }
-				if (!f12.descriptorIndexing || !f12.runtimeDescriptorArray || !f12.descriptorBindingPartiallyBound ||
-					!f12.descriptorBindingSampledImageUpdateAfterBind || !f12.descriptorBindingStorageImageUpdateAfterBind ||
-					!f12.descriptorBindingStorageBufferUpdateAfterBind || !f12.timelineSemaphore || !f12.scalarBlockLayout)
-				{ reject("descriptor indexing, timeline semaphores or scalar layout missing"); continue; }
-				if (!f13.dynamicRendering || !f13.synchronization2 || !f13.shaderDemoteToHelperInvocation) { reject("no dynamic rendering, synchronization2 or demote to helper"); continue; }
-				if (!features.features.shaderStorageImageReadWithoutFormat || !features.features.shaderStorageImageWriteWithoutFormat)
-				{ reject("storage images need a declared format"); continue; }
+				auto reject = [&](const std::string& why) { reasons += std::string("\n  ") + props.deviceName + ": " + why; };
+				DeviceFeatures f;
+				QueryFeatures(device, f);
+				if (!f.Has(VK_KHR_SWAPCHAIN_EXTENSION_NAME)) { reject("no swap chain"); continue; }
+				std::string missing;
+				if (!f.Bindless()) missing += " descriptor-indexing";
+				if (!f.Timeline()) missing += " timeline-semaphores";
+				if (!f.DynamicRendering()) missing += " dynamic-rendering";
+				if (!f.Sync2()) missing += " synchronization2";
+				if (!f.Scalar()) missing += " scalar-block-layout";
+				if (!f.features.features.shaderStorageImageWriteWithoutFormat) missing += " storage-image-write-without-format";
+				if (!missing.empty()) { reject("missing" + missing); continue; }
 
 				uint32_t familyCount = 0;
 				vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, nullptr);
@@ -632,9 +858,9 @@ namespace rhi
 				uint32_t family = UINT32_MAX;
 				for (uint32_t i = 0; i < familyCount; ++i)
 				{
-					VkBool32 present = VK_FALSE;
-					vkGetPhysicalDeviceSurfaceSupportKHR(device, i, mSurface, &present);
-					if ((families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && (families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && present && families[i].timestampValidBits > 0)
+					VkBool32 present = VK_TRUE;
+					if (mSurface) vkGetPhysicalDeviceSurfaceSupportKHR(device, i, mSurface, &present);
+					if ((families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && (families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && present)
 					{
 						family = i;
 						break;
@@ -650,11 +876,12 @@ namespace rhi
 					mQueueFamily = family;
 					mCaps.adapterName = props.deviceName;
 					mTicksToMs = static_cast<double>(props.limits.timestampPeriod) * 1e-6;
+					mTimestamps = families[family].timestampValidBits > 0 && props.limits.timestampPeriod > 0.0f;
 				}
 			}
 			if (!mPhysical)
 			{
-				error = "No GPU can run the Vulkan renderer (it needs Vulkan 1.3 with mutable descriptors):" + reasons;
+				error = "No GPU can run the Vulkan renderer:" + reasons;
 				return false;
 			}
 			return true;
@@ -662,59 +889,51 @@ namespace rhi
 
 		void VulkanDevice::CreateLogicalDevice()
 		{
-			VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutableFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT };
-			mutableFeatures.mutableDescriptorType = VK_TRUE;
-			VkPhysicalDeviceVulkan13Features f13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, &mutableFeatures };
-			f13.dynamicRendering = VK_TRUE;
-			f13.synchronization2 = VK_TRUE;
-			f13.shaderDemoteToHelperInvocation = VK_TRUE;   // HLSL discard
-			VkPhysicalDeviceVulkan12Features f12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &f13 };
-			f12.descriptorIndexing = VK_TRUE;
-			f12.runtimeDescriptorArray = VK_TRUE;
-			f12.descriptorBindingPartiallyBound = VK_TRUE;
-			f12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
-			f12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-			f12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
-			f12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
-			f12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-			f12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
-			f12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
-			f12.timelineSemaphore = VK_TRUE;
-			f12.scalarBlockLayout = VK_TRUE;
-			f12.uniformBufferStandardLayout = VK_TRUE;
-			f12.hostQueryReset = VK_TRUE;
-			VkPhysicalDeviceVulkan11Features f11{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, &f12 };
-			f11.shaderDrawParameters = VK_TRUE;
-			VkPhysicalDeviceFeatures2 features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f11 };
-			VkPhysicalDeviceFeatures supported{};
-			vkGetPhysicalDeviceFeatures(mPhysical, &supported);
-			features.features.samplerAnisotropy = supported.samplerAnisotropy;
-			features.features.shaderStorageImageReadWithoutFormat = VK_TRUE;
-			features.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-			features.features.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
-			features.features.depthBiasClamp = supported.depthBiasClamp;
-			features.features.shaderImageGatherExtended = supported.shaderImageGatherExtended;
+			DeviceFeatures f;
+			QueryFeatures(mPhysical, f);
+			mApi = f.api;
+			mMutable = f.Mutable();
+			if (EnvFlag("CHERRY_VK_NO_MUTABLE")) mMutable = false;   // to check the typed-array path on a desktop GPU
+			f.Select();
+			if (!mMutable && f.mutableExtension)
+			{
+				f.mutableType.mutableDescriptorType = VK_FALSE;
+			}
 
 			const float priority = 1.0f;
 			VkDeviceQueueCreateInfo queue{ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
 			queue.queueFamilyIndex = mQueueFamily;
 			queue.queueCount = 1;
 			queue.pQueuePriorities = &priority;
-			const char* extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME };
-			VkDeviceCreateInfo info{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &features };
+			VkDeviceCreateInfo info{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &f.features };
 			info.queueCreateInfoCount = 1;
 			info.pQueueCreateInfos = &queue;
-			info.enabledExtensionCount = 2;
-			info.ppEnabledExtensionNames = extensions;
+			info.enabledExtensionCount = static_cast<uint32_t>(f.enable.size());
+			info.ppEnabledExtensionNames = f.enable.data();
 			VK_CHECK(vkCreateDevice(mPhysical, &info, nullptr, &mDevice));
 			volkLoadDevice(mDevice);
+			// Before Vulkan 1.3 / 1.2 these come from extensions under KHR names.
+			if (!vkCmdBeginRendering) vkCmdBeginRendering = vkCmdBeginRenderingKHR;
+			if (!vkCmdEndRendering) vkCmdEndRendering = vkCmdEndRenderingKHR;
+			if (!vkCmdPipelineBarrier2) vkCmdPipelineBarrier2 = vkCmdPipelineBarrier2KHR;
+			if (!vkQueueSubmit2) vkQueueSubmit2 = vkQueueSubmit2KHR;
+			if (!vkCmdWriteTimestamp2) vkCmdWriteTimestamp2 = vkCmdWriteTimestamp2KHR;
+			if (!vkWaitSemaphores) vkWaitSemaphores = vkWaitSemaphoresKHR;
+			if (!vkGetSemaphoreCounterValue) vkGetSemaphoreCounterValue = vkGetSemaphoreCounterValueKHR;
 			vkGetDeviceQueue(mDevice, mQueueFamily, 0, &mQueue);
+
+			VkPhysicalDeviceProperties props;
+			vkGetPhysicalDeviceProperties(mPhysical, &props);
+			mLimits = props.limits;
+			mDescriptorIndexingProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES };
+			VkPhysicalDeviceProperties2 props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &mDescriptorIndexingProps };
+			vkGetPhysicalDeviceProperties2(mPhysical, &props2);
 
 			VmaVulkanFunctions functions{};
 			functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
 			functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
 			VmaAllocatorCreateInfo allocator{};
-			allocator.vulkanApiVersion = VK_API_VERSION_1_3;
+			allocator.vulkanApiVersion = mApi;
 			allocator.physicalDevice = mPhysical;
 			allocator.device = mDevice;
 			allocator.instance = mInstance;
@@ -724,15 +943,23 @@ namespace rhi
 
 		void VulkanDevice::CreateDescriptors()
 		{
+			// The bindless heap's size: as large as the device allows, up to 65536.
+			const VkPhysicalDeviceDescriptorIndexingProperties& p = mDescriptorIndexingProps;
+			mHeapCapacity = std::min<uint32_t>({ 65536u,
+				p.maxDescriptorSetUpdateAfterBindSampledImages, p.maxDescriptorSetUpdateAfterBindStorageImages, p.maxDescriptorSetUpdateAfterBindStorageBuffers,
+				p.maxPerStageDescriptorUpdateAfterBindSampledImages, p.maxPerStageDescriptorUpdateAfterBindStorageImages, p.maxPerStageDescriptorUpdateAfterBindStorageBuffers });
+			mConstantRange = std::min<uint64_t>(65536, mLimits.maxUniformBufferRange);
+
 			// The fixed samplers s0..s6 (as D3D12's static samplers).
-			auto sampler = [&](VkFilter filter, VkSamplerMipmapMode mip, VkSamplerAddressMode mode, bool aniso)
+			const bool aniso = mLimits.maxSamplerAnisotropy >= 1.0f;
+			auto sampler = [&](VkFilter filter, VkSamplerMipmapMode mip, VkSamplerAddressMode mode, bool anisotropic)
 			{
 				VkSamplerCreateInfo info{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 				info.magFilter = info.minFilter = filter;
 				info.mipmapMode = mip;
 				info.addressModeU = info.addressModeV = info.addressModeW = mode;
-				info.anisotropyEnable = aniso ? VK_TRUE : VK_FALSE;
-				info.maxAnisotropy = aniso ? 8.0f : 1.0f;
+				info.anisotropyEnable = anisotropic && aniso && mAnisotropy ? VK_TRUE : VK_FALSE;
+				info.maxAnisotropy = info.anisotropyEnable ? std::min(8.0f, mLimits.maxSamplerAnisotropy) : 1.0f;
 				info.maxLod = VK_LOD_CLAMP_NONE;
 				info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 				VkSampler result;
@@ -770,22 +997,28 @@ namespace rhi
 			set0.pBindings = bindings.data();
 			VK_CHECK(vkCreateDescriptorSetLayout(mDevice, &set0, nullptr, &mSet0Layout));
 
-			// Set 1: the bindless heap, one array of mutable descriptors.
+			// Set 1: the bindless heap. With mutable descriptors, one array of them; without, one
+			// array per type (sampled images, storage images, storage buffers: bindings 0, 1, 2),
+			// all indexed by the same bindless index (the shaders' bindings are rewritten to match
+			// in CreateModule).
 			const VkDescriptorType heapTypes[] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER };
 			VkMutableDescriptorTypeListEXT typeList{ 3, heapTypes };
 			VkMutableDescriptorTypeCreateInfoEXT mutableInfo{ VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT };
 			mutableInfo.mutableDescriptorTypeListCount = 1;
 			mutableInfo.pMutableDescriptorTypeLists = &typeList;
-			VkDescriptorSetLayoutBinding heap{ 0, VK_DESCRIPTOR_TYPE_MUTABLE_EXT, kHeapCapacity, VK_SHADER_STAGE_ALL, nullptr };
-			const VkDescriptorBindingFlags heapFlags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
+			const VkDescriptorBindingFlags heapFlag = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
 				| VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT;
-			VkDescriptorSetLayoutBindingFlagsCreateInfo flags{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, &mutableInfo };
-			flags.bindingCount = 1;
-			flags.pBindingFlags = &heapFlags;
+			std::vector<VkDescriptorSetLayoutBinding> heap;
+			if (mMutable) heap.push_back({ 0, VK_DESCRIPTOR_TYPE_MUTABLE_EXT, mHeapCapacity, VK_SHADER_STAGE_ALL, nullptr });
+			else for (uint32_t t = 0; t < 3; ++t) heap.push_back({ t, heapTypes[t], mHeapCapacity, VK_SHADER_STAGE_ALL, nullptr });
+			const std::vector<VkDescriptorBindingFlags> heapFlags(heap.size(), heapFlag);
+			VkDescriptorSetLayoutBindingFlagsCreateInfo flags{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, mMutable ? &mutableInfo : nullptr };
+			flags.bindingCount = static_cast<uint32_t>(heapFlags.size());
+			flags.pBindingFlags = heapFlags.data();
 			VkDescriptorSetLayoutCreateInfo set1{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, &flags };
 			set1.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-			set1.bindingCount = 1;
-			set1.pBindings = &heap;
+			set1.bindingCount = static_cast<uint32_t>(heap.size());
+			set1.pBindings = heap.data();
 			VK_CHECK(vkCreateDescriptorSetLayout(mDevice, &set1, nullptr, &mSet1Layout));
 
 			const VkDescriptorSetLayout setLayouts[] = { mSet0Layout, mSet1Layout };
@@ -803,12 +1036,14 @@ namespace rhi
 			pool.poolSizeCount = 2;
 			pool.pPoolSizes = poolSizes;
 			VK_CHECK(vkCreateDescriptorPool(mDevice, &pool, nullptr, &mDescriptorPool));
-			const VkDescriptorPoolSize heapSize{ VK_DESCRIPTOR_TYPE_MUTABLE_EXT, kHeapCapacity };
-			VkDescriptorPoolCreateInfo heapPool{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, &mutableInfo };
+			std::vector<VkDescriptorPoolSize> heapSizes;
+			if (mMutable) heapSizes.push_back({ VK_DESCRIPTOR_TYPE_MUTABLE_EXT, mHeapCapacity });
+			else for (VkDescriptorType type : heapTypes) heapSizes.push_back({ type, mHeapCapacity });
+			VkDescriptorPoolCreateInfo heapPool{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, mMutable ? &mutableInfo : nullptr };
 			heapPool.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
 			heapPool.maxSets = 1;
-			heapPool.poolSizeCount = 1;
-			heapPool.pPoolSizes = &heapSize;
+			heapPool.poolSizeCount = static_cast<uint32_t>(heapSizes.size());
+			heapPool.pPoolSizes = heapSizes.data();
 			VK_CHECK(vkCreateDescriptorPool(mDevice, &heapPool, nullptr, &mHeapPool));
 
 			VkDescriptorSetAllocateInfo allocate{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -822,7 +1057,7 @@ namespace rhi
 
 			// The constant ring, and set 0's two windows into it.
 			VkBufferCreateInfo ring{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-			ring.size = kConstantBytesPerFrame * kFramesInFlight + kConstantRange;
+			ring.size = kConstantBytesPerFrame * kFramesInFlight + mConstantRange;
 			ring.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 			VmaAllocationCreateInfo ringMemory{};
 			ringMemory.usage = VMA_MEMORY_USAGE_AUTO;
@@ -831,7 +1066,7 @@ namespace rhi
 			VK_CHECK(vmaCreateBuffer(mAllocator, &ring, &ringMemory, &mConstants, &mConstantsMemory, &ringInfo));
 			mConstantsMapped = static_cast<uint8_t*>(ringInfo.pMappedData);
 			SetName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(mConstants), "ConstantRing");
-			VkDescriptorBufferInfo window{ mConstants, 0, kConstantRange };
+			VkDescriptorBufferInfo window{ mConstants, 0, mConstantRange };
 			VkWriteDescriptorSet writes[2]{};
 			for (uint32_t i = 0; i < 2; ++i)
 			{
@@ -844,17 +1079,22 @@ namespace rhi
 			}
 			vkUpdateDescriptorSets(mDevice, 2, writes, 0, nullptr);
 
-			mFreeIndices.resize(kHeapCapacity);
-			for (uint32_t i = 0; i < kHeapCapacity; ++i) mFreeIndices[i] = kHeapCapacity - 1 - i;
+			mFreeIndices.resize(mHeapCapacity);
+			for (uint32_t i = 0; i < mHeapCapacity; ++i) mFreeIndices[i] = mHeapCapacity - 1 - i;
 		}
 
-		bool VulkanDevice::Initialize(const DeviceOptions& options, HWND hwnd, uint32_t width, uint32_t height, std::string& error)
+		bool VulkanDevice::Initialize(const DeviceOptions& options, void* window, uint32_t width, uint32_t height, std::string& error)
 		{
-			mHwnd = hwnd;
+			mWindow = window;
 			mSwapWidth = std::max(width, 1u);
 			mSwapHeight = std::max(height, 1u);
 			if (!CreateInstance(options, error)) return false;
 			if (!PickPhysicalDevice(error)) return false;
+			{
+				VkPhysicalDeviceFeatures supported{};
+				vkGetPhysicalDeviceFeatures(mPhysical, &supported);
+				mAnisotropy = supported.samplerAnisotropy == VK_TRUE;
+			}
 			CreateLogicalDevice();
 			CreateDescriptors();
 
@@ -880,12 +1120,12 @@ namespace rhi
 			poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 			VK_CHECK(vkCreateCommandPool(mDevice, &poolInfo, nullptr, &mAsyncPool));
 
-			// Timestamp queries, copied into a host-visible buffer by ResolveTimestamps.
+			// Timestamp queries, copied into a host-visible buffer by ResolveTimestamps (reset by
+			// each frame's command buffer before use).
 			VkQueryPoolCreateInfo query{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
 			query.queryType = VK_QUERY_TYPE_TIMESTAMP;
 			query.queryCount = kTimestampCount;
 			VK_CHECK(vkCreateQueryPool(mDevice, &query, nullptr, &mQueryPool));
-			vkResetQueryPool(mDevice, mQueryPool, 0, kTimestampCount);
 			VkBufferCreateInfo readback{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 			readback.size = sizeof(uint64_t) * kTimestampCount;
 			readback.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -899,45 +1139,75 @@ namespace rhi
 
 			// The sink: the back buffer's stand-in while the window can't present.
 			TextureDesc sink;
-			sink.format = Format::BGRA8Unorm;
+			sink.format = Format::RGBA8Unorm;
 			sink.usage = TextureUsage_RenderTarget;
 			sink.name = "SwapChainSink";
 			mSink = std::make_unique<VulkanTexture>(*this, sink);
 
-			CreateSwapChain(true);
+			if (mSurface) CreateSwapChain(true);
 			mInitialized = true;
-			CHERRY_LOG("GPU: %s | Vulkan 1.3 | mutable descriptors: yes | swap chain %ux%u", mCaps.adapterName.c_str(), mSwapWidth, mSwapHeight);
+			CHERRY_LOG("GPU: %s | Vulkan %u.%u | bindless heap %u (%s) | swap chain %ux%u", mCaps.adapterName.c_str(),
+				VK_API_VERSION_MAJOR(mApi), VK_API_VERSION_MINOR(mApi), mHeapCapacity, mMutable ? "mutable descriptors" : "typed arrays", mSwapWidth, mSwapHeight);
 			return true;
+		}
+
+		void VulkanDevice::SetWindow(void* window, uint32_t width, uint32_t height)
+		{
+			if (!mDevice) return;
+			mSwapWidth = std::max(width, 1u);
+			mSwapHeight = std::max(height, 1u);
+			if (window == mWindow && mSurface)
+			{
+				mSwapChainDirty = true;
+				return;
+			}
+			vkDeviceWaitIdle(mDevice);
+			DestroySwapChain();
+			if (mSurface) vkDestroySurfaceKHR(mInstance, mSurface, nullptr);
+			mSurface = VK_NULL_HANDLE;
+			mWindow = window;
+			if (window)
+			{
+				std::string error;
+				if (!CreateSurface(window, error)) CHERRY_ERROR("Vulkan: %s", error.c_str());
+				VkBool32 present = VK_FALSE;
+				if (mSurface) vkGetPhysicalDeviceSurfaceSupportKHR(mPhysical, mQueueFamily, mSurface, &present);
+				if (mSurface && !present) CHERRY_ERROR("Vulkan: the new window can't be presented to from this queue");
+				mSwapChainDirty = true;
+			}
+			CHERRY_LOG("Vulkan: surface %s", window ? "recreated" : "released");
 		}
 
 		void VulkanDevice::CreateSwapChain(bool vsync)
 		{
+			if (!mSurface) return;
 			VkSurfaceCapabilitiesKHR caps;
 			VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mPhysical, mSurface, &caps));
-			if (caps.currentExtent.width == 0 || caps.currentExtent.height == 0) return;   // minimized: try again later
-			if (caps.currentExtent.width != UINT32_MAX)
-			{
-				mSwapWidth = caps.currentExtent.width;
-				mSwapHeight = caps.currentExtent.height;
-			}
+			VkExtent2D extent = caps.currentExtent;
+			if (extent.width == UINT32_MAX) extent = { mSwapWidth, mSwapHeight };
+			extent.width = std::clamp(extent.width, caps.minImageExtent.width, caps.maxImageExtent.width);
+			extent.height = std::clamp(extent.height, caps.minImageExtent.height, caps.maxImageExtent.height);
+			if (extent.width == 0 || extent.height == 0) return;   // minimized: try again later
+			mSwapWidth = extent.width;
+			mSwapHeight = extent.height;
 
 			uint32_t formatCount = 0;
 			vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysical, mSurface, &formatCount, nullptr);
 			std::vector<VkSurfaceFormatKHR> formats(formatCount);
 			vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysical, mSurface, &formatCount, formats.data());
 			VkSurfaceFormatKHR chosen = formats.empty() ? VkSurfaceFormatKHR{ VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR } : formats[0];
-			for (const VkSurfaceFormatKHR& f : formats)
+			// UNORM, not sRGB: the tonemap writes gamma-encoded colour, as on D3D12. The format the
+			// first swap chain had is kept when it's offered (the UI pipelines are built for it).
+			const VkFormat previous = mSwapChainMade ? ToVk(mSwapFormat) : VK_FORMAT_UNDEFINED;
+			for (VkFormat wanted : { previous, VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM })
 			{
-				// UNORM, not sRGB: the tonemap writes gamma-encoded colour, as on D3D12.
-				if ((f.format == VK_FORMAT_B8G8R8A8_UNORM || f.format == VK_FORMAT_R8G8B8A8_UNORM) && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-				{
-					chosen = f;
-					break;
-				}
+				auto it = std::find_if(formats.begin(), formats.end(), [&](const VkSurfaceFormatKHR& f) { return f.format == wanted && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR; });
+				if (wanted != VK_FORMAT_UNDEFINED && it != formats.end()) { chosen = *it; break; }
 			}
 			const Format format = chosen.format == VK_FORMAT_R8G8B8A8_UNORM ? Format::RGBA8Unorm : Format::BGRA8Unorm;
-			if (mSwapChain && format != mSwapFormat) CHERRY_WARN("Vulkan: the swap chain format changed; pipelines made for the old one stay");
+			if (mSwapChainMade && format != mSwapFormat) CHERRY_WARN("Vulkan: the swap chain format changed; pipelines made for the old one stay");
 			mSwapFormat = format;
+			mSwapChainMade = true;
 
 			uint32_t modeCount = 0;
 			vkGetPhysicalDeviceSurfacePresentModesKHR(mPhysical, mSurface, &modeCount, nullptr);
@@ -946,6 +1216,9 @@ namespace rhi
 			auto hasMode = [&](VkPresentModeKHR mode) { return std::find(modes.begin(), modes.end(), mode) != modes.end(); };
 			VkPresentModeKHR mode = VK_PRESENT_MODE_FIFO_KHR;
 			if (!vsync) mode = hasMode(VK_PRESENT_MODE_IMMEDIATE_KHR) ? VK_PRESENT_MODE_IMMEDIATE_KHR : hasMode(VK_PRESENT_MODE_MAILBOX_KHR) ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_FIFO_KHR;
+			VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+			for (VkCompositeAlphaFlagBitsKHR candidate : { VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR })
+				if (caps.supportedCompositeAlpha & candidate) { alpha = candidate; break; }
 
 			VkSwapchainKHR old = mSwapChain;
 			VkSwapchainCreateInfoKHR info{ VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
@@ -954,12 +1227,14 @@ namespace rhi
 			if (caps.maxImageCount) info.minImageCount = std::min(info.minImageCount, caps.maxImageCount);
 			info.imageFormat = chosen.format;
 			info.imageColorSpace = chosen.colorSpace;
-			info.imageExtent = { mSwapWidth, mSwapHeight };
+			info.imageExtent = extent;
 			info.imageArrayLayers = 1;
 			info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 			info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			info.preTransform = caps.currentTransform;
-			info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+			// On phones the compositor applies the display's rotation (pre-rotating would save it
+			// that work; later).
+			info.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : caps.currentTransform;
+			info.compositeAlpha = alpha;
 			info.presentMode = mode;
 			info.clipped = VK_TRUE;
 			info.oldSwapchain = old;
@@ -994,6 +1269,7 @@ namespace rhi
 			}
 			mVsync = vsync;
 			mSwapChainDirty = false;
+			CHERRY_LOG("Vulkan swap chain %ux%u, %u images (transform %u)", extent.width, extent.height, imageCount, static_cast<unsigned>(caps.currentTransform));
 		}
 
 		void VulkanDevice::DestroySwapChain()
@@ -1081,7 +1357,7 @@ namespace rhi
 			VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 			begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 			VK_CHECK(vkBeginCommandBuffer(mCmd.cmd, &begin));
-			vkCmdResetQueryPool(mCmd.cmd, mQueryPool, mFrameIndex * kTimestampsPerFrame, kTimestampsPerFrame);
+			if (mTimestamps) vkCmdResetQueryPool(mCmd.cmd, mQueryPool, mFrameIndex * kTimestampsPerFrame, kTimestampsPerFrame);
 			mCmd.StartFrame();
 			mConstantOffset = 0;
 			mImageIndex = UINT32_MAX;
@@ -1092,13 +1368,13 @@ namespace rhi
 		{
 			if (mImageIndex == UINT32_MAX && !mUsingSink)
 			{
-				if (mSwapChainDirty || !mSwapChain)
+				if (mSurface && (mSwapChainDirty || !mSwapChain))
 				{
 					vkDeviceWaitIdle(mDevice);
 					CreateSwapChain(mVsync);
 				}
-				VkResult result = mSwapChain ? vkAcquireNextImageKHR(mDevice, mSwapChain, UINT64_MAX, mImageReady[mFrameIndex], VK_NULL_HANDLE, &mImageIndex) : VK_ERROR_OUT_OF_DATE_KHR;
-				if (result == VK_ERROR_OUT_OF_DATE_KHR && mSwapChain)
+				VkResult result = mSwapChain && mSurface ? vkAcquireNextImageKHR(mDevice, mSwapChain, UINT64_MAX, mImageReady[mFrameIndex], VK_NULL_HANDLE, &mImageIndex) : VK_ERROR_OUT_OF_DATE_KHR;
+				if (result == VK_ERROR_OUT_OF_DATE_KHR && mSwapChain && mSurface)
 				{
 					vkDeviceWaitIdle(mDevice);
 					CreateSwapChain(mVsync);
@@ -1116,6 +1392,14 @@ namespace rhi
 			}
 			if (mUsingSink)
 			{
+				if (!mSink || mSink->Desc().format != mSwapFormat)
+				{
+					TextureDesc sink;
+					sink.format = mSwapFormat;
+					sink.usage = TextureUsage_RenderTarget;
+					sink.name = "SwapChainSink";
+					mSink = std::make_unique<VulkanTexture>(*this, sink);
+				}
 				mSink->Barrier(mCmd.cmd, ResourceState::RenderTarget);
 				width = height = 1;
 				return mSink->TargetView();
@@ -1162,7 +1446,12 @@ namespace rhi
 					info.pSwapchains = &mSwapChain;
 					info.pImageIndices = &mImageIndex;
 					const VkResult result = vkQueuePresentKHR(mQueue, &info);
+#if defined(_WIN32)
 					if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) mSwapChainDirty = true;
+#else
+					// SUBOPTIMAL on Android means "not pre-rotated": the compositor rotates for us.
+					if (result == VK_ERROR_OUT_OF_DATE_KHR) mSwapChainDirty = true;
+#endif
 					else VK_CHECK(result);
 				}
 			}
@@ -1248,7 +1537,7 @@ namespace rhi
 		{
 			VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
 			write.dstSet = mSet1;
-			write.dstBinding = 0;
+			write.dstBinding = mMutable ? 0 : type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ? 0 : type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ? 1 : 2;
 			write.dstArrayElement = index;
 			write.descriptorCount = 1;
 			write.descriptorType = type;
@@ -1376,11 +1665,14 @@ namespace rhi
 			vkDestroyPipeline(mDevice.Handle(), mPipeline, nullptr);
 		}
 
-		VkShaderModule CreateModule(VkDevice device, const std::vector<uint8_t>& code)
+		VkShaderModule CreateModule(VkDevice device, const std::vector<uint8_t>& code, bool mutableHeap)
 		{
+			std::vector<uint32_t> words(code.size() / 4);
+			std::memcpy(words.data(), code.data(), words.size() * 4);
+			if (!mutableHeap) words = SplitHeapBindings(words);
 			VkShaderModuleCreateInfo info{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-			info.codeSize = code.size();
-			info.pCode = reinterpret_cast<const uint32_t*>(code.data());
+			info.codeSize = words.size() * 4;
+			info.pCode = words.data();
 			VkShaderModule module = VK_NULL_HANDLE;
 			vkCreateShaderModule(device, &info, nullptr, &module);
 			return module;
@@ -1388,7 +1680,7 @@ namespace rhi
 
 		std::shared_ptr<Pipeline> VulkanDevice::CreateComputePipeline(const std::vector<uint8_t>& cs, const std::string& name, std::string& error)
 		{
-			VkShaderModule module = CreateModule(mDevice, cs);
+			VkShaderModule module = CreateModule(mDevice, cs, mMutable);
 			if (!module)
 			{
 				error = "vkCreateShaderModule failed";
@@ -1412,8 +1704,8 @@ namespace rhi
 		std::shared_ptr<Pipeline> VulkanDevice::CreateGraphicsPipeline(const GraphicsPipelineDesc& desc, const std::vector<uint8_t>& vs,
 			const std::vector<uint8_t>& ps, const std::string& name, std::string& error)
 		{
-			VkShaderModule vsModule = CreateModule(mDevice, vs);
-			VkShaderModule psModule = ps.empty() ? VK_NULL_HANDLE : CreateModule(mDevice, ps);
+			VkShaderModule vsModule = CreateModule(mDevice, vs, mMutable);
+			VkShaderModule psModule = ps.empty() ? VK_NULL_HANDLE : CreateModule(mDevice, ps, mMutable);
 			if (!vsModule || (!ps.empty() && !psModule))
 			{
 				if (vsModule) vkDestroyShaderModule(mDevice, vsModule, nullptr);
@@ -1613,12 +1905,12 @@ namespace rhi
 
 		void VulkanCommandList::Timestamp(uint32_t index)
 		{
-			vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, mDevice.QueryPool(), index);
+			if (mDevice.HasTimestamps()) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, mDevice.QueryPool(), index);
 		}
 
 		void VulkanCommandList::ResolveTimestamps(uint32_t first, uint32_t count)
 		{
-			vkCmdCopyQueryPoolResults(cmd, mDevice.QueryPool(), first, count, mDevice.TimestampBuffer(), sizeof(uint64_t) * first,
+			if (mDevice.HasTimestamps()) vkCmdCopyQueryPoolResults(cmd, mDevice.QueryPool(), first, count, mDevice.TimestampBuffer(), sizeof(uint64_t) * first,
 				sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 		}
 
@@ -1858,7 +2150,7 @@ namespace rhi
 		auto device = std::make_unique<VulkanDevice>();
 		try
 		{
-			if (!device->Initialize(options, static_cast<HWND>(nativeWindow), width, height, error)) return nullptr;
+			if (!device->Initialize(options, nativeWindow, width, height, error)) return nullptr;
 		}
 		catch (const std::exception& e)
 		{

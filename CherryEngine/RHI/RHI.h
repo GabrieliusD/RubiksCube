@@ -305,7 +305,7 @@ namespace rhi
 	class Device
 	{
 	public:
-		// `nativeWindow` is an HWND. Returns null with `error` filled when the GPU can't run the engine.
+		// `nativeWindow` is an HWND (Windows) or ANativeWindow* (Android). Returns null with `error` filled when the GPU can't run the engine.
 		static std::unique_ptr<Device> Create(Backend backend, const DeviceOptions& options, void* nativeWindow,
 			uint32_t width, uint32_t height, std::string& error);
 		virtual ~Device() = default;
@@ -324,6 +324,9 @@ namespace rhi
 		virtual void WaitIdle() = 0;
 
 		virtual void ResizeSwapChain(uint32_t width, uint32_t height) = 0;
+		// The window was replaced or taken away (null): Android does this when the app goes to the
+		// background. Until a window comes back, frames draw into a stand-in and aren't shown.
+		virtual void SetWindow(void* nativeWindow, uint32_t width, uint32_t height) = 0;
 		virtual uint32_t SwapChainWidth() const = 0;
 		virtual uint32_t SwapChainHeight() const = 0;
 		virtual Format SwapChainFormat() const = 0;

@@ -351,6 +351,7 @@ namespace rhi
 			void WaitIdle() override;
 
 			void ResizeSwapChain(uint32_t width, uint32_t height) override;
+			void SetWindow(void*, uint32_t, uint32_t) override {}   // a Win32 window keeps its HWND
 			uint32_t SwapChainWidth() const override { return mSwapWidth; }
 			uint32_t SwapChainHeight() const override { return mSwapHeight; }
 			Format SwapChainFormat() const override { return Format::RGBA8Unorm; }
