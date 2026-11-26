@@ -28,6 +28,9 @@ struct LaunchOptions
 	// Start playing right away. This makes it a game session: the game quitting
 	// (RequestQuit) closes the window instead of returning to the editor.
 	bool play = false;
+	// The graphics API: "d3d12" or "vulkan" (--rhi). Empty: the CHERRY_RHI environment
+	// variable, else the one picked in the editor (EngineUserDir()/GraphicsApi.txt), else D3D12.
+	std::string graphicsApi;
 	// Monolithic builds: the game is linked into the executable. Implies `play`;
 	// there's no module to compile or reload.
 	IGameModule* staticGame = nullptr;

@@ -70,27 +70,32 @@ int RunRendererTests()
 		Check(falling.size() == 1 && falling[0].position.y < 5.0f && falling[0].velocity.y < 0.0f, "gravity pulls particles down");
 	}
 
-	// ---- Engine shaders compile ------------------------------------------------------------------
-	for (const char* file : { "SkyPass.hlsl", "Mesh.hlsl", "ShadowPass.hlsl", "VoxelRaymarch.hlsl", "VoxelShadow.hlsl", "Particles.hlsl" })
+	// ---- Engine shaders compile, for D3D12 (DXIL) and Vulkan (SPIR-V) ----------------------------
+	for (bool spirv : { false, true })
 	{
-		std::string errors;
-		const bool ok = CompileShaderFileOffline(file, CHERRY_TEST_SHADER_DIR, errors);
-		if (!ok) std::printf("%s\n", errors.c_str());
-		Check(ok, std::string(file) + " compiles");
-	}
-	for (const auto& [file, entry] : { std::pair<const char*, const char*>{ "Bloom.hlsl", "CSDownsample" }, { "Bloom.hlsl", "CSUpsample" }, { "Tonemap.hlsl", "CSMain" }, { "Fxaa.hlsl", "CSMain" }, { "Ssao.hlsl", "CSMain" }, { "Ssao.hlsl", "CSBlur" } })
-	{
-		std::string errors;
-		const bool ok = CompileComputeShaderOffline(file, entry, CHERRY_TEST_SHADER_DIR, errors);
-		if (!ok) std::printf("%s\n", errors.c_str());
-		Check(ok, std::string(file) + " " + entry + " compiles");
-	}
-	{
+		const std::string target = spirv ? " (SPIR-V)" : " (DXIL)";
+		for (const char* file : { "SkyPass.hlsl", "Mesh.hlsl", "ShadowPass.hlsl", "VoxelRaymarch.hlsl", "VoxelShadow.hlsl", "Particles.hlsl",
+			"DebugDraw.hlsl", "Blit.hlsl", "ImGui.hlsl" })
+		{
+			std::string errors;
+			const bool ok = CompileShaderFileOffline(file, CHERRY_TEST_SHADER_DIR, errors, spirv);
+			if (!ok) std::printf("%s\n", errors.c_str());
+			Check(ok, std::string(file) + " compiles" + target);
+		}
+		for (const auto& [file, entry] : { std::pair<const char*, const char*>{ "Bloom.hlsl", "CSDownsample" }, { "Bloom.hlsl", "CSUpsample" },
+			{ "Tonemap.hlsl", "CSMain" }, { "Fxaa.hlsl", "CSMain" }, { "Ssao.hlsl", "CSMain" }, { "Ssao.hlsl", "CSBlur" }, { "Edges.hlsl", "CSMain" },
+			{ "LightShafts.hlsl", "CSMain" }, { "LightShafts.hlsl", "CSBlur" }, { "EyeAdaptation.hlsl", "CSReduce" }, { "EyeAdaptation.hlsl", "CSAdapt" } })
+		{
+			std::string errors;
+			const bool ok = CompileComputeShaderOffline(file, entry, CHERRY_TEST_SHADER_DIR, errors, spirv);
+			if (!ok) std::printf("%s\n", errors.c_str());
+			Check(ok, std::string(file) + " " + entry + " compiles" + target);
+		}
 		std::string errors;
 		const bool ok = CompileSurfaceShaderOffline("globals", "SurfaceOutput EvaluateSurface(SurfaceInput input)\n{\n"
-			"\tSurfaceOutput s = DefaultSurfaceOutput(input);\n\ts.emissive = ShaderGlobal(2).rgb;\n\treturn s;\n}\n", CHERRY_TEST_SHADER_DIR, errors);
+			"\tSurfaceOutput s = DefaultSurfaceOutput(input);\n\ts.emissive = ShaderGlobal(2).rgb;\n\treturn s;\n}\n", CHERRY_TEST_SHADER_DIR, errors, false, spirv);
 		if (!ok) std::printf("%s\n", errors.c_str());
-		Check(ok, "surface shaders can read ShaderGlobal()");
+		Check(ok, "surface shaders can read ShaderGlobal()" + target);
 	}
 
 	return gRendererFailures;

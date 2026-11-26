@@ -2,7 +2,7 @@
 //
 // Modular build (the editor):
 //   CherryLaunch.exe                          reopen the last project, or show the project picker
-//   CherryLaunch.exe Undertime/Undertime.cherryproject [--play]
+//   CherryLaunch.exe Undertime/Undertime.cherryproject [--play] [--rhi d3d12|vulkan]
 //   CherryLaunch.exe UndertimeGame.dll        legacy: that module's project, playing at once
 // The engine loads (a copy of) the project's game DLL itself, so it can rebuild and reload it.
 //
@@ -43,6 +43,7 @@ int main(int argc, char** argv)
 	{
 		const std::string arg = argv[i];
 		if (arg == "--play") options.play = true;
+		else if (arg == "--rhi" && i + 1 < argc) options.graphicsApi = argv[++i];
 		else if (EndsWith(arg, ".dll")) options.moduleName = arg;
 		else options.projectFile = arg;
 	}

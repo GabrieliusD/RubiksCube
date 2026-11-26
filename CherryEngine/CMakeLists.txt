@@ -86,6 +86,7 @@ set(ENGINE_SOURCES
   RHI/D3D12/D3DCommon.cpp
   RHI/D3D12/DescriptorHeap.cpp
   RHI/D3D12/D3D12Device.cpp
+  RHI/Vulkan/VulkanDevice.cpp
   ShaderSystem/ShaderCompiler.cpp
   ShaderGraph/ShaderGraph.cpp
   ShaderGraph/NodeLibrary.cpp
@@ -113,7 +114,7 @@ if(NOT WIN32)
     Editor/EditorLayer.h Editor/EditorLayer.cpp Editor/ScenePanels.cpp Editor/Gizmo.h Editor/Gizmo.cpp
     Editor/ContentBrowser.cpp Editor/ShaderGraphEditor.h Editor/ShaderGraphEditor.cpp
     RHI/RHI.h RHI/RHI.cpp RHI/Pipeline.h RHI/Pipeline.cpp
-    RHI/D3D12/D3DCommon.h RHI/D3D12/DescriptorHeap.h RHI/D3D12/D3DCommon.cpp RHI/D3D12/DescriptorHeap.cpp RHI/D3D12/D3D12Device.cpp
+    RHI/D3D12/D3DCommon.h RHI/D3D12/DescriptorHeap.h RHI/D3D12/D3DCommon.cpp RHI/D3D12/DescriptorHeap.cpp RHI/D3D12/D3D12Device.cpp RHI/Vulkan/VulkanDevice.cpp
     ShaderSystem/ShaderCompiler.h ShaderSystem/ShaderCompiler.cpp
     DDSTextureLoader.h d3dx12.h)
   list(REMOVE_ITEM ENGINE_HEADERS ${_cherry_windows_only})
@@ -313,6 +314,12 @@ target_include_directories(CherryEngine PRIVATE "${CHERRY_CGLTF_INCLUDE_DIR}" "$
 target_include_directories(CherryEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/${NODE_EDITOR_DIR}")
 if(WIN32)
   target_link_libraries(CherryEngine PRIVATE ${CHERRY_DXC_TARGET} d3d12 dxgi dxguid comdlg32 Jolt::Jolt)
+  # The Vulkan backend (RHI/Vulkan): volk loads Vulkan at run time (no SDK needed to build or
+  # run; the validation layers come with the Vulkan SDK), VMA allocates its memory.
+  find_package(volk CONFIG REQUIRED)
+  find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+  target_link_libraries(CherryEngine PRIVATE volk::volk volk::volk_headers GPUOpen::VulkanMemoryAllocator)
+  target_compile_definitions(CherryEngine PRIVATE CHERRY_RHI_VULKAN=1)
 else()
   target_link_libraries(CherryEngine PRIVATE Jolt::Jolt)
   # DirectXMath (header-only) is part of the Windows SDK; elsewhere it comes from vcpkg.

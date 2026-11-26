@@ -4,6 +4,8 @@
   "dependencies": [
     { "name": "directx-dxc", "host": true },
     { "name": "directxmath", "platform": "android" },
+    { "name": "volk", "platform": "windows" },
+    { "name": "vulkan-memory-allocator", "platform": "windows" },
     "joltphysics",
     "nlohmann-json",
     "cgltf",

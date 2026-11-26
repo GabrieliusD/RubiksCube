@@ -154,10 +154,11 @@ private:
 
 // Compiles a surface shader the way CreateSurfaceShader does (vertex and pixel shader), with
 // DXC only: no device needed. For tests and tools. `shaderRoot` is the engine's Shaders folder;
-// `voxel` compiles it for the voxel pass instead of the mesh pass.
+// `voxel` compiles it for the voxel pass instead of the mesh pass; `spirv` for the Vulkan
+// backend instead of D3D12.
 CHERRY_API bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source,
-	const std::filesystem::path& shaderRoot, std::string& errors, bool voxel = false);
+	const std::filesystem::path& shaderRoot, std::string& errors, bool voxel = false, bool spirv = false);
 // Compiles an engine shader file's VSMain and PSMain with DXC (no device). For tests.
-CHERRY_API bool CompileShaderFileOffline(const std::string& file, const std::filesystem::path& shaderRoot, std::string& errors);
+CHERRY_API bool CompileShaderFileOffline(const std::string& file, const std::filesystem::path& shaderRoot, std::string& errors, bool spirv = false);
 // Compiles one compute entry point of an engine shader file (no device). For tests.
-CHERRY_API bool CompileComputeShaderOffline(const std::string& file, const std::string& entry, const std::filesystem::path& shaderRoot, std::string& errors);
+CHERRY_API bool CompileComputeShaderOffline(const std::string& file, const std::string& entry, const std::filesystem::path& shaderRoot, std::string& errors, bool spirv = false);

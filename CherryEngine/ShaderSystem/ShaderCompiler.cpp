@@ -91,7 +91,7 @@ CompiledShader ShaderCompiler::Compile(const ShaderDesc& desc)
 
 	if (desc.spirv)
 	{
-		for (const wchar_t* arg : { L"-spirv", L"-fspv-target-env=vulkan1.3", L"-fvk-use-dx-layout", L"-fspv-use-unknown-image-format",
+		for (const wchar_t* arg : { L"-spirv", L"-fspv-target-env=vulkan1.3", L"-fspv-entrypoint-name=main", L"-fvk-use-dx-layout", L"-fspv-use-unknown-image-format",
 			L"-fvk-bind-resource-heap", L"0", L"1", L"-fvk-b-shift", L"0", L"0", L"-fvk-s-shift", L"16", L"0", L"-D", L"CHERRY_VULKAN=1" })
 		{
 			args.push_back(arg);

@@ -13,6 +13,8 @@
 #include "imgui.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <cctype>
+#include <cstdlib>
 
 #include <algorithm>
 #include <chrono>
@@ -106,6 +108,7 @@ struct Engine::Impl
 	// Play mode
 	PlayState playState = PlayState::Edit;
 	bool gameSession = false;             // launched to play: quitting the game closes the window
+	LaunchOptions launch;                 // how this run started (a restart starts the same way)
 	bool wantPlay = false;
 	bool wantStop = false;
 	bool wantReload = false;
@@ -962,6 +965,41 @@ bool Engine::Impl::UpdateMainView()
 	return true;
 }
 
+namespace
+{
+	// The graphics API to start with: the launch option, CHERRY_RHI, the saved choice, D3D12.
+	GraphicsApi ChooseGraphicsApi(const std::string& requested)
+	{
+		auto parse = [](std::string text, GraphicsApi& api)
+		{
+			for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.pop_back();
+			if (text == "vulkan" || text == "vk") { api = GraphicsApi::Vulkan; return true; }
+			if (text == "d3d12" || text == "dx12" || text == "directx12") { api = GraphicsApi::D3D12; return true; }
+			return false;
+		};
+		GraphicsApi api = GraphicsApi::D3D12;
+		if (!requested.empty())
+		{
+			if (parse(requested, api)) return api;
+			CHERRY_WARN("Unknown graphics API '%s' (d3d12 or vulkan)", requested.c_str());
+		}
+#if defined(_MSC_VER)
+		char* env = nullptr;
+		size_t envLength = 0;
+		const bool fromEnv = _dupenv_s(&env, &envLength, "CHERRY_RHI") == 0 && env && parse(env, api);
+		free(env);
+		if (fromEnv) return api;
+#else
+		if (const char* env = std::getenv("CHERRY_RHI"); env && parse(env, api)) return api;
+#endif
+		std::ifstream saved(cherry::EngineUserDir() / "GraphicsApi.txt");
+		std::string line;
+		if (saved && std::getline(saved, line) && parse(line, api)) return api;
+		return GraphicsApi::D3D12;
+	}
+}
+
 int Engine::Run(IGameModule& game)
 {
 	LaunchOptions options;
@@ -975,6 +1013,7 @@ int Engine::Run(const LaunchOptions& options)
 	Impl& e = *mImpl;
 	e.self = this;
 	e.staticGame = options.staticGame;
+	e.launch = options;
 	e.gameSession = options.play || options.staticGame || !options.moduleName.empty();
 
 	std::string error;
@@ -1020,6 +1059,7 @@ int Engine::Run(const LaunchOptions& options)
 	int exitCode = 0;
 	try
 	{
+		e.renderer.SetGraphicsApi(ChooseGraphicsApi(e.launch.graphicsApi));
 		if (!e.renderer.Initialize(e.window.Handle(), e.window.Width(), e.window.Height(), error))
 		{
 			CHERRY_ERROR("Renderer initialization failed: %s", error.c_str());

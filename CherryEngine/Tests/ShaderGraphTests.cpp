@@ -38,13 +38,20 @@ namespace
 		return text;
 	}
 
-	// Compiles generated code with DXC; prints the errors when it fails.
+	// Compiles generated code with DXC, for D3D12 (DXIL) and Vulkan (SPIR-V); prints the errors
+	// when it fails.
 	bool CompilesWithDxc(const std::string& name, const CompiledGraph& compiled, bool voxel = false)
 	{
-		std::string errors;
-		const bool ok = CompileSurfaceShaderOffline(name, compiled.hlsl, CHERRY_TEST_SHADER_DIR, errors, voxel);
-		if (!ok) std::printf("      DXC: %s\n----\n%s----\n", errors.c_str(), compiled.hlsl.c_str());
-		return ok;
+		for (bool spirv : { false, true })
+		{
+			std::string errors;
+			if (!CompileSurfaceShaderOffline(name, compiled.hlsl, CHERRY_TEST_SHADER_DIR, errors, voxel, spirv))
+			{
+				std::printf("      DXC (%s): %s\n----\n%s----\n", spirv ? "SPIR-V" : "DXIL", errors.c_str(), compiled.hlsl.c_str());
+				return false;
+			}
+		}
+		return true;
 	}
 
 	size_t Count(const std::string& text, const std::string& what)

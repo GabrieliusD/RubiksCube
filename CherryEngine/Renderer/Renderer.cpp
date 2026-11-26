@@ -1187,11 +1187,12 @@ bool Renderer::IsSurfaceShaderCompiling(SurfaceShaderHandle shader) const
 	return resource && mImpl->pipelines.IsPending(resource->pipeline);
 }
 
-bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source, const std::filesystem::path& shaderRoot, std::string& errors, bool voxel)
+bool CompileSurfaceShaderOffline(const std::string& name, const std::string& source, const std::filesystem::path& shaderRoot, std::string& errors, bool voxel, bool spirv)
 {
 	ShaderCompiler compiler;
 	compiler.Initialize();
 	ShaderDesc desc;
+	desc.spirv = spirv;
 	desc.filePath = shaderRoot / name;
 	desc.source = WrapSurfaceSource(name, source, voxel);
 	desc.includeDirs.push_back(shaderRoot);
@@ -1210,11 +1211,12 @@ bool CompileSurfaceShaderOffline(const std::string& name, const std::string& sou
 	return true;
 }
 
-bool CompileShaderFileOffline(const std::string& file, const std::filesystem::path& shaderRoot, std::string& errors)
+bool CompileShaderFileOffline(const std::string& file, const std::filesystem::path& shaderRoot, std::string& errors, bool spirv)
 {
 	ShaderCompiler compiler;
 	compiler.Initialize();
 	ShaderDesc desc;
+	desc.spirv = spirv;
 	desc.filePath = shaderRoot / file;
 	desc.includeDirs.push_back(shaderRoot);
 	errors.clear();
@@ -1232,11 +1234,12 @@ bool CompileShaderFileOffline(const std::string& file, const std::filesystem::pa
 	return true;
 }
 
-bool CompileComputeShaderOffline(const std::string& file, const std::string& entry, const std::filesystem::path& shaderRoot, std::string& errors)
+bool CompileComputeShaderOffline(const std::string& file, const std::string& entry, const std::filesystem::path& shaderRoot, std::string& errors, bool spirv)
 {
 	ShaderCompiler compiler;
 	compiler.Initialize();
 	ShaderDesc desc;
+	desc.spirv = spirv;
 	desc.filePath = shaderRoot / file;
 	desc.includeDirs.push_back(shaderRoot);
 	desc.type = ShaderType::Compute;
