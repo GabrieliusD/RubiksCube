@@ -56,6 +56,7 @@ namespace dice
 		qs.assign(c * 4, 0); qe.assign(c * 4, 0);
 		ax.assign(c, 0); az.assign(c, 0); ang.assign(c, 0);
 		face.assign(c, 1);
+		kind.assign(c, Kind_Normal);
 		timer.assign(c, 0); landT.assign(c, 0); readyT.assign(c, 0); hitT.assign(c, 0);
 		chain.assign(c, 0); bumped.assign(c, 0); clashed.assign(c, 0); ease.assign(c, 0);
 		session.assign(c, 0); h0.assign(c, 0); hits.assign(c, 0); lastHit.assign(c, -1);
@@ -224,21 +225,22 @@ namespace dice
 		return std::min(max, std::max(0.0, v));
 	}
 
-	void DiceSim::FaceWeights(double w[7], double& sum) const
+	void DiceSim::FaceWeights(double w[7], double& sum, double extraLuck) const
 	{
 		w[0] = 0;
 		sum = 0;
+		const double luck = config.luck + extraLuck;
 		for (int f = 1; f <= 6; ++f)
 		{
-			w[f] = std::exp(config.luck * 3 * (f - 3.5) / 2.5);
+			w[f] = std::exp(luck * 3 * (f - 3.5) / 2.5);
 			sum += w[f];
 		}
 	}
 
-	int DiceSim::PickFace()
+	int DiceSim::PickFace(double extraLuck)
 	{
 		double w[7], sum;
-		FaceWeights(w, sum);
+		FaceWeights(w, sum, extraLuck);
 		double r = rand() * sum;
 		for (int f = 1; f <= 6; ++f)
 		{
@@ -248,10 +250,10 @@ namespace dice
 		return 6;
 	}
 
-	double DiceSim::ExpectedFace() const
+	double DiceSim::ExpectedFace(double extraLuck) const
 	{
 		double w[7], sum, ev = 0;
-		FaceWeights(w, sum);
+		FaceWeights(w, sum, extraLuck);
 		for (int f = 1; f <= 6; ++f) ev += f * w[f];
 		return ev / sum;
 	}
@@ -525,7 +527,7 @@ namespace dice
 		D.ease[i] = static_cast<uint8_t>(bumped);
 		D.h0[i] = 0; D.hits[i] = 0; D.lastHit[i] = -1; D.offX[i] = 0; D.offZ[i] = 0;
 		D.bu[i] = 0; D.arc[i] = 1;
-		D.face[i] = static_cast<uint8_t>(PickFace());
+		D.face[i] = static_cast<uint8_t>(PickFace(D.kind[i] == Kind_Lucky ? kinds.luckyLuck : 0.0));
 		D.um[i] = 0.5f;
 
 		// Mid-air clash check against already-airborne dice (may deflect our target). Pushed
@@ -777,6 +779,8 @@ namespace dice
 		const int face = D.face[i];
 		long long pts = static_cast<long long>(face * config.pointsPerPip);
 		if (D.bumped[i]) pts = std::llround(pts * config.bumpScoreMult);
+		const bool gold = D.kind[i] == Kind_Gold;
+		if (gold) pts = std::llround(pts * kinds.goldMultiplier);
 		const int lvl = D.level[i];
 		const double mult = 1 + config.stackScorePerLevel * lvl;
 		if (lvl > 0) pts = std::llround(pts * mult);
@@ -795,6 +799,7 @@ namespace dice
 		if (D.bumped[i]) style |= Pop_Bump;
 		if (lvl > 0) style |= Pop_Stack;
 		if (face == 6) style |= Pop_Six;
+		if (gold) style |= Pop_Gold;
 		Popup(D.px[i], 0.9f + D.by[i], D.pz[i], std::move(text), style);
 		soundsOut.push_back(Sound::Tick);
 	}
@@ -928,6 +933,9 @@ namespace dice
 			const float gl = static_cast<float>(1 - (now - D.readyT[i]) / glowT);
 			if (gl > 0) { r = 1 + 1.2f * gl; g = 1 + 0.8f * gl; b = 1 - 0.4f * gl; }
 		}
+		// Die types: golden and lucky dice are tinted (on top of the glow and dimming).
+		if (D.kind[i] == Kind_Gold) { r *= 1.25f; g *= 0.95f; b *= 0.35f; }
+		else if (D.kind[i] == Kind_Lucky) { r *= 0.55f; g *= 1.15f; b *= 0.6f; }
 	}
 
 	void DiceSim::BuildBoard(int forcedFace)
@@ -957,6 +965,13 @@ namespace dice
 			D.py[i] = 0;
 			D.face[i] = static_cast<uint8_t>(1 + static_cast<int>(rand() * 6));
 			if (forcedFace >= 1 && forcedFace <= 6) D.face[i] = static_cast<uint8_t>(forcedFace);
+			D.kind[i] = Kind_Normal;
+			if (kinds.goldShare > 0 || kinds.luckyShare > 0)
+			{
+				const double r = rand();
+				if (r < kinds.goldShare) D.kind[i] = Kind_Gold;
+				else if (r < kinds.goldShare + kinds.luckyShare) D.kind[i] = Kind_Lucky;
+			}
 			PutQ(D.q.data(), i, RestQuat(D.face[i], rand() * kPi * 2));
 			D.state[i] = S_READY;
 			D.landT[i] = -10; D.readyT[i] = -10; D.hitT[i] = -10;

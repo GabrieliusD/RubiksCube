@@ -11,6 +11,8 @@ set(DiceCore
     DiceMath.h
     DiceSim.cpp
     DiceSim.h
+    DiceUpgrades.cpp
+    DiceUpgrades.h
     DiceVisuals.cpp
     DiceVisuals.h
 )
@@ -22,6 +24,7 @@ set(DiceSrc
     DiceModule.cpp
     DiceModule.h
     DicePanel.cpp
+    DiceUpgradesUi.cpp
 )
 
 if(CHERRY_MONOLITHIC)

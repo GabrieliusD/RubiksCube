@@ -157,6 +157,14 @@ float4 PSCopy(VertexOut pin) : SV_Target
 	return SampleSource(pin.uv * gDraw.uvScale + gDraw.uvOffset) * gDraw.color;
 }
 
+// The view into the supersampled base layer: nearest, so that averaging it back down gives the
+// view's pixels back exactly where no UI was drawn.
+float4 PSCopyPoint(VertexOut pin) : SV_Target
+{
+	Texture2D<float4> source = ResourceDescriptorHeap[gDraw.textureIndex];
+	return source.SampleLevel(gPointClamp, pin.uv, 0);
+}
+
 // brightness, contrast, invert, grayscale, sepia, hue-rotate, saturate: a matrix's four columns
 // at paramOffset, applied to the premultiplied colour (the reference renderer's shortcut:
 // alpha is left alone, so the constant column is scaled by alpha).

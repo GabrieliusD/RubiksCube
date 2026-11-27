@@ -1,0 +1,38 @@
+<rml>
+<head>
+	<title>Upgrades</title>
+	<!-- The upgrade screen (not in the reference): the tree from Content/Upgrades.json, filled by
+	     DiceUpgradesUi.cpp ("upgrades" data model). U or the HUD's Upgrades button opens it, Esc
+	     or Close shuts it; it can't open during a session. -->
+	<link type="text/rcss" href="Upgrades.rcss"/>
+</head>
+<body data-model="upgrades">
+	<div id="shade" data-if="open">
+		<div id="panel">
+			<div id="header">
+				<div class="title">Upgrades</div>
+				<div class="coins">{{coins}} <span class="unit">coins</span></div>
+				<button class="close" data-event-click="close">Close</button>
+			</div>
+			<div id="tree">
+				<div class="link" data-for="link : links" data-class-met="link.met"
+					data-style-left="link.left" data-style-top="link.top" data-style-width="link.width"
+					data-style-transform="link.transform"></div>
+				<div class="node" data-for="node, i : nodes"
+					data-class-locked="node.locked" data-class-expensive="node.expensive" data-class-buyable="node.buyable"
+					data-class-maxed="node.maxed" data-class-flash="node.flash"
+					data-style-left="node.left" data-style-top="node.top"
+					data-event-click="buy(i)" data-event-mouseover="hover(i)" data-event-mouseout="hover(-1)">
+					<div class="name">{{node.name}}</div>
+					<div class="row"><span class="level">{{node.level}}</span><span class="cost">{{node.cost}}</span></div>
+				</div>
+			</div>
+			<div id="detail">
+				<div class="name">{{detailName}}</div>
+				<div class="text">{{detailText}}</div>
+				<div class="next">{{detailNext}}</div>
+			</div>
+		</div>
+	</div>
+</body>
+</rml>

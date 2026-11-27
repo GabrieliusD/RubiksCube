@@ -379,6 +379,14 @@ struct RenderSettings
 	EdgeHighlightSettings edgeHighlights;
 	std::vector<RoomSettings> rooms;
 	bool antiAliasing = true;   // FXAA after the tonemap: smooths stair-stepped edges
+	// The game UI (RmlUi) is drawn this many times larger and averaged down, which smooths its
+	// edges (rounded corners, rotated boxes; RmlUi's geometry has no anti-aliasing of its own).
+	// 1: drawn at the view's size. The UI's fill costs this squared.
+#if defined(__ANDROID__)
+	uint32_t uiSupersampling = 1;   // phones' screens are dense, and tile GPUs pay for every pass
+#else
+	uint32_t uiSupersampling = 2;
+#endif
 	// The ACES filmic curve from HDR to the display (lifts mid-tones, rolls highlights off).
 	// Off: colours are only clipped at 1, as a renderer without tone mapping shows them.
 	bool toneCurve = true;

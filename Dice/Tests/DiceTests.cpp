@@ -4,6 +4,7 @@
 #include "../DiceVisuals.h"
 #include "../DiceAudio.h"
 #include "../DiceControls.h"
+#include "../DiceUpgrades.h"
 #include <RmlUi/Core.h>
 #include <filesystem>
 #include <fstream>
@@ -1176,6 +1177,160 @@ namespace
 	}
 }
 
+// ---- Upgrades (DiceUpgrades.h, not in the reference) -------------------------------------------
+void TestUpgrades()
+{
+	// The shipped tree loads cleanly.
+	UpgradeTree tree;
+	std::vector<std::string> problems;
+	std::ifstream file(std::string(DICE_CONTENT_DIR) + "/Upgrades.json", std::ios::binary);
+	std::stringstream text;
+	text << file.rdbuf();
+	const bool loaded = LoadUpgradeTree(text.str(), tree, problems);
+	std::string listed;
+	for (const std::string& problem : problems) listed += "\n    " + problem;
+	Check(loaded && tree.nodes.size() >= 6, "upgrades: Content/Upgrades.json loads without problems (" + std::to_string(tree.nodes.size()) + " nodes)" + listed);
+
+	// Prices: cost x growth^level, nothing past the last level.
+	UpgradeNode node;
+	node.levels = 3;
+	node.cost = 100;
+	node.costGrowth = 2;
+	Check(NextCost(node, 0) == 100 && NextCost(node, 1) == 200 && NextCost(node, 2) == 400 && NextCost(node, 3) == 0,
+		"upgrades: level n+1 costs cost x growth^n (100, 200, 400), a maxed node nothing");
+
+	// States and buying, on a small tree: a -> b (needs a 2).
+	UpgradeTree small;
+	problems.clear();
+	LoadUpgradeTree(R"({ "start": { "density": 0.3 }, "nodes": [
+		{ "id": "a", "levels": 2, "cost": 10, "costGrowth": 2, "effects": [ { "stat": "density", "add": 0.25 } ] },
+		{ "id": "b", "levels": 1, "cost": 50, "effects": [ { "stat": "goldShare", "add": 0.5 } ], "requires": [ { "id": "a", "level": 2 } ] } ] })",
+		small, problems);
+	Check(problems.empty(), "upgrades: a small tree parses");
+	Progress progress;
+	progress.coins = 25;
+	const UpgradeNode& a = *small.Find("a");
+	const UpgradeNode& b = *small.Find("b");
+	Check(StateOf(small, progress, a) == UpgradeState::Buyable && StateOf(small, progress, b) == UpgradeState::Locked, "upgrades: a node with no requirement is buyable, one whose requirement isn't met is locked");
+	Check(Buy(small, progress, "a") && progress.coins == 15 && LevelOf(progress, "a") == 1, "upgrades: buying spends the price and adds a level");
+	Check(!Buy(small, progress, "b"), "upgrades: a locked node can't be bought");
+	Check(StateOf(small, progress, a) == UpgradeState::TooExpensive && !Buy(small, progress, "a") && progress.coins == 15,
+		"upgrades: too few coins for the next level (20): too expensive, nothing spent");
+	progress.coins = 40;
+	Check(Buy(small, progress, "a") && progress.coins == 20, "upgrades: the second level costs cost x growth (20)");
+	Check(StateOf(small, progress, a) == UpgradeState::Maxed && StateOf(small, progress, b) == UpgradeState::TooExpensive && !Buy(small, progress, "b"),
+		"upgrades: a node with every level is maxed; met requirement but too few coins: too expensive, not bought");
+	std::map<std::string, double> stats = StatsFor(small, progress);
+	Check(Near(stats["density"], 0.8) && Near(stats["goldShare"], 0) && Near(stats["luck"], 0) && Near(stats["sessionSeconds"], 30),
+		"upgrades: stats are the start values plus each owned level's effects (density 0.3 + 2 x 0.25), the rest their defaults");
+	progress.levels["a"] = 50;
+	Check(Near(StatsFor(small, progress)["density"], 0.8), "upgrades: levels past a node's last count as its last");
+	Progress big;
+	big.levels["a"] = 2;
+	UpgradeTree generous = small;
+	generous.nodes[0].effects[0].add = 5;
+	Check(Near(StatsFor(generous, big)["density"], 1.0), "upgrades: stats are clamped to their range (density at most 1)");
+
+	// Progress survives a save and load.
+	Progress saved;
+	saved.coins = 123;
+	saved.earned = 456;
+	saved.levels = { { "a", 2 }, { "b", 1 } };
+	Progress reloaded;
+	Check(LoadProgress(SaveProgress(saved), reloaded) && reloaded.coins == 123 && reloaded.earned == 456 && reloaded.levels == saved.levels,
+		"upgrades: progress survives SaveProgress / LoadProgress");
+	Check(!LoadProgress("not json", reloaded) && reloaded.coins == 0, "upgrades: a broken save starts over");
+
+	// The tree's own round trip (what the editor will write).
+	UpgradeTree again;
+	problems.clear();
+	Check(LoadUpgradeTree(SaveUpgradeTree(tree), again, problems) && again.nodes.size() == tree.nodes.size()
+		&& SaveUpgradeTree(again) == SaveUpgradeTree(tree), "upgrades: SaveUpgradeTree / LoadUpgradeTree round-trip the shipped tree");
+
+	// Mistakes in a tree are reported.
+	auto problemsIn = [](const std::string& json)
+	{
+		UpgradeTree t;
+		std::vector<std::string> found;
+		LoadUpgradeTree(json, t, found);
+		return found.size();
+	};
+	Check(problemsIn("{ nope") > 0, "upgrades: bad JSON is reported");
+	Check(problemsIn(R"({ "nodes": [ { "id": "a", "effects": [ { "stat": "speed", "add": 1 } ] } ] })") > 0, "upgrades: an unknown stat is reported");
+	Check(problemsIn(R"({ "nodes": [ { "id": "a", "requires": [ { "id": "ghost" } ] } ] })") > 0, "upgrades: a requirement naming a missing node is reported");
+	Check(problemsIn(R"({ "nodes": [ { "id": "a", "requires": [ { "id": "b" } ] }, { "id": "b", "requires": [ { "id": "a" } ] } ] })") > 0, "upgrades: a requirement cycle is reported");
+	Check(problemsIn(R"({ "nodes": [ { "id": "a" }, { "id": "a" } ] })") > 0, "upgrades: a duplicate id is reported");
+	Check(CoinsFor(tree, 1000) == static_cast<long long>(1000 * tree.coinsPerPoint) && CoinsFor(tree, -5) == 0, "upgrades: a session banks score x coinsPerPoint coins");
+
+	// Die types in the simulation: a lone die on a 1-cell board.
+	auto loneDie = [](double goldShare, double luckyShare, uint32_t seed)
+	{
+		DiceSim sim;
+		sim.rand.Seed(seed);
+		sim.config.boardSize = 1;
+		sim.config.density = 1;
+		sim.kinds.goldShare = goldShare;
+		sim.kinds.luckyShare = luckyShare;
+		sim.BuildBoard();
+		return sim;
+	};
+	{
+		DiceSim plain = loneDie(0, 0, 5);
+		DiceSim reference;
+		reference.rand.Seed(5);
+		reference.config.boardSize = 1;
+		reference.config.density = 1;
+		reference.BuildBoard();
+		Check(plain.diceCount == 1 && plain.D.kind[0] == Kind_Normal && plain.D.face[0] == reference.D.face[0], "die types: with no shares every die is normal and the deal is unchanged");
+	}
+	{
+		DiceSim sim = loneDie(1, 0, 7);
+		sim.StartSession();
+		bool goldOk = sim.diceCount == 1 && sim.D.kind[0] == Kind_Gold;
+		long long expected = 0;
+		bool goldPopups = true;
+		for (int roll = 0; roll < 20; ++roll)
+		{
+			sim.Launch(0, roll * 0.7, 1.5, 0, 0, 0, sim.sessionId);
+			for (int f = 0; f < 120 && sim.D.state[0] != S_COOLDOWN; ++f) sim.Frame(1.0 / 60, false, 0, 0);
+			expected += static_cast<long long>(sim.D.face[0] * sim.config.pointsPerPip * 2);
+			for (const PopupRequest& pop : sim.popupsOut) goldPopups &= (pop.style & Pop_Gold) != 0;
+			sim.popupsOut.clear();
+			for (int f = 0; f < 60; ++f) sim.Frame(1.0 / 60, false, 0, 0);   // cooldown
+		}
+		Check(goldOk && sim.score == expected && goldPopups, "die types: a golden die scores face x points x goldMultiplier (2), its popups are gold (" + std::to_string(sim.score) + ")");
+	}
+	{
+		DiceSim sim = loneDie(0, 1, 9);
+		sim.kinds.luckyLuck = 1.5;
+		double sum = 0;
+		const int rolls = 400;
+		for (int roll = 0; roll < rolls; ++roll)
+		{
+			sim.Launch(0, roll * 0.7, 1.5, 0, 0, 0, 0);
+			for (int f = 0; f < 120 && sim.D.state[0] != S_COOLDOWN; ++f) sim.Frame(1.0 / 60, false, 0, 0);
+			sum += sim.D.face[0];
+			for (int f = 0; f < 60; ++f) sim.Frame(1.0 / 60, false, 0, 0);
+		}
+		const double mean = sum / rolls, expectedMean = sim.ExpectedFace(1.5);
+		Check(sim.D.kind[0] == Kind_Lucky && std::fabs(mean - expectedMean) < 0.2 && expectedMean > 4.5,
+			"die types: a lucky die rolls with luckyLuck added (mean face " + std::to_string(mean) + ", expected " + std::to_string(expectedMean) + ")");
+	}
+	{
+		DiceSim sim;
+		sim.rand.Seed(11);
+		sim.config.boardSize = 40;
+		sim.config.density = 1;
+		sim.kinds.goldShare = 0.2;
+		sim.kinds.luckyShare = 0.1;
+		sim.BuildBoard();
+		int gold = 0, lucky = 0;
+		for (int i = 0; i < sim.diceCount; ++i) { gold += sim.D.kind[i] == Kind_Gold; lucky += sim.D.kind[i] == Kind_Lucky; }
+		const double g = double(gold) / sim.diceCount, l = double(lucky) / sim.diceCount;
+		Check(std::fabs(g - 0.2) < 0.03 && std::fabs(l - 0.1) < 0.03, "die types: the deal gives each type its share (gold " + std::to_string(g) + ", lucky " + std::to_string(l) + ")");
+	}
+}
+
 // ---- The HUD document (Content/UI/Hud.rml, Hud.rcss) loads cleanly -----------------------------
 // RmlUi with a render interface that draws nothing: the document and its style sheet parse
 // without a warning, every binding finds its variable, and the styles come out as meant. The
@@ -1244,8 +1399,16 @@ void TestHudDocument()
 	model.Bind("ended", &ended);
 	model.Bind("total", &total);
 	model.Bind("summary", &summary);
+	std::string coins = "260", coinsEarned = "+12 coins";
+	bool showCoins = true, canUpgrade = true;
+	model.Bind("coins", &coins);
+	model.Bind("showCoins", &showCoins);
+	model.Bind("canUpgrade", &canUpgrade);
+	model.Bind("coinsEarned", &coinsEarned);
 	int starts = 0;
 	model.BindEventCallback("start", [&](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&) { ++starts; });
+	int upgradeOpens = 0;
+	model.BindEventCallback("upgrades", [&](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&) { ++upgradeOpens; });
 	Rml::DataModelHandle handle = model.GetModelHandle();
 
 	Rml::ElementDocument* document = context->LoadDocument(content + "/UI/Hud.rml");
@@ -1291,7 +1454,70 @@ void TestHudDocument()
 	for (Rml::Element* button : buttons) button->Click();
 	context->Update();
 	Check(starts == 2, "hud: Start and Restart call the \"start\" event");
+	Check(upgradeOpens == 2, "hud: the HUD's and the end card's Upgrades buttons call the \"upgrades\" event");
 	Check(renderer.draws > 0, "hud: something is drawn");
+
+	// The upgrade screen (Upgrades.rml), with the "upgrades" model DiceModule::CreateUpgradesUi binds.
+	{
+		struct NodeView { std::string name = "More dice", level = "1 / 7", cost = "39", left = "0dp", top = "55dp"; bool locked = false, expensive = false, buyable = true, maxed = false, flash = false; };
+		struct LinkView { std::string left = "150dp", top = "87dp", width = "60dp", transform = "rotate(-0.5rad)"; bool met = true; };
+		std::vector<NodeView> nodes(3);
+		std::vector<LinkView> links(2);
+		bool open = true;
+		std::string upgradeCoins = "260", detailName = "Upgrades", detailText = "text", detailNext = "next";
+		Rml::DataModelConstructor upgrades = context->CreateDataModel("upgrades");
+		if (Rml::StructHandle<NodeView> node = upgrades.RegisterStruct<NodeView>())
+		{
+			node.RegisterMember("name", &NodeView::name);
+			node.RegisterMember("level", &NodeView::level);
+			node.RegisterMember("cost", &NodeView::cost);
+			node.RegisterMember("left", &NodeView::left);
+			node.RegisterMember("top", &NodeView::top);
+			node.RegisterMember("locked", &NodeView::locked);
+			node.RegisterMember("expensive", &NodeView::expensive);
+			node.RegisterMember("buyable", &NodeView::buyable);
+			node.RegisterMember("maxed", &NodeView::maxed);
+			node.RegisterMember("flash", &NodeView::flash);
+		}
+		upgrades.RegisterArray<std::vector<NodeView>>();
+		if (Rml::StructHandle<LinkView> link = upgrades.RegisterStruct<LinkView>())
+		{
+			link.RegisterMember("left", &LinkView::left);
+			link.RegisterMember("top", &LinkView::top);
+			link.RegisterMember("width", &LinkView::width);
+			link.RegisterMember("transform", &LinkView::transform);
+			link.RegisterMember("met", &LinkView::met);
+		}
+		upgrades.RegisterArray<std::vector<LinkView>>();
+		upgrades.Bind("nodes", &nodes);
+		upgrades.Bind("links", &links);
+		upgrades.Bind("open", &open);
+		upgrades.Bind("coins", &upgradeCoins);
+		upgrades.Bind("detailName", &detailName);
+		upgrades.Bind("detailText", &detailText);
+		upgrades.Bind("detailNext", &detailNext);
+		int bought = -1, hovered = -2, closes = 0;
+		upgrades.BindEventCallback("buy", [&](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& args) { bought = args.empty() ? -1 : args[0].Get<int>(-1); });
+		upgrades.BindEventCallback("hover", [&](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& args) { hovered = args.empty() ? -2 : args[0].Get<int>(-2); });
+		upgrades.BindEventCallback("close", [&](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&) { ++closes; });
+		system.problems.clear();
+		Rml::ElementDocument* screen = context->LoadDocument(content + "/UI/Upgrades.rml");
+		if (screen) screen->Show();
+		context->Update();
+		context->Render();
+		std::string upgradeProblems;
+		for (const std::string& problem : system.problems) upgradeProblems += "\n    " + problem;
+		Check(screen && system.problems.empty(), "hud: the upgrade screen loads without warnings" + upgradeProblems);
+		Rml::ElementList shownNodes;
+		if (screen) screen->QuerySelectorAll(shownNodes, ".node");
+		int visibleNodes = 0;
+		Rml::Element* lastNode = nullptr;   // (data-for keeps a hidden template among them)
+		for (Rml::Element* element : shownNodes)
+			if (element->IsVisible()) { ++visibleNodes; lastNode = element; }
+		if (lastNode) lastNode->Click();
+		context->Update();
+		Check(visibleNodes == 3 && bought == 2, "hud: the screen shows a node per entry, and clicking one buys it by index (" + std::to_string(bought) + ")");
+	}
 
 	// The effects gallery (DICE_DEV_GALLERY) parses too: every effect's syntax is RmlUi's.
 	system.problems.clear();
@@ -1330,6 +1556,7 @@ int main()
 	TestPresets();
 	TestControlsAtRuntime();
 	TestSounds();
+	TestUpgrades();
 	TestHudDocument();
 	std::printf("%s (%d failure%s)\n", gFailures ? "FAILED" : "OK", gFailures, gFailures == 1 ? "" : "s");
 	return gFailures ? 1 : 0;

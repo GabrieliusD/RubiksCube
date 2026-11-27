@@ -34,6 +34,19 @@ button
 	cursor: pointer;
 }
 
+/* The prototype's secondary button (the panel's preset buttons). */
+button.ghost
+{
+	background-color: #2a2f38;
+	color: #d9dde3;
+	font-weight: 600;
+	font-size: 12dp;
+	padding: 6dp 10dp;
+	margin-left: 8dp;
+}
+button:hover { background-color: #ffe08a; }
+button.ghost:hover { background-color: #363c47; }
+
 .lbl
 {
 	font-size: 10dp;
@@ -57,6 +70,7 @@ button
 	pointer-events: auto;
 }
 #hud .column { margin-right: 14dp; }   /* gap: 14px */
+#hud .coins { color: #ffd866; }
 #hud .big
 {
 	font-size: 26dp;
@@ -110,6 +124,12 @@ button
 	color: #8b93a0;
 	margin-bottom: 14dp;
 }
+#endCard .earned
+{
+	color: #ffd866;
+	font-weight: 700;
+	margin: -6dp 0 12dp 0;
+}
 
 /* ---- Score popups: placed and faded every frame by DiceHud.cpp (transform, opacity) ---- */
 #popups
@@ -138,3 +158,4 @@ button
 .pop.clash { color: #ff8a3d; font-size: 19dp; }
 .pop.stack { color: #b6f08a; }
 .pop.topple { color: #7fe0ff; font-size: 19dp; }
+.pop.gold { color: #ffc531; }   /* a golden die (upgrades) */

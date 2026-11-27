@@ -31,6 +31,8 @@ namespace
 	//   DICE_DEV_PRESET=name load Content/Presets/<name>.json first (the switches above then apply on top)
 	//   DICE_DEV_STORM=P     launch P% of the dice per second at random (profiling load)
 	//   DICE_DEV_GALLERY=1   show Content/UI/Gallery.rml, a tile of each UI effect (DiceHud.cpp)
+	//   DICE_DEV_COINS=N     start with N coins (and DICE_DEV_LEVELS="dice=3 luck=1"), not saved
+	//   DICE_DEV_UPGRADES=1  open the upgrade screen;  DICE_DEV_PROGRESSION=0|1  upgrades off / on
 	//   DICE_DEV_PROFILE=1   vsync off; log "DICE_PROFILE ..." timings every 2 s
 	//   DICE_DEV_POINTER="px py [px2 py2 seconds]"  a pretend mouse at view pixels (moving to the
 	//                        second point and back over `seconds`), for hover checks without a person
@@ -172,8 +174,10 @@ void DiceModule::OnStartup(Engine& engine)
 	else
 		CHERRY_ERROR("Dice: no main camera");
 
+	LoadUpgrades(engine);
 	BuildBoard(engine);
 	CreateHud(engine);
+	CreateUpgradesUi(engine);
 	if (const int seconds = EnvInt("DICE_DEV_SESSION", 0); seconds > 0)
 	{
 		mSim.config.sessionSeconds = static_cast<float>(seconds);
@@ -185,6 +189,7 @@ void DiceModule::OnStartup(Engine& engine)
 // B4 "Rebuilding the board": slots, dice, board visuals, lights and the camera fit.
 void DiceModule::BuildBoard(Engine& engine)
 {
+	ApplyUpgradeStats();   // with progression on, the upgrades decide luck, density, time and die types
 	mSim.BuildBoard(mForcedFace);
 	mPopups.clear();   // B13.5: no stale effects after a rebuild
 	ClearSparks();
@@ -242,6 +247,9 @@ void DiceModule::SetupLighting(Renderer& renderer)
 	s.rooms.clear();
 	s.exposure = 1.0f;
 	s.fillLightScale = 0.0f;
+	// No FXAA: the dice are small on screen, and FXAA takes a pip of two or three pixels for an
+	// edge and blends its middle towards the face, so pips looked like little crosses.
+	s.antiAliasing = false;
 
 	const float sun = static_cast<float>(2.0 / dice::kPi);
 	s.sunColor = { sun, sun, sun };
@@ -282,6 +290,9 @@ void DiceModule::OnUpdate(Engine& engine, float deltaTime)
 {
 	// Mouse wheel zoom: zoom *= exp(-deltaY x 0.0012), a browser wheel notch being 100 px of deltaY.
 	Input& input = engine.GetInput();
+	// U: the upgrade screen; Esc closes it.
+	if (input.WasKeyPressed('U')) SetUpgradesOpen(!mUpgradesOpen);
+	if (input.WasKeyPressed(0x1B)) SetUpgradesOpen(false);
 	if (input.HasMouse() && input.WheelDelta() != 0.0f)
 		mZoom = std::clamp(mZoom * std::exp(input.WheelDelta() * 100.0f * 0.0012f), 0.5f, 8.0f);
 	FitCamera(engine);
@@ -583,7 +594,8 @@ void DiceModule::OnShutdown(Engine& engine)
 	renderer.MeshInstances().clear();
 	renderer.Settings().shadows.boundsExtents = { 0, 0, 0 };
 	renderer.Settings().toneCurve = true;
-	mHudModel = {};   // the engine removes the document and the model after OnShutdown
+	mHudModel = {};   // the engine removes the documents and the models after OnShutdown
+	mUpgradesModel = {};
 	mPopups.clear();
 	mPopupSlots.clear();   // its elements go with the document
 	mHudDocument = nullptr;

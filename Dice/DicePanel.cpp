@@ -131,6 +131,7 @@ void DiceModule::DrawPanel(Engine& engine)
 	bool rebuild = false;
 
 	// Presets: every tunable at once.
+	DrawUpgradesPanel(engine);
 	ImGui::SeparatorText("Presets");
 	if (!mPresetsListed) RefreshPresets(engine);
 	{

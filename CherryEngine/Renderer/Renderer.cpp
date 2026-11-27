@@ -2449,7 +2449,7 @@ void Renderer::RenderUi(Rml::Context& context)
 	Impl& r = *mImpl;
 	if (!r.frameActive || !r.viewRendered || r.uiRendered || !r.ldr) return;
 	rhi::CommandList& cmd = r.device->Cmd();
-	r.ui.Render(cmd, *r.ldr, context);
+	r.ui.Render(cmd, *r.ldr, context, r.settings.uiSupersampling);
 	r.gpuTimer.Mark(cmd, r.device->FrameIndex(), Mark_GameUiEnd);
 	r.uiRendered = true;
 	const UiRenderer::Stats& ui = r.ui.LastStats();

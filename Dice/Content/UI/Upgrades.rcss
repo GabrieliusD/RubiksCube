@@ -1,0 +1,140 @@
+/* The upgrade screen. Node boxes are 150 x 64 dp: DiceUpgradesUi.cpp joins their edges with the
+   links (keep kNodeWidth / kNodeHeight in step). Colours follow Hud.rcss. */
+
+* { box-sizing: border-box; }
+div { display: block; }
+span { display: inline; }
+
+body
+{
+	width: 100%;
+	height: 100%;
+	font-family: system-ui;
+	font-size: 13dp;
+	line-height: 1.35;
+	color: #d9dde3;
+	pointer-events: none;
+}
+
+/* The whole view: dims and blurs the board, and keeps the mouse from it. */
+#shade
+{
+	position: absolute;
+	top: 0; right: 0; bottom: 0; left: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background-color: rgba(10, 11, 14, 45%);
+	backdrop-filter: blur(6dp);
+	pointer-events: auto;
+}
+
+#panel
+{
+	width: 574dp;
+	padding: 14dp 22dp 14dp 22dp;
+	border-radius: 16dp;
+	border: 1dp #3a404c;
+	decorator: linear-gradient(160deg, #232831f2, #171a20f2);
+	/* No box-shadow: RmlUi bakes it (with the border) into a texture made once, which kept this
+	   panel's first, taller size. The shade already sets the panel off. */
+}
+
+#header { display: flex; align-items: center; margin-bottom: 10dp; }
+#header .title { font-size: 22dp; font-weight: 800; flex: 1; }
+#header .coins { font-size: 20dp; font-weight: 800; color: #ffd866; margin-right: 16dp; }
+#header .unit { font-size: 12dp; font-weight: 600; color: #8b93a0; }
+
+button
+{
+	display: inline-block;
+	background-color: #2a2f38;
+	color: #d9dde3;
+	border-radius: 6dp;
+	padding: 6dp 12dp;
+	font-weight: 600;
+	font-size: 12dp;
+	cursor: pointer;
+}
+button:hover { background-color: #363c47; }
+
+/* The tree: nodes and links placed in dp from its top-left (Upgrades.json's x, y). */
+#tree
+{
+	position: relative;
+	width: 530dp;
+	height: 290dp;
+}
+
+.link
+{
+	position: absolute;
+	height: 3dp;
+	margin-top: -1.5dp;
+	transform-origin: 0 50%;
+	background-color: #3a404c;
+	border-radius: 2dp;
+}
+.link.met { background-color: #ffd866; }
+
+.node
+{
+	position: absolute;
+	width: 150dp;
+	height: 64dp;
+	padding: 8dp 11dp;
+	border-radius: 12dp;
+	border: 1dp #3a404c;
+	background-color: #252a33;
+	cursor: pointer;
+	transform: scale(1);
+	transition: transform 0.12s cubic-out;
+}
+.node:hover { transform: scale(1.04); }
+.node .name { font-size: 14dp; font-weight: 700; }
+.node .row { display: flex; margin-top: 5dp; font-size: 12dp; }
+.node .level { flex: 1; color: #8b93a0; }
+.node .cost { font-weight: 700; color: #ffd866; }
+
+/* Buyable: lit, gradient, glowing gently. */
+.node.buyable
+{
+	border-color: #ffd866;
+	decorator: linear-gradient(170deg, #3b3524, #262a32);
+	filter: drop-shadow(#ffd86680 0dp 0dp 6dp);
+	animation: 1.4s sine-in-out infinite alternate breathe;
+}
+@keyframes breathe
+{
+	from { filter: drop-shadow(#ffd86650 0dp 0dp 4dp); }
+	to { filter: drop-shadow(#ffd866a0 0dp 0dp 9dp); }
+}
+
+/* Not enough coins yet: the cost dims. */
+.node.expensive .cost { color: #a8865a; }
+
+/* Locked: greyed until its requirement is met. */
+.node.locked { filter: grayscale(1) opacity(0.5); cursor: not-allowed; }
+.node.locked .cost { color: #8b93a0; }
+
+/* Every level owned. */
+.node.maxed { border-color: #b6f08a; decorator: linear-gradient(170deg, #26362a, #232831); }
+.node.maxed .cost { color: #b6f08a; }
+
+/* Just bought. */
+.node.flash { background-color: #ffd866; decorator: none; color: #1a1a1a; }
+.node.flash .cost, .node.flash .level { color: #1a1a1a; }
+
+#detail
+{
+	margin-top: 10dp;
+	padding: 10dp 12dp;
+	border-radius: 10dp;
+	background-color: #1c1f25;
+	/* A fixed height (name, one line of text, the next level): the panel is centred, so a box
+	   that grew on hover moved the nodes out from under the mouse and the hover flickered. */
+	height: 84dp;
+}
+#detail .name { font-weight: 700; margin-bottom: 2dp; }
+#detail .text { color: #8b93a0; }
+#detail .next { margin-top: 4dp; color: #ffd866; font-size: 12dp; }

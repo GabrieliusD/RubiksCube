@@ -65,7 +65,12 @@ void DiceModule::CreateHud(Engine& engine)
 	model.Bind("ended", &mHud.ended);
 	model.Bind("total", &mHud.total);
 	model.Bind("summary", &mHud.summary);
+	model.Bind("coins", &mHud.coins);
+	model.Bind("showCoins", &mShowCoins);
+	model.Bind("canUpgrade", &mCanUpgrade);
+	model.Bind("coinsEarned", &mHud.coinsEarnedShown);
 	model.BindEventCallback("start", [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&) { StartSession(); });
+	model.BindEventCallback("upgrades", [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&) { SetUpgradesOpen(true); });
 	mHudModel = model.GetModelHandle();
 	ui.LoadDocument(kHudDocument);
 	MakePopupPool(engine);
@@ -140,6 +145,15 @@ void DiceModule::UpdateHud(Engine& engine)
 		mSim.sStats.rolls, mSim.sStats.sixes, mSim.sStats.bumps, mSim.sStats.clashes);
 	set(mHud.summary, text, "summary");
 
+	// Coins (upgrades): banked when a session ends, spent on the upgrade screen.
+	BankSessionCoins(engine);
+	UpdateUpgradesUi(engine);   // also keeps mCoins current
+	set(mHud.coins, mCoins, "coins");
+	const std::string earned = mProgression ? mCoinsEarned : std::string();
+	if (earned != mHud.coinsEarnedShown) { mHud.coinsEarnedShown = earned; mHudModel.DirtyVariable("coinsEarned"); }
+	if (mShowCoins != mProgression) { mShowCoins = mProgression; mHudModel.DirtyVariable("showCoins"); }
+	if (mCanUpgrade != CanOpenUpgrades()) { mCanUpgrade = CanOpenUpgrades(); mHudModel.DirtyVariable("canUpgrade"); }
+
 	// Popups: placed over their point, growing in, then fading (the reference's numbers).
 	if (engine.GetUi().Document(kHudDocument) != mHudDocument) MakePopupPool(engine);   // Hud.rml was reloaded
 	if (mPopupSlots.size() != kPopupPool) return;
@@ -178,6 +192,7 @@ void DiceModule::UpdateHud(Engine& engine)
 			element->SetClass("clash", (q.style & dice::Pop_Clash) != 0);
 			element->SetClass("stack", (q.style & dice::Pop_Stack) != 0);
 			element->SetClass("topple", (q.style & dice::Pop_Topple) != 0);
+			element->SetClass("gold", (q.style & dice::Pop_Gold) != 0);
 			element->SetProperty(Rml::PropertyId::Display, Rml::Property(Rml::Style::Display::Block));
 		}
 		// transform: translate(x, y) translate(-50%, -50%) scale(s)
@@ -203,5 +218,8 @@ void DiceModule::UpdateHud(Engine& engine)
 void DiceModule::StartSession()
 {
 	mAudio.Start();   // the reference starts its audio on Start too
+	SetUpgradesOpen(false);
 	mSim.StartSession();
+	mSessionBanked = !mProgression;   // banks its coins when it ends
+	mCoinsEarned.clear();
 }

@@ -13,7 +13,9 @@
 	<div id="hud">
 		<div class="column"><div class="lbl">Score</div><div class="big">{{score}}</div></div>
 		<div class="column"><div class="lbl">Time</div><div class="big">{{time}}</div></div>
+		<div class="column" data-if="showCoins"><div class="lbl">Coins</div><div class="big coins">{{coins}}</div></div>
 		<button data-event-click="start">{{startLabel}}</button>
+		<button class="ghost" data-if="showCoins &amp;&amp; canUpgrade" data-event-click="upgrades">Upgrades</button>
 	</div>
 
 	<div id="fps">{{fps}}</div>
@@ -23,7 +25,9 @@
 			<div class="lbl">Time's up</div>
 			<div class="total">{{total}}</div>
 			<div class="sub">{{summary}}</div>
+			<div class="earned" data-if="coinsEarned != ''">{{coinsEarned}}</div>
 			<button data-event-click="start">Restart</button>
+			<button class="ghost" data-if="showCoins &amp;&amp; canUpgrade" data-event-click="upgrades">Upgrades</button>
 		</div>
 	</div>
 </body>

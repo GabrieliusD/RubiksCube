@@ -50,6 +50,32 @@ reference code; Part C wins). The port goes milestone by milestone (B14), checki
 | M9 | Debug panel + presets | Done (the widgets themselves not yet clicked by hand). `DiceControls`: every B12 tunable by name (`Fields`), config ↔ JSON, and the panel table `Controls()` — the reference's CONTROLS list, from which `DicePanel.cpp` draws the panel as the reference does: label with the value right-aligned, sliders snapped to their HTML step, board-rebuilding controls rebuild. Presets: `Content/Presets/*.json` (each lists only what it changes from the defaults; shipped: bump, stacks, hex-islands, scatter-ring, big-lucky, chaos), Load / Save / Defaults in the panel, `DICE_DEV_PRESET` / `-Preset` at start-up. Hot reload keeps the config (`SaveState` JSON). `DiceTests`: the config is exactly B12's 56 names in order with B12's defaults; every field survives JSON; partial presets change only their keys, and unknown keys or bad values are reported, not applied; the panel table equals the reference's 36 controls (keys, kinds, ranges, steps, rebuilds); snapping; all shipped presets load cleanly; 360 random control changes mid-roll (every control at least 3 times, 53 rebuilds) keep the invariants. |
 | M10 | Profile at 10k / 50k / 100k dice | Done: 60 fps at 10k with large headroom; findings below. |
 
+### Upgrades (not in the reference)
+
+A progression layer on top of the prototype, on by default (the debug panel's "Upgrades" section
+switches it off, back to the prototype's luck, density and session length; the prototype's dev
+switches, density, preset and profile, also start with it off).
+
+- **Coins:** a finished session banks `score x coinsPerPoint` (0.05) coins (`BankSessionCoins`); the HUD
+  shows them, the end card shows what was earned. Saved in `Saved/Progress.json`.
+- **The tree:** `Content/Upgrades.json` (format in `DiceUpgrades.h`): nodes with levels, a price
+  (`cost x costGrowth^level`), requirements on other nodes' levels and effects on stats: luck,
+  density (the start is 0.3, so "More dice" means something), session seconds, golden and lucky
+  dice shares, the golden multiplier and the lucky luck. Shipped: More dice, Longer rounds, Golden
+  dice, Midas touch, Loaded dice, Lucky dice, Four-leaf clover.
+- **Die types** (`DiceSim::kinds`, `D.kind`): dealt by share when the board is dealt (no extra
+  random numbers when every share is 0, so the reference's deal is unchanged); golden dice score
+  `goldMultiplier` times (gold popups), lucky dice roll with `luckyLuck` added to the luck; tinted
+  gold and green on top of the glow and dimming.
+- **The screen:** `Content/UI/Upgrades.rml` (U, or the HUD's and end card's Upgrades buttons; not during
+  a session): the tree laid out from the JSON, links lit once met, buyable nodes glowing, a detail
+  line with what the next level changes. Buying More dice or a die type deals the board again.
+- **Checks:** `DiceTests` "upgrades" and "die types" (prices, states, buying, stats, the save, tree
+  errors, golden scoring, lucky faces, shares) and the screen loading headless. Dev:
+  `DICE_DEV_COINS`, `DICE_DEV_LEVELS`, `DICE_DEV_UPGRADES`, `DICE_DEV_PROGRESSION`
+  (`Screenshot.ps1 -Coins -Levels -Upgrades`).
+- **Not in the reference either:** the HUD's buttons brighten on hover.
+
 ### Known differences
 
 - **Hover ring** is drawn with ImGui (the board circle projected to the screen, over the 3D

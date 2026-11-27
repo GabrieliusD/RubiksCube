@@ -5,7 +5,7 @@
 #
 # -Face 1..6 deals every die with that face up (DICE_DEV_FACE). -Density percent (DICE_DEV_DENSITY).
 # -Pointer "px py [px2 py2 seconds]" a pretend mouse in view pixels (DICE_DEV_POINTER).
-# -Storm P (DICE_DEV_STORM, % of dice launched per second). -Profile (DICE_DEV_PROFILE). -Preset name (DICE_DEV_PRESET, Content/Presets/<name>.json). -Mode 0|1|2 nudge, bump, stack (DICE_DEV_MODE). -Layout 0|1|2 square, hex, scatter. -Shape 0..3 full, circle, ring, islands. -Session S start a session of S seconds (DICE_DEV_SESSION). -Board N board size (DICE_DEV_BOARD). -Seed N repeatable deal (DICE_DEV_SEED). -Gallery shows the UI effects gallery (DICE_DEV_GALLERY). -Editor shows the editor around the game (CHERRY_DEV_EDITOR). -UiSelect "selector" selects that element in the editor's UI panel (CHERRY_DEV_UI_SELECT). -Size "w h" the window size (default 1300 780). -Wait seconds before the capture. -Config Debug (default) or Release.
+# -Storm P (DICE_DEV_STORM, % of dice launched per second). -Profile (DICE_DEV_PROFILE). -Preset name (DICE_DEV_PRESET, Content/Presets/<name>.json). -Mode 0|1|2 nudge, bump, stack (DICE_DEV_MODE). -Layout 0|1|2 square, hex, scatter. -Shape 0..3 full, circle, ring, islands. -Session S start a session of S seconds (DICE_DEV_SESSION). -Board N board size (DICE_DEV_BOARD). -Seed N repeatable deal (DICE_DEV_SEED). -Gallery shows the UI effects gallery (DICE_DEV_GALLERY). -Editor shows the editor around the game (CHERRY_DEV_EDITOR). -UiSelect "selector" selects that element in the editor's UI panel (CHERRY_DEV_UI_SELECT). -Size "w h" the window size (default 1300 780). -Coins N -Levels "dice=3 luck=1" start with that progress, not saved (DICE_DEV_COINS, DICE_DEV_LEVELS). -Upgrades opens the upgrade screen (DICE_DEV_UPGRADES). -Wait seconds before the capture. -Config Debug (default) or Release.
 param(
 	[Parameter(Mandatory = $true)][string]$Out,
 	[int]$Wait = 5,
@@ -25,6 +25,9 @@ param(
 	[switch]$Editor,
 	[string]$UiSelect = "",
 	[string]$Size = "1300 780",
+	[string]$Coins = "",
+	[string]$Levels = "",
+	[switch]$Upgrades,
 	[string]$Config = "Debug",
 	[string]$Log = ""
 )
@@ -53,7 +56,7 @@ public class DiceShot {
 Add-Type -AssemblyName System.Drawing
 [DiceShot]::SetProcessDPIAware() | Out-Null
 
-$settings = @{ DICE_DEV_FACE = $Face; DICE_DEV_DENSITY = $Density; DICE_DEV_SEED = $Seed; DICE_DEV_BOARD = $Board; DICE_DEV_POINTER = $Pointer; DICE_DEV_SESSION = $Session; DICE_DEV_MODE = $Mode; DICE_DEV_LAYOUT = $Layout; DICE_DEV_SHAPE = $Shape; DICE_DEV_PRESET = $Preset; DICE_DEV_STORM = $Storm; DICE_DEV_PROFILE = $(if ($Profile) { "1" } else { "" }); DICE_DEV_GALLERY = $(if ($Gallery) { "1" } else { "" }); CHERRY_DEV_EDITOR = $(if ($Editor) { "1" } else { "" }); CHERRY_DEV_UI_SELECT = $UiSelect }
+$settings = @{ DICE_DEV_FACE = $Face; DICE_DEV_DENSITY = $Density; DICE_DEV_SEED = $Seed; DICE_DEV_BOARD = $Board; DICE_DEV_POINTER = $Pointer; DICE_DEV_SESSION = $Session; DICE_DEV_MODE = $Mode; DICE_DEV_LAYOUT = $Layout; DICE_DEV_SHAPE = $Shape; DICE_DEV_PRESET = $Preset; DICE_DEV_STORM = $Storm; DICE_DEV_PROFILE = $(if ($Profile) { "1" } else { "" }); DICE_DEV_GALLERY = $(if ($Gallery) { "1" } else { "" }); CHERRY_DEV_EDITOR = $(if ($Editor) { "1" } else { "" }); CHERRY_DEV_UI_SELECT = $UiSelect; DICE_DEV_COINS = $Coins; DICE_DEV_LEVELS = $Levels; DICE_DEV_UPGRADES = $(if ($Upgrades) { "1" } else { "" }) }
 foreach ($k in $settings.Keys) { if ($settings[$k]) { Set-Item "Env:$k" $settings[$k] } else { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } }
 try {
 	$p = Start-Process -FilePath "$bin\CherryLaunch.exe" -ArgumentList "`"$project`" --play" -WorkingDirectory $bin `

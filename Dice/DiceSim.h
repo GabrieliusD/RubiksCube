@@ -43,7 +43,18 @@ namespace dice
 
 	// Effects the simulation asks for; the module shows them and empties these lists.
 	// Popup style flags, in the order the reference's stylesheet applies them (B15).
-	enum PopStyle : uint8_t { Pop_Free = 1, Pop_Bump = 2, Pop_Six = 4, Pop_Clash = 8, Pop_Stack = 16, Pop_Topple = 32 };
+	enum PopStyle : uint8_t { Pop_Free = 1, Pop_Bump = 2, Pop_Six = 4, Pop_Clash = 8, Pop_Stack = 16, Pop_Topple = 32, Pop_Gold = 64 };
+
+	// Die types (the upgrades, DiceUpgrades.h; not in the reference): golden dice score
+	// goldMultiplier times as much, lucky dice roll with luckyLuck added to the luck.
+	enum DieKind : uint8_t { Kind_Normal = 0, Kind_Gold = 1, Kind_Lucky = 2 };
+	struct DieKinds
+	{
+		double goldShare = 0;          // fraction of the dealt dice that are golden
+		double luckyShare = 0;         // ...and lucky
+		double goldMultiplier = 2;
+		double luckyLuck = 1.5;
+	};
 	struct PopupRequest { float x, y, z; std::string text; uint8_t style; };
 	struct SparkRequest { float x, y, z; int count; float r, g, b; };
 	enum class Sound : uint8_t { Clack, Knock, Tick };
@@ -73,6 +84,7 @@ namespace dice
 		std::vector<float> qs, qe;               // pre-wound start rotation, final rotation (4 per die)
 		std::vector<float> ax, az, ang;          // tumble axis (horizontal) and total angle
 		std::vector<uint8_t> face;               // face that is / will be up (1..6)
+		std::vector<uint8_t> kind;               // DieKind
 		std::vector<double> timer, landT, readyT, hitT;
 		std::vector<uint8_t> chain, bumped, clashed, ease;
 		std::vector<int32_t> session;
@@ -97,6 +109,9 @@ namespace dice
 
 		DiceConfig config;
 		Random rand;
+		// Shares and strengths of the die types, applied when the board is dealt. All zero (the
+		// reference): every die is normal and the dealing draws no extra random numbers.
+		DieKinds kinds;
 
 		DiceState D;
 		int diceCount = 0;
@@ -177,10 +192,10 @@ namespace dice
 		void UpdateRolls(double dt);
 		// B10.7: airborne dice that touch are pushed apart, and glance off on first touch.
 		void ResolveMidAir();
-		// B8 pickFace: weight exp(luck x 3 x (f - 3.5) / 2.5).
-		int PickFace();
-		void FaceWeights(double w[7], double& sum) const;
-		double ExpectedFace() const;
+		// B8 pickFace: weight exp(luck x 3 x (f - 3.5) / 2.5), with `extraLuck` added (lucky dice).
+		int PickFace(double extraLuck = 0);
+		void FaceWeights(double w[7], double& sum, double extraLuck = 0) const;
+		double ExpectedFace(double extraLuck = 0) const;
 		// Ground position of die i at roll fraction u (start -> via -> end).
 		void PathXZ(int i, double u, double& x, double& z) const;
 		// B10.2 step 4: the first roll fraction at which die i's path comes within

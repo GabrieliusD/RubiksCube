@@ -87,6 +87,7 @@ void UiRenderer::Initialize(rhi::Device& device, rhi::PipelineLibrary& pipelines
 	// Full-view passes.
 	add("ui_mask_fill", "VSFullscreen", "PSMaskWrite", kClipMaskFormat, false, 0);
 	add("ui_copy", "VSFullscreen", "PSCopy", targetFormat, false, 0);
+	add("ui_copy_point", "VSFullscreen", "PSCopyPoint", targetFormat, false, 0);
 	add("ui_composite", "VSFullscreen", "PSCopy", targetFormat, false, 1);
 	add("ui_color_matrix", "VSFullscreen", "PSColorMatrix", targetFormat, false, 0);
 	add("ui_blend_mask", "VSFullscreen", "PSBlendMask", targetFormat, false, 0);
@@ -106,22 +107,23 @@ void UiRenderer::Shutdown()
 	for (auto& post : mPost) post.reset();
 	mBlendMask.reset();
 	mClipMask.reset();
+	mSuper.reset();
 	if (mLiveGeometries || mLiveTextures)
 		CHERRY_WARN("UI: %u geometries and %u textures were never released", mLiveGeometries, mLiveTextures);
 }
 
-void UiRenderer::Render(rhi::CommandList& cmd, rhi::Texture& target, Rml::Context& context)
+void UiRenderer::Render(rhi::CommandList& cmd, rhi::Texture& target, Rml::Context& context, uint32_t supersampling)
 {
 	if (!mPipelines->Get("ui")) return;
 	const auto start = std::chrono::steady_clock::now();
 
 	mCmd = &cmd;
 	mFrame = &mFrames[mDevice->FrameIndex()];
-	mBase = &target;
 	mStreamGeneration++;   // last frame's copies are in another frame slot's buffer
 	mStreamUsed = 0;
-	mWidth = target.Width();
-	mHeight = target.Height();
+	mScale = std::clamp(supersampling, 1u, 4u);
+	mWidth = target.Width() * mScale;
+	mHeight = target.Height() * mScale;
 	mScissorEnabled = false;
 	mClipEnabled = false;
 	mClipRequired = 0.0f;
@@ -137,17 +139,50 @@ void UiRenderer::Render(rhi::CommandList& cmd, rhi::Texture& target, Rml::Contex
 		for (auto& post : mPost) post.reset();
 		mBlendMask.reset();
 		mClipMask.reset();
+		mSuper.reset();
 	}
 
-	// Pixels (y down) to clip space.
-	mProjection = Rml::Matrix4f::ProjectOrtho(0.0f, static_cast<float>(mWidth), static_cast<float>(mHeight), 0.0f, -10000.0f, 10000.0f);
+	// RmlUi's pixels (y down, the view's size) to clip space, whatever size is drawn at.
+	mProjection = Rml::Matrix4f::ProjectOrtho(0.0f, static_cast<float>(target.Width()), static_cast<float>(target.Height()), 0.0f, -10000.0f, 10000.0f);
 	mHasTransform = false;
 	StartData(std::max(mDataWanted, kInitialData));
 
 	cmd.BeginEvent("UI");
-	BeginPass(target, {});
-	context.Render();
-	EndPass();
+	if (mScale > 1)
+	{
+		// Supersampled: the view copied into a larger base layer (so backdrop filters see the
+		// game), the UI drawn there, then averaged back down into the view.
+		if (!mSuper)
+		{
+			rhi::TextureDesc desc;
+			desc.width = mWidth;
+			desc.height = mHeight;
+			desc.format = mFormat;
+			desc.usage = rhi::TextureUsage_RenderTarget | rhi::TextureUsage_ShaderResource;
+			desc.initialState = rhi::ResourceState::ShaderResource;
+			desc.name = "UiSupersampled";
+			mSuper = mDevice->CreateTexture(desc);
+		}
+		mBase = mSuper.get();
+		BeginPass(*mSuper, { &target });
+		Pass up;
+		up.pipeline = "ui_copy_point";
+		up.source = &target;
+		DrawPass(up);
+		context.Render();
+		BeginPass(target, { mSuper.get() });
+		Pass down;
+		down.source = mSuper.get();   // bilinear at each view pixel's centre: the mean of its block (2x)
+		DrawPass(down);
+		EndPass();
+	}
+	else
+	{
+		mBase = &target;
+		BeginPass(target, {});
+		context.Render();
+		EndPass();
+	}
 	cmd.EndEvent();
 	target.Transition(cmd, rhi::ResourceState::ShaderResource);
 
@@ -338,8 +373,11 @@ void UiRenderer::SetPipeline(const char* name)
 
 Rml::Rectanglei UiRenderer::ScissorRect() const
 {
+	// In target pixels (RmlUi's scissor is in its own pixels: scaled while supersampling).
 	const Rml::Rectanglei whole = Rml::Rectanglei::FromSize(Rml::Vector2i(static_cast<int>(mWidth), static_cast<int>(mHeight)));
-	return mScissorEnabled ? mScissor.Intersect(whole) : whole;
+	if (!mScissorEnabled) return whole;
+	const int s = static_cast<int>(mScale);
+	return Rml::Rectanglei::FromCorners(mScissor.p0 * s, mScissor.p1 * s).Intersect(whole);
 }
 
 void UiRenderer::SetScissorRect(const Rml::Rectanglei& rect)
@@ -578,7 +616,9 @@ void UiRenderer::PopLayer()
 void UiRenderer::CopyToPrimary(rhi::Texture& source)
 {
 	EnsureTargets();
-	BeginPass(*mPost[0], { &source });
+	// Cleared first: the filters sample past the scissor's edge (bilinear), which must read clear,
+	// not whatever an earlier effect left there.
+	BeginPass(*mPost[0], { &source }, true, 0.0f);
 	Pass copy;
 	copy.source = &source;
 	DrawPass(copy);
@@ -766,7 +806,7 @@ void UiRenderer::Blur(float sigma, rhi::Texture& a, rhi::Texture& b, const Rml::
 		BlurLevel& next = BlurLevelAt(level);
 		region.p0 = region.p0 / 2;
 		region.p1 = Rml::Math::Max((region.p1 + Rml::Vector2i(1)) / 2, region.p0);
-		BeginPass(*next.image, { image });
+		BeginPass(*next.image, { image }, true, 0.0f);
 		SetScissorRect(region);
 		Pass copy;
 		copy.source = image;
@@ -796,7 +836,7 @@ void UiRenderer::Blur(float sigma, rhi::Texture& a, rhi::Texture& b, const Rml::
 		blur.pipeline = "ui_blur";
 		blur.paramOffset = offset;
 		// Vertical: image -> temp.
-		BeginPass(*temp, { image });
+		BeginPass(*temp, { image }, true, 0.0f);
 		SetScissorRect(region);
 		blur.source = image;
 		blur.uvOffset[0] = 0.0f;
@@ -856,7 +896,7 @@ void UiRenderer::ApplyFilters(Rml::Span<const Rml::CompiledFilterHandle> filters
 		{
 		case FilterType::Opacity:
 		{
-			BeginPass(*mPost[1], { mPost[0].get() });
+			BeginPass(*mPost[1], { mPost[0].get() }, true, 0.0f);
 			Pass fade;
 			fade.source = mPost[0].get();
 			std::fill(std::begin(fade.color), std::end(fade.color), filter.value);
@@ -865,7 +905,7 @@ void UiRenderer::ApplyFilters(Rml::Span<const Rml::CompiledFilterHandle> filters
 			break;
 		}
 		case FilterType::Blur:
-			Blur(filter.sigma, *mPost[0], *mPost[1], window);
+			Blur(filter.sigma * mScale, *mPost[0], *mPost[1], window);
 			break;
 		case FilterType::DropShadow:
 		{
@@ -873,7 +913,7 @@ void UiRenderer::ApplyFilters(Rml::Span<const Rml::CompiledFilterHandle> filters
 			const float limits[4] = { (window.Left() + 0.5f) / w, (window.Top() + 0.5f) / h, (window.Right() - 0.5f) / w, (window.Bottom() - 0.5f) / h };
 			const uint32_t offset = PushData(limits, 1);
 			if (offset == ~0u) break;
-			BeginPass(*mPost[1], { mPost[0].get() });
+			BeginPass(*mPost[1], { mPost[0].get() }, true, 0.0f);
 			Pass shadow;
 			shadow.pipeline = "ui_drop_shadow";
 			shadow.source = mPost[0].get();
@@ -882,10 +922,10 @@ void UiRenderer::ApplyFilters(Rml::Span<const Rml::CompiledFilterHandle> filters
 			shadow.color[1] = filter.color.green;
 			shadow.color[2] = filter.color.blue;
 			shadow.color[3] = filter.color.alpha;
-			shadow.uvOffset[0] = -filter.offset.x / w;
-			shadow.uvOffset[1] = -filter.offset.y / h;
+			shadow.uvOffset[0] = -filter.offset.x * mScale / w;
+			shadow.uvOffset[1] = -filter.offset.y * mScale / h;
 			DrawPass(shadow);
-			if (filter.sigma >= 0.5f) Blur(filter.sigma, *mPost[1], *mPost[2], window);
+			if (filter.sigma >= 0.5f) Blur(filter.sigma * mScale, *mPost[1], *mPost[2], window);
 			// The element over its shadow.
 			BeginPass(*mPost[1], { mPost[0].get() });
 			Pass over;
@@ -899,7 +939,7 @@ void UiRenderer::ApplyFilters(Rml::Span<const Rml::CompiledFilterHandle> filters
 		{
 			const uint32_t offset = PushData(filter.matrix.data(), 4);   // its four columns
 			if (offset == ~0u) break;
-			BeginPass(*mPost[1], { mPost[0].get() });
+			BeginPass(*mPost[1], { mPost[0].get() }, true, 0.0f);
 			Pass matrix;
 			matrix.pipeline = "ui_color_matrix";
 			matrix.source = mPost[0].get();
@@ -910,7 +950,7 @@ void UiRenderer::ApplyFilters(Rml::Span<const Rml::CompiledFilterHandle> filters
 		}
 		case FilterType::MaskImage:
 		{
-			BeginPass(*mPost[1], { mPost[0].get(), mBlendMask.get() });
+			BeginPass(*mPost[1], { mPost[0].get(), mBlendMask.get() }, true, 0.0f);
 			Pass mask;
 			mask.pipeline = "ui_blend_mask";
 			mask.source = mPost[0].get();

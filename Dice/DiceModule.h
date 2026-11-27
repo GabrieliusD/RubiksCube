@@ -3,6 +3,7 @@
 #include <Core/Engine.h>
 #include "DiceSim.h"
 #include "DiceAudio.h"
+#include "DiceUpgrades.h"
 #include <RmlUi/Core/DataModelHandle.h>
 namespace Rml { class Element; class ElementDocument; }
 #include <filesystem>
@@ -44,6 +45,20 @@ private:
 	void CreateHud(Engine& engine);
 	// Copies the score, time, FPS, end card and popups into the data model.
 	void UpdateHud(Engine& engine);
+
+	// Upgrades (DiceUpgradesUi.cpp): the tree (Content/Upgrades.json), the player's progress
+	// (Saved/Progress.json), coins banked when a session ends, the stats applied on every deal
+	// while progression is on, and the screen (Content/UI/Upgrades.rml).
+	void LoadUpgrades(Engine& engine);
+	void SaveUpgradeProgress(Engine& engine);
+	void ApplyUpgradeStats();             // into mSim.config and mSim.kinds (BuildBoard calls it)
+	void BankSessionCoins(Engine& engine);
+	void CreateUpgradesUi(Engine& engine);
+	void UpdateUpgradesUi(Engine& engine);
+	void BuyUpgrade(Engine& engine, int index);
+	void SetUpgradesOpen(bool open);
+	bool CanOpenUpgrades() const { return mProgression && mSim.phase != dice::Phase::Running && mSim.phase != dice::Phase::Finishing; }
+	void DrawUpgradesPanel(Engine& engine);   // the debug panel's section
 	struct ImDrawList* SceneOverlay(Engine& engine) const;
 	// B7 step 1: where the mouse ray (or the dev pointer) meets the board plane, in the reference's coordinates.
 	void PointerOnBoard(Engine& engine, bool& onBoard, double& boardX, double& boardZ);
@@ -70,13 +85,40 @@ private:
 
 	dice::Audio mAudio;
 
+	// Upgrades.
+	dice::UpgradeTree mUpgrades;
+	dice::Progress mProgress;
+	bool mProgression = true;        // upgrades set luck, density, session length and die types
+	bool mProgressSaves = true;      // off with DICE_DEV_COINS (dev runs don't touch the save)
+	bool mSessionBanked = true;      // the last ended session's coins are in mProgress
+	bool mUpgradesOpen = false;
+	int mUpgradeHover = -1;
+	struct UpgradeNodeView
+	{
+		std::string name, level, cost, left = "0dp", top = "0dp";   // never empty: bound to styles
+		bool locked = false, expensive = false, buyable = false, maxed = false, flash = false;
+	};
+	struct UpgradeLinkView
+	{
+		std::string left = "0dp", top = "0dp", width = "0dp", transform = "none";
+		bool met = false;
+	};
+	std::vector<UpgradeNodeView> mUpgradeNodes;
+	std::vector<UpgradeLinkView> mUpgradeLinks;
+	std::vector<double> mUpgradeBoughtAt;
+	std::string mDetailName, mDetailText, mDetailNext;
+	Rml::DataModelHandle mUpgradesModel;
+
 	// What the HUD document shows (bound in CreateHud).
 	struct HudView
 	{
 		std::string score = "0", time = "30.0", startLabel = "Start", fps = "-- fps", total = "0", summary;
+		std::string coins = "0", coinsEarnedShown;
 		bool ended = false;
 	};
 	HudView mHud;
+	std::string mCoins = "0", mCoinsEarned;
+	bool mShowCoins = true, mCanUpgrade = true;
 	// The popups are the reference's pool: 140 elements in #popups, made and moved from code (a
 	// transform given as numbers each frame costs far less than a data binding parsing one).
 	// Each popup keeps its element for its life.

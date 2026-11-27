@@ -47,7 +47,9 @@ public:
 	void Shutdown();
 
 	// Draws `context` over `target` (which is in ShaderResource state before and after).
-	void Render(rhi::CommandList& cmd, rhi::Texture& target, class Rml::Context& context);
+	// `supersampling` > 1: drawn that many times larger and averaged down into `target`
+	// (smooth edges; see RenderSettings::uiSupersampling).
+	void Render(rhi::CommandList& cmd, rhi::Texture& target, class Rml::Context& context, uint32_t supersampling = 1);
 	const Stats& LastStats() const { return mStats; }
 
 	// ---- Rml::RenderInterface ----
@@ -143,14 +145,16 @@ private:
 	// While Render runs.
 	rhi::CommandList* mCmd = nullptr;
 	FrameBuffers* mFrame = nullptr;
-	rhi::Texture* mBase = nullptr;   // layer 0: the view
+	rhi::Texture* mBase = nullptr;   // layer 0: the view, or mSuper while supersampling
+	std::unique_ptr<rhi::Texture> mSuper;   // the view, mScale times larger
 	uint64_t mStreamUsed = 0;
 	uint64_t mStreamGeneration = 0;   // goes up for every frame and every new stream buffer
 	uint64_t mBoundGeneration = ~0ull;
 	uint32_t mDataCount = 0;
 	bool mDataOverflowed = false;     // this frame's data ran out of room
 	uint32_t mDataWanted = 0;         // the room the next frames' data get (float4s)
-	uint32_t mWidth = 0, mHeight = 0;
+	uint32_t mWidth = 0, mHeight = 0;   // the size drawn at: the view's times mScale
+	uint32_t mScale = 1;                // supersampling: RmlUi's pixels to target pixels
 	Rml::Matrix4f mProjection;
 	Rml::Matrix4f mTransform;         // projection x the element's transform
 	bool mHasTransform = false;

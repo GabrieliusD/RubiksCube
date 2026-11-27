@@ -1,0 +1,41 @@
+{
+	"coinsPerPoint": 0.05,
+	"start": { "density": 0.3 },
+	"nodes": [
+		{
+			"id": "dice", "name": "More dice", "description": "More of the board's slots are dealt a die.",
+			"x": 0, "y": 55, "levels": 7, "cost": 25, "costGrowth": 1.55,
+			"effects": [ { "stat": "density", "add": 0.1 } ], "requires": []
+		},
+		{
+			"id": "time", "name": "Longer rounds", "description": "Five more seconds in every session.",
+			"x": 190, "y": 0, "levels": 3, "cost": 80, "costGrowth": 2.0,
+			"effects": [ { "stat": "sessionSeconds", "add": 5 } ], "requires": [ { "id": "dice", "level": 1 } ]
+		},
+		{
+			"id": "gold", "name": "Golden dice", "description": "Some dice are golden: they score double.",
+			"x": 190, "y": 110, "levels": 5, "cost": 120, "costGrowth": 1.7,
+			"effects": [ { "stat": "goldShare", "add": 0.04 } ], "requires": [ { "id": "dice", "level": 2 } ]
+		},
+		{
+			"id": "midas", "name": "Midas touch", "description": "Golden dice score one more time over.",
+			"x": 380, "y": 110, "levels": 3, "cost": 400, "costGrowth": 2.2,
+			"effects": [ { "stat": "goldMultiplier", "add": 1 } ], "requires": [ { "id": "gold", "level": 3 } ]
+		},
+		{
+			"id": "luck", "name": "Loaded dice", "description": "Every die leans a little more towards six.",
+			"x": 0, "y": 220, "levels": 5, "cost": 30, "costGrowth": 1.7,
+			"effects": [ { "stat": "luck", "add": 0.15 } ], "requires": []
+		},
+		{
+			"id": "lucky", "name": "Lucky dice", "description": "Some dice are lucky: they roll sixes far more often.",
+			"x": 190, "y": 220, "levels": 5, "cost": 120, "costGrowth": 1.7,
+			"effects": [ { "stat": "luckyShare", "add": 0.04 } ], "requires": [ { "id": "luck", "level": 2 } ]
+		},
+		{
+			"id": "clover", "name": "Four-leaf clover", "description": "Lucky dice are luckier still.",
+			"x": 380, "y": 220, "levels": 2, "cost": 450, "costGrowth": 2.5,
+			"effects": [ { "stat": "luckyLuck", "add": 0.75 } ], "requires": [ { "id": "lucky", "level": 3 } ]
+		}
+	]
+}
