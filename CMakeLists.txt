@@ -104,12 +104,27 @@ enable_testing()
 find_package(Jolt CONFIG REQUIRED)
 
 add_subdirectory(CherryEngine)
+
+# Which game folders to build (-DCHERRY_GAMES=Undertime, or "Undertime;Dice"). Fewer games
+# means less to relink after an engine change. Android packages one game
+# (CHERRY_ACTIVE_GAME_TARGET); only Dice builds there so far.
 if(ANDROID)
-  # Android packages one game (CHERRY_ACTIVE_GAME_TARGET); only Dice builds there so far.
-  add_subdirectory(Dice)
+  set(_cherry_default_games "Dice")
 else()
-  add_subdirectory(Rubik)
-  add_subdirectory(Undertime)
-  add_subdirectory(Dice)
+  set(_cherry_default_games "Rubik;Undertime;Dice")
 endif()
+set(CHERRY_GAMES "${_cherry_default_games}" CACHE STRING "Game folders to build (semicolon-separated)")
+if(NOT CHERRY_GAMES)
+  message(FATAL_ERROR "CHERRY_GAMES is empty: name at least one game folder (${_cherry_default_games})")
+endif()
+foreach(_game IN LISTS CHERRY_GAMES)
+  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_game}/CMakeLists.txt")
+    message(FATAL_ERROR "CHERRY_GAMES names '${_game}', but there's no ${_game}/CMakeLists.txt")
+  endif()
+  add_subdirectory(${_game})
+endforeach()
+if(CHERRY_MONOLITHIC AND NOT TARGET ${CHERRY_ACTIVE_GAME_TARGET})
+  message(FATAL_ERROR "CHERRY_ACTIVE_GAME_TARGET is ${CHERRY_ACTIVE_GAME_TARGET}, but its game isn't in CHERRY_GAMES (${CHERRY_GAMES})")
+endif()
+
 add_subdirectory(CherryLaunch)

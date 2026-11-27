@@ -4,11 +4,13 @@ What's built, what the user has tested, and where it lives. Decisions are in `De
 
 ## Branches and commits
 
-| Branch | What | Commits |
-|---|---|---|
-| `features/voxel-town` | milestones 1–15 (pushed up to milestone 12) | 1–4 `813c198`, 5–6 `328a135`, 7–12 `e8bf6d6`, then ore seams `553f448`, rock relief `97be0e4`, valley LOD `c6a8593` |
-| `features/npcs` → `features/hauling` | NPC milestones 1–4 and tools | `1f803af`, `234923b` |
-| `features/hauling` | hauling H1–H12 | not committed yet |
+Everything is on `master` (pushed; tagged `v0.1-pre-split` on 2026-11-27, when the old `features/*` branches were deleted). New UNDERTIME work goes on `undertime/<topic>` branches.
+
+| What | Commits (on `master`) |
+|---|---|
+| milestones 1–15 (were on `features/voxel-town`) | 1–4 `813c198`, 5–6 `328a135`, 7–12 `e8bf6d6`, then ore seams `553f448`, rock relief `97be0e4`, valley LOD `c6a8593` |
+| NPC milestones 1–4 and tools (were on `features/npcs`) | `1f803af`, `234923b` |
+| hauling H1–H12 (was on `features/hauling`) | `814eb89` (committed together with the Dice port, as "Dice Demo") |
 
 ## Built
 
