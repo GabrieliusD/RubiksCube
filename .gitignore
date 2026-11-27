@@ -367,3 +367,8 @@ imgui.ini
 # Per-project editor state (window layout, loaded module copies)
 Saved/
 
+# Leftovers from the old engine (DXC now comes from vcpkg; OpenXR is unused)
+CherryEngine/dxcompiler.dll
+CherryEngine/dxil.dll
+CherryEngine/openxr_loaderd.lib
+CherryEngine/lib/
